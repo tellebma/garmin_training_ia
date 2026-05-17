@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:ci": "vitest run --coverage --coverage.thresholds.100=false",
     "test:e2e": "playwright test",
     "prepare": "husky"
   },
