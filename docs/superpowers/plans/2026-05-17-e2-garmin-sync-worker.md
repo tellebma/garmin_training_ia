@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Python worker (deployed on Fly.io) that syncs Garmin Connect data (activities, sleep, HRV, daily metrics, body composition) for each user once a day, plus an on-demand HTTP endpoint, with encrypted OAuth tokens and proper RLS-protected storage in Supabase.
+**Goal:** Build a Python worker (deployed via Docker on a self-hosted server behind Nginx Proxy Manager) that syncs Garmin Connect data (activities, sleep, HRV, daily metrics, body composition) for each user once a day, plus an on-demand HTTP endpoint, with encrypted OAuth tokens and proper RLS-protected storage in Supabase.
 
-**Architecture:** A FastAPI service runs in a Fly.io machine. A scheduled Fly.io machine fires daily at 05:00 UTC, queries `public.garmin_credentials` for all linked users, decrypts each user's Garmin OAuth tokens with Fernet, calls Garmin Connect via `python-garminconnect`, normalizes the payloads into our schema, and upserts into `public.activities`, `public.daily_metrics`, `public.sleep`, `public.hrv`, `public.body_composition`. The Next.js app has a `/profile/garmin` page where the user enters their Garmin credentials (with MFA support) — these credentials are sent through a Server Action that forwards to the worker, which authenticates with Garmin, stores tokens encrypted, and returns success/needs-MFA.
+**Architecture:** A FastAPI service runs in a Docker container on the user's existing server (the same machine that hosts SonarQube). NPM (Nginx Proxy Manager) terminates SSL at `garmin-sync.tellebma.fr` and proxies to the container on the Docker network. A `systemd` timer on the host fires daily at 05:00 UTC, runs `docker exec garmin-sync python -m garmin_sync.cron`, which queries `public.garmin_credentials` for all linked users, decrypts each user's Garmin OAuth tokens with Fernet, calls Garmin Connect via `python-garminconnect`, normalizes the payloads into our schema, and upserts into `public.activities`, `public.daily_metrics`, `public.sleep`, `public.hrv`, `public.body_composition`. The Next.js app has a `/profile/garmin` page where the user enters their Garmin credentials (with MFA support) — these credentials are sent through a Server Action that forwards to the worker, which authenticates with Garmin, stores tokens encrypted, and returns success/needs-MFA.
 
-**Tech Stack:** Python 3.12, FastAPI 0.115+, Pydantic v2, `python-garminconnect` 0.3.2+, `supabase-py` 2.x, `cryptography` (Fernet), `httpx`, `pytest` + `pytest-asyncio` + `respx`, `ruff`, `mypy --strict`. Deployed via Docker on Fly.io. Sentry SDK for monitoring.
+**Tech Stack:** Python 3.12, FastAPI 0.115+, Pydantic v2, `python-garminconnect` 0.3.2+, `supabase-py` 2.x, `cryptography` (Fernet), `httpx`, `pytest` + `pytest-asyncio` + `respx`, `ruff`, `mypy --strict`. Packaged as a Docker image (`tellebma/garmin-sync` on Docker Hub), deployed via `docker compose` on the user's self-hosted server. Sentry SDK for monitoring. Systemd timer for daily cron.
 
 **Spec reference:** `docs/superpowers/specs/2026-05-17-garmin-training-design.md` § 7 (E2).
 
@@ -21,7 +21,12 @@ garmin_training/
 ├── worker/                              ← NEW: Python worker project
 │   ├── pyproject.toml
 │   ├── Dockerfile
-│   ├── fly.toml
+│   ├── docker-compose.yml               # Local + production stack
+│   ├── docker-compose.prod.yml          # Prod overlay (image from Docker Hub)
+│   ├── deploy/
+│   │   ├── garmin-sync-cron.service     # Systemd unit (one-shot)
+│   │   ├── garmin-sync-cron.timer       # Systemd timer (daily 05:00 UTC)
+│   │   └── README.md                    # Deploy instructions for the operator
 │   ├── .python-version
 │   ├── .dockerignore
 │   ├── README.md
@@ -73,7 +78,8 @@ garmin_training/
 ├── lib/
 │   └── worker.ts                        # Worker HTTP client (frontend → worker)
 └── .github/workflows/
-    └── worker-ci.yml                    # NEW: Python worker CI
+    ├── worker-ci.yml                    # NEW: Python worker test/lint/typecheck
+    └── worker-docker.yml                # NEW: build + push image to Docker Hub
 ```
 
 **Key boundaries:**
@@ -90,9 +96,10 @@ Before starting:
 - [ ] E1 + E1b plans completed and deployed
 - [ ] Python 3.12+ available (`python3 --version`) — install via `uv python install 3.12` or pyenv if missing
 - [ ] `uv` package manager installed (`uv --version`) — install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- [ ] Fly.io CLI installed (`flyctl version`) — install: `curl -L https://fly.io/install.sh | sh`
-- [ ] Fly.io account + auth (`flyctl auth login`)
-- [ ] Supabase project's **service role key** (Dashboard → Project Settings → API → `service_role` secret). Will be stored in Fly.io secrets, never in git.
+- [ ] Docker + Docker Compose installed locally for testing
+- [ ] **Self-hosted server access** (the operator's existing box running NPM + SonarQube): SSH access, Docker installed, NPM available, systemd. Subdomain `garmin-sync.tellebma.fr` available.
+- [ ] Docker Hub account + a repo `tellebma/garmin-sync` (or equivalent). Personal access token for GHA push.
+- [ ] Supabase project's **service role key** (Dashboard → Project Settings → API → `service_role` secret). Will be stored in the server's `.env` file (root-readable only), never in git.
 - [ ] A Garmin Connect account for testing
 - [ ] Sentry account (free tier) — optional but recommended
 
@@ -2185,10 +2192,10 @@ git commit -m "feat(worker): FastAPI entry + cron entry + Garmin connect/MFA flo
 
 ---
 
-## Task 12: Dockerfile + Fly.io configuration
+## Task 12: Dockerfile + docker-compose + Docker Hub publishing
 
 **Files:**
-- Create: `worker/Dockerfile`, `worker/fly.toml`
+- Create: `worker/Dockerfile`, `worker/docker-compose.yml`, `worker/docker-compose.prod.yml`, `worker/.env.example`, `.github/workflows/worker-docker.yml`
 
 - [ ] **Step 12.1: Create `worker/Dockerfile`**
 
@@ -2206,166 +2213,481 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /bin/
 
 WORKDIR /app
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable || uv sync --no-dev --no-editable
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
-WORKDIR /app
-COPY --from=builder /app /app
+# Add a non-root user for safety
+RUN useradd --create-home --shell /bin/bash app
 
+WORKDIR /app
+COPY --from=builder --chown=app:app /app /app
+
+USER app
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()" || exit 1
 
 CMD ["uvicorn", "garmin_sync.main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-- [ ] **Step 12.2: Create `worker/fly.toml`**
-
-```toml
-app = "garmin-sync"
-primary_region = "cdg"  # Paris — close to eu-west-3 Supabase
-
-[build]
-
-[env]
-  ENV = "prod"
-
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = "stop"
-  auto_start_machines = true
-  min_machines_running = 0  # free tier — scale to zero
-  processes = ["app"]
-
-[[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
-
-[processes]
-  app = "uvicorn garmin_sync.main:app --host 0.0.0.0 --port 8080"
-```
-
-- [ ] **Step 12.3: Lock dependencies for reproducible builds**
+- [ ] **Step 12.2: Lock dependencies for reproducible builds**
 
 ```bash
 cd worker
 uv lock
 ```
 
-This creates `worker/uv.lock`. Commit it.
+This creates `worker/uv.lock`. Commit it (Dockerfile uses it for `uv sync --frozen`).
 
-- [ ] **Step 12.4: Local Docker build sanity check**
+- [ ] **Step 12.3: Create `worker/docker-compose.yml` — local development**
+
+```yaml
+services:
+  garmin-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: garmin-sync:dev
+    container_name: garmin-sync
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
+- [ ] **Step 12.4: Create `worker/docker-compose.prod.yml` — production overlay**
+
+This overlay is what the operator pulls onto the server. It uses the pre-built image from Docker Hub instead of building locally, and binds only to the loopback so NPM is the public entry point.
+
+```yaml
+services:
+  garmin-sync:
+    image: tellebma/garmin-sync:latest
+    container_name: garmin-sync
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "127.0.0.1:8080:8080"  # bind to loopback; NPM proxies from outside
+    env_file:
+      - .env
+    networks:
+      - npm-net                # share the network NPM uses (rename if needed)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  npm-net:
+    external: true
+```
+
+If the operator's NPM uses a different Docker network name, this gets adjusted in Task 13.
+
+- [ ] **Step 12.5: Create `worker/.env.example`**
+
+```
+# Copy to .env and fill in real values. Never commit .env.
+
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_JWT_SECRET=your-jwt-secret
+
+# Worker security
+# Generate via: uv run python -c "from garmin_sync.crypto import generate_fernet_key; print(generate_fernet_key())"
+FERNET_KEY=replace-with-44-char-base64-fernet-key=
+# Generate via: openssl rand -base64 32
+WORKER_SHARED_TOKEN=replace-with-32-byte-base64-token
+
+# Runtime
+ENV=dev
+SENTRY_DSN=
+```
+
+- [ ] **Step 12.6: Local Docker build sanity check**
 
 ```bash
 cd worker
-docker build -t garmin-sync-test .
-docker run --rm -p 8080:8080 \
-  -e SUPABASE_URL=https://example.supabase.co \
-  -e SUPABASE_SERVICE_ROLE_KEY=test \
-  -e SUPABASE_JWT_SECRET=test \
-  -e FERNET_KEY=Mk7-aBcDEfGhIjKlMnOpQrStUvWxYz0123456789abc= \
-  -e WORKER_SHARED_TOKEN=test \
-  garmin-sync-test &
+cp .env.example .env
+# Edit .env: at minimum set FERNET_KEY to a real generated key and a non-empty SUPABASE_SERVICE_ROLE_KEY/JWT_SECRET/WORKER_SHARED_TOKEN
+docker compose build
+docker compose up -d
 sleep 5
 curl -s http://localhost:8080/health
-docker kill $(docker ps -lq)
+docker compose down
 ```
 
-Expected: `{"status":"ok","env":"dev"}` (env defaults to dev).
+Expected: `{"status":"ok","env":"dev"}`.
 
-- [ ] **Step 12.5: Commit**
+- [ ] **Step 12.7: Create the Docker Hub publish workflow**
+
+`.github/workflows/worker-docker.yml`:
+
+```yaml
+name: Worker Docker Build & Push
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['worker/**', '.github/workflows/worker-docker.yml']
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build + push to Docker Hub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: tellebma/garmin-sync
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+            type=ref,event=branch
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: worker
+          file: worker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+The operator must set GitHub secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (Docker Hub → Account Settings → Personal Access Tokens, scope `Read & Write`).
+
+- [ ] **Step 12.8: Commit**
 
 ```bash
 cd ..
-git add worker/Dockerfile worker/fly.toml worker/uv.lock
-git commit -m "feat(worker): Dockerfile + fly.toml + locked deps"
+git add worker/Dockerfile worker/docker-compose.yml worker/docker-compose.prod.yml worker/.env.example worker/uv.lock .github/workflows/worker-docker.yml
+git commit -m "feat(worker): Dockerfile + docker-compose + Docker Hub publish workflow"
 ```
 
 ---
 
-## Task 13: Deploy to Fly.io + secrets
+## Task 13: Deploy on self-hosted server (NPM + systemd timer)
 
-This task involves manual operator actions on Fly.io.
+This task is mostly operator actions on the user's existing server (the box running NPM + SonarQube).
 
-- [ ] **Step 13.1: Create Fly.io app**
+- [ ] **Step 13.1: Generate production secrets locally**
 
-```bash
-cd worker
-flyctl apps create garmin-sync --org personal
-```
-
-If the name is taken, choose `garmin-sync-<your-handle>` and update `fly.toml`'s `app` field accordingly.
-
-- [ ] **Step 13.2: Generate a Fernet key**
+Run locally (do NOT commit the output):
 
 ```bash
 cd worker
+echo "=== FERNET_KEY ==="
 uv run python -c "from garmin_sync.crypto import generate_fernet_key; print(generate_fernet_key())"
-```
-
-Copy the output — this is the production `FERNET_KEY`. **Store it in your password manager** because losing it means all encrypted tokens become unrecoverable.
-
-- [ ] **Step 13.3: Generate a shared token**
-
-```bash
+echo "=== WORKER_SHARED_TOKEN ==="
 openssl rand -base64 32
 ```
 
-Copy the output — this is the `WORKER_SHARED_TOKEN`. The Fly.io scheduled machine (cron) and any operator scripts use it.
+**Save both values in your password manager.** Losing the `FERNET_KEY` means all encrypted Garmin tokens become unrecoverable.
 
-- [ ] **Step 13.4: Set Fly.io secrets**
+- [ ] **Step 13.2: Get Supabase secrets**
 
-Replace placeholders with real values (from your Supabase Dashboard → Project Settings → API):
+From Supabase Dashboard → Project Settings → API:
 
-```bash
-flyctl secrets set \
-  SUPABASE_URL="https://peiyrqplymdlmlpsbqzu.supabase.co" \
-  SUPABASE_SERVICE_ROLE_KEY="<your-service-role-key>" \
-  SUPABASE_JWT_SECRET="<your-jwt-secret>" \
-  FERNET_KEY="<the-fernet-key-from-step-13.2>" \
-  WORKER_SHARED_TOKEN="<the-shared-token-from-step-13.3>" \
-  ENV="prod" \
-  --app garmin-sync
-```
+- `SUPABASE_URL` = `https://peiyrqplymdlmlpsbqzu.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY` = the `service_role` secret (NEVER expose this client-side)
+- `SUPABASE_JWT_SECRET` = the JWT signing secret (Settings → API → JWT Settings → JWT Secret)
 
-- [ ] **Step 13.5: First deploy**
+- [ ] **Step 13.3: First image push to Docker Hub**
 
-```bash
-flyctl deploy --app garmin-sync
-```
+After committing Task 12, push to main (or trigger via GitHub Actions UI → "Run workflow"). The workflow builds and pushes `tellebma/garmin-sync:latest`. Verify on https://hub.docker.com/r/tellebma/garmin-sync that the `latest` tag exists.
 
-Watch the build output. Should succeed in ~3-5 minutes.
+- [ ] **Step 13.4: Provision the server directory**
 
-- [ ] **Step 13.6: Verify health**
+SSH to the operator's server, then:
 
 ```bash
-flyctl status --app garmin-sync
-curl -s https://garmin-sync.fly.dev/health
+ssh user@your-server
+sudo mkdir -p /opt/garmin-sync
+sudo chown $USER:$USER /opt/garmin-sync
+cd /opt/garmin-sync
 ```
 
-Expected: `{"status":"ok","env":"prod"}`.
+- [ ] **Step 13.5: Copy production compose + .env to the server**
 
-- [ ] **Step 13.7: Set up scheduled machine for daily cron**
+From the local repo (Operator workstation):
 
 ```bash
-flyctl machine run . \
-  --schedule daily \
-  --command "python -m garmin_sync.cron" \
-  --region cdg \
-  --vm-memory 256 \
-  --app garmin-sync
+scp worker/docker-compose.prod.yml user@your-server:/opt/garmin-sync/docker-compose.yml
 ```
 
-Note: this creates a machine that runs once a day at the time you ran the command. To run at 05:00 UTC specifically, see https://fly.io/docs/reference/scheduled-machines/.
+On the server, create `/opt/garmin-sync/.env`:
 
-Verify via `flyctl machine list --app garmin-sync`. There should now be two machines: the always-on (scale to zero) HTTP one and the scheduled cron one.
+```
+SUPABASE_URL=https://peiyrqplymdlmlpsbqzu.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<real-key>
+SUPABASE_JWT_SECRET=<real-jwt-secret>
+FERNET_KEY=<the-fernet-key-from-step-13.1>
+WORKER_SHARED_TOKEN=<the-shared-token-from-step-13.1>
+ENV=prod
+SENTRY_DSN=
+```
 
-- [ ] **Step 13.8: Commit deployment notes**
+Lock it down:
+
+```bash
+chmod 600 /opt/garmin-sync/.env
+```
+
+- [ ] **Step 13.6: Identify the NPM Docker network**
+
+The operator runs:
+
+```bash
+docker network ls
+```
+
+Identify the network NPM uses (typically `npm_default`, `nginx-proxy-manager_default`, or a custom name). Edit `/opt/garmin-sync/docker-compose.yml` and replace `npm-net` with the actual network name (in both the service `networks` list AND the bottom `networks:` block).
+
+If NPM is not on a custom network, the operator can run NPM and garmin-sync on the default bridge — in which case remove the `networks:` block entirely and NPM proxies via `localhost:8080` from the host.
+
+- [ ] **Step 13.7: Start the container**
+
+```bash
+cd /opt/garmin-sync
+docker compose up -d
+docker compose logs -f
+```
+
+Wait until logs show `Uvicorn running on http://0.0.0.0:8080`. Press Ctrl+C to exit the logs.
+
+Health check:
+
+```bash
+curl -s http://localhost:8080/health
+# Expected: {"status":"ok","env":"prod"}
+```
+
+- [ ] **Step 13.8: Configure NPM proxy host**
+
+In the NPM web UI:
+
+1. Hosts → Proxy Hosts → Add Proxy Host
+2. **Domain Names**: `garmin-sync.tellebma.fr`
+3. **Scheme**: `http`
+4. **Forward Hostname / IP**: `garmin-sync` if both containers share the network, OR the host's internal IP (e.g. `172.17.0.1` if not networked)
+5. **Forward Port**: `8080`
+6. **Block Common Exploits**: enabled
+7. **Websockets Support**: enabled (in case we add WS later)
+8. **SSL tab**:
+   - SSL Certificate: Request a new SSL Certificate (Let's Encrypt)
+   - Force SSL: enabled
+   - HTTP/2: enabled
+9. Save
+
+Wait ~30s for the cert to provision. Test:
+
+```bash
+curl -i https://garmin-sync.tellebma.fr/health
+```
+
+Expected: 200 OK, `{"status":"ok","env":"prod"}`.
+
+- [ ] **Step 13.9: Create the systemd cron timer**
+
+`worker/deploy/garmin-sync-cron.service` (in the repo):
+
+```ini
+[Unit]
+Description=Garmin Sync — daily cron run
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec garmin-sync python -m garmin_sync.cron
+StandardOutput=journal
+StandardError=journal
+```
+
+`worker/deploy/garmin-sync-cron.timer`:
+
+```ini
+[Unit]
+Description=Run Garmin Sync daily at 05:00 UTC
+Requires=garmin-sync-cron.service
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+Persistent=true
+Unit=garmin-sync-cron.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Copy and enable on the server:
+
+```bash
+scp worker/deploy/garmin-sync-cron.{service,timer} user@your-server:/tmp/
+ssh user@your-server
+sudo mv /tmp/garmin-sync-cron.service /tmp/garmin-sync-cron.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now garmin-sync-cron.timer
+sudo systemctl status garmin-sync-cron.timer
+```
+
+Verify the timer is scheduled:
+
+```bash
+sudo systemctl list-timers garmin-sync-cron.timer
+```
+
+Expected output shows next trigger at the next 05:00 UTC.
+
+Manual test of the cron service (runs immediately):
+
+```bash
+sudo systemctl start garmin-sync-cron.service
+sudo journalctl -u garmin-sync-cron.service -n 50
+```
+
+Expected: the cron output `{"total_users": N, "results": {...}}` appears in journal.
+
+- [ ] **Step 13.10: Auto-update on new image push (optional but recommended)**
+
+Watchtower automatically pulls and restarts containers when a new image tag is published. On the server:
+
+```bash
+docker run -d \
+  --name watchtower \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e WATCHTOWER_CLEANUP=true \
+  -e WATCHTOWER_POLL_INTERVAL=300 \
+  -e WATCHTOWER_LABEL_ENABLE=true \
+  containrrr/watchtower
+```
+
+Then add label `com.centurylinklabs.watchtower.enable=true` to garmin-sync in `docker-compose.yml`:
+
+```yaml
+services:
+  garmin-sync:
+    # ... existing config ...
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+```
+
+`docker compose up -d` to apply. Now every time you push to main, GitHub Actions rebuilds the image, Docker Hub stores `latest`, and Watchtower pulls + restarts the container within 5 minutes — zero-touch deploys.
+
+If the operator doesn't want Watchtower, manual update steps are:
+
+```bash
+cd /opt/garmin-sync
+docker compose pull
+docker compose up -d
+```
+
+- [ ] **Step 13.11: Create `worker/deploy/README.md` documenting all of the above**
+
+`worker/deploy/README.md`:
+
+```markdown
+# Worker deployment (self-hosted)
+
+The worker is packaged as `tellebma/garmin-sync` on Docker Hub and runs
+on the operator's server behind Nginx Proxy Manager at
+`https://garmin-sync.tellebma.fr`.
+
+## First-time setup
+
+1. Generate secrets locally:
+   ```bash
+   cd worker
+   uv run python -c "from garmin_sync.crypto import generate_fernet_key; print(generate_fernet_key())"
+   openssl rand -base64 32
+   ```
+   Save both in your password manager.
+
+2. On the server, create `/opt/garmin-sync/.env` from the template
+   (see `worker/.env.example`), `chmod 600 .env`.
+
+3. Copy `worker/docker-compose.prod.yml` to `/opt/garmin-sync/docker-compose.yml`.
+   Adjust the `networks:` block to match the NPM Docker network name.
+
+4. Start the container: `docker compose up -d`.
+
+5. NPM → Proxy Hosts → add `garmin-sync.tellebma.fr` → forward to
+   `garmin-sync:8080` (or `host-ip:8080`) → enable Let's Encrypt SSL.
+
+6. Install systemd timer:
+   ```bash
+   sudo cp worker/deploy/garmin-sync-cron.{service,timer} /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now garmin-sync-cron.timer
+   ```
+
+## Update
+
+Pushing to `main` triggers the GitHub Actions workflow that pushes a new
+image to Docker Hub. If Watchtower is running, it auto-updates within
+5 min. Otherwise:
+
+```bash
+cd /opt/garmin-sync
+docker compose pull && docker compose up -d
+```
+
+## Logs
+
+- Worker: `docker compose logs -f garmin-sync`
+- Cron runs: `journalctl -u garmin-sync-cron.service -n 100`
+- Cron schedule: `systemctl list-timers garmin-sync-cron.timer`
+
+## Manual sync
+
+```bash
+curl -X POST https://garmin-sync.tellebma.fr/sync/<user-uuid> \
+  -H "Authorization: Bearer $WORKER_SHARED_TOKEN"
+```
+```
+
+Commit:
+
+```bash
+git add worker/deploy/
+git commit -m "docs(worker): self-hosted deploy guide + systemd timer units"
+```
+
+- [ ] **Step 13.12: Final commit (worker README)**
 
 Update `worker/README.md`:
 
@@ -2379,19 +2701,8 @@ Python worker for the Garmin Training Coach project.
 ```bash
 cd worker
 uv sync --all-groups
-cp .env.example .env  # see below
+cp .env.example .env  # fill in real values
 uv run uvicorn garmin_sync.main:app --reload --port 8080
-```
-
-`.env.example` should contain (do NOT commit real values):
-
-```
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-SUPABASE_JWT_SECRET=...
-FERNET_KEY=...  # generate via `uv run python -c "from garmin_sync.crypto import generate_fernet_key; print(generate_fernet_key())"`
-WORKER_SHARED_TOKEN=...
-ENV=dev
 ```
 
 ## Tests
@@ -2401,35 +2712,29 @@ uv run pytest -v
 uv run ruff check . && uv run ruff format --check . && uv run mypy src/
 ```
 
-## Deploy
+## Build + run with Docker
 
 ```bash
-flyctl deploy --app garmin-sync
+docker compose build
+docker compose up -d
+curl -s http://localhost:8080/health
 ```
 
-Secrets are managed via `flyctl secrets set`. Never commit them.
+## Production deployment
+
+See `deploy/README.md`. The worker runs on the operator's self-hosted
+server at `https://garmin-sync.tellebma.fr`, packaged from Docker Hub
+(`tellebma/garmin-sync`).
 
 ## Daily cron
 
-Runs `python -m garmin_sync.cron` once a day on a scheduled machine. See `flyctl machine list --app garmin-sync`.
+A systemd timer on the host fires `docker exec garmin-sync python -m
+garmin_sync.cron` at 05:00 UTC daily.
 ```
-
-Also create `worker/.env.example`:
-
-```
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SUPABASE_JWT_SECRET=your-jwt-secret
-FERNET_KEY=generate-via-crypto-module
-WORKER_SHARED_TOKEN=generate-via-openssl-rand-base64-32
-ENV=dev
-```
-
-Commit:
 
 ```bash
-git add worker/README.md worker/.env.example
-git commit -m "docs(worker): README + .env.example"
+git add worker/README.md
+git commit -m "docs(worker): top-level README"
 ```
 
 ---
@@ -2776,7 +3081,9 @@ import { Button } from '@/components/ui/button'
 
 - [ ] **Step 14.8: Add Vercel env var**
 
-Set `WORKER_URL` on Vercel (Dashboard → Project Settings → Environment Variables) to the Fly.io URL (e.g. `https://garmin-sync.fly.dev`). Apply to Production + Preview + Development.
+Set `WORKER_URL` on Vercel (Dashboard → Project Settings → Environment Variables) to the self-hosted URL `https://garmin-sync.tellebma.fr`. Apply to Production + Preview + Development.
+
+For local dev, also add `WORKER_URL=http://localhost:8080` to `.env.local`.
 
 - [ ] **Step 14.9: Build + lint**
 
@@ -2907,7 +3214,7 @@ Expected:
 - [ ] **Step 16.2: Trigger a manual sync**
 
 ```bash
-curl -X POST https://garmin-sync.fly.dev/sync/<your-user-uuid> \
+curl -X POST https://garmin-sync.tellebma.fr/sync/<your-user-uuid> \
   -H "Authorization: Bearer <WORKER_SHARED_TOKEN>"
 ```
 
@@ -2935,12 +3242,15 @@ Expected: only YOUR activities returned. If you try to query another user's id, 
 - [ ] All worker tests pass: `cd worker && uv run pytest -v` — at least 25 tests across config, crypto, auth, transformers, sync, main.
 - [ ] Worker lint clean: `uv run ruff check .` + `uv run ruff format --check .` + `uv run mypy src/`.
 - [ ] All 6 new migrations applied via Supabase MCP, advisors clean (`mcp__supabase__get_advisors security` returns 0 lints).
-- [ ] Worker deployed on Fly.io, `https://garmin-sync.fly.dev/health` returns 200.
-- [ ] Scheduled cron machine exists (`flyctl machine list --app garmin-sync`).
+- [ ] Docker image `tellebma/garmin-sync:latest` published to Docker Hub via GHA.
+- [ ] Worker deployed on self-hosted server, `https://garmin-sync.tellebma.fr/health` returns 200 with valid SSL.
+- [ ] NPM proxy host `garmin-sync.tellebma.fr` configured with Let's Encrypt SSL.
+- [ ] Systemd timer `garmin-sync-cron.timer` enabled, scheduled at 05:00 UTC daily.
+- [ ] Manual `systemctl start garmin-sync-cron.service` runs without error, journal shows cron output.
 - [ ] Frontend `/profile/garmin` page works: connect with email/pwd, handle MFA, redirect on success.
-- [ ] Vercel env var `WORKER_URL` set.
+- [ ] Vercel env var `WORKER_URL=https://garmin-sync.tellebma.fr` set for all environments.
 - [ ] One real end-to-end test: connect a real Garmin account, run manual sync, see ≥1 row in `activities`.
-- [ ] CI passes for both the Next.js app and the worker.
+- [ ] CI passes for both the Next.js app and the worker (test + lint + typecheck + Docker build + Docker Hub publish).
 - [ ] No Garmin tokens visible in plain text anywhere in DB.
 - [ ] Working tree clean, all commits pushed.
 
@@ -2948,11 +3258,13 @@ Expected: only YOUR activities returned. If you try to query another user's id, 
 
 ## Notes for the engineer
 
-- **The MFA in-memory store** (`worker/src/garmin_sync/connect.py`) is single-instance. When we scale to multi-machine on Fly.io later, swap for Redis or persist the challenge token in Supabase with a short TTL. For MVP with 5-10 users, single instance is plenty.
-- **`auto_stop_machines = 'stop'` + `min_machines_running = 0`** means the worker scales to zero when idle. Cold start is ~2-3 seconds. Acceptable for daily cron + occasional manual sync. If you want zero cold-start, set `min_machines_running = 1` — costs ~$3/mo on Fly free trial overage.
+- **The MFA in-memory store** (`worker/src/garmin_sync/connect.py`) is single-instance. Since the worker runs as a single container, this is fine for MVP. If we scale horizontally later, swap for Redis or persist the challenge token in Supabase with a short TTL.
+- **Container always running**: unlike Fly.io's scale-to-zero, the self-hosted container runs 24/7 with `restart: unless-stopped`. Memory footprint ~150 MB idle. Negligible on a server already running SonarQube.
 - **`get_body_composition` is paged**: we pass start=end same date and process all returned items. Some users won't have body comp data at all — that's fine, the table allows 0 rows.
 - **Activities pagination**: `get_activities_by_date(start, end)` returns ALL activities in the range in one call (Garmin sets no page limit for date ranges). For users with 100+ activities in 90 days, the response stays well under 1 MB.
-- **Sentry**: setting `SENTRY_DSN` in Fly.io secrets enables Sentry automatically (via `sentry-sdk[fastapi]` auto-instrumentation in `main.py` — TODO: wire up Sentry init explicitly if SENTRY_DSN is set, possibly in a Task 17 follow-up).
-- **Cron scheduling**: Fly.io's `--schedule daily` runs daily at the time of creation. To pin to 05:00 UTC explicitly, schedule it deliberately at 05:00 UTC. If you need cron-syntax flexibility, switch to GitHub Actions cron calling `/sync/all` instead.
+- **Sentry**: setting `SENTRY_DSN` in the server's `.env` enables Sentry automatically (via `sentry-sdk[fastapi]` auto-instrumentation in `main.py` — wire up Sentry init explicitly in a Task 17 follow-up if needed).
+- **Cron alternative**: if systemd timer feels too system-level, the operator can equivalently use crontab `0 5 * * * docker exec garmin-sync python -m garmin_sync.cron`. Systemd is preferred for journal integration and restart-on-fail semantics.
+- **Watchtower auto-update**: optional (Step 13.10). Without it, push to main → image rebuilds and uploads, but the server still runs the previous image until manual `docker compose pull && docker compose up -d`.
 - **Token refresh failure email**: not implemented in this EPIC. When `token_refresh_failed_at` is set, future EPICs can hook a Supabase Edge Function that emails the user. For MVP, you'll see the flag in the DB and can prompt the user manually.
 - **TSS calculation**: left as null in `activities`. Computed in E4 from HR/power/duration via algorithm.
+- **Docker Hub image**: published as `tellebma/garmin-sync` (public repo). The image contains no secrets — those come from `.env` at runtime. Setting the repo to private is optional but adds friction (server needs `docker login` and credentials).
