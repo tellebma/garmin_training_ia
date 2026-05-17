@@ -1,1 +1,2 @@
 pnpm exec lint-staged
+gitleaks protect --staged --redact --verbose --config .gitleaks.toml
