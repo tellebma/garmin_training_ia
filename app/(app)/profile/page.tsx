@@ -1,5 +1,7 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { SignOutButton } from '@/components/auth/sign-out-button'
+import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
 
 interface AthleteProfile {
@@ -44,6 +46,15 @@ export default async function ProfilePage() {
           <strong>Onboarding complété :</strong>{' '}
           {profile?.onboarding_completed_at ? 'oui' : 'non — sera fait en E3'}
         </div>
+      </section>
+      <section className="space-y-3 rounded-lg border p-6">
+        <h2 className="text-lg font-semibold">Garmin Connect</h2>
+        <p className="text-muted-foreground text-sm">
+          Connecte ton compte Garmin pour synchroniser tes activités et métriques.
+        </p>
+        <Button asChild variant="outline">
+          <Link href="/profile/garmin">Connecter Garmin</Link>
+        </Button>
       </section>
       <SignOutButton />
     </div>
