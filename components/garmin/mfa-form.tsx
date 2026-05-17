@@ -22,14 +22,32 @@ export function MfaForm({ challengeId, onConnected, onCancel }: Readonly<Props>)
     setLoading(true)
     try {
       const result = await submitGarminMfa(challengeId, code)
-      if (result.status === 'connected') {
-        toast.success('Compte Garmin connecté !')
-        onConnected()
-      } else if (result.status === 'invalid_code') {
-        toast.error('Code MFA invalide')
-      } else {
-        toast.error('Challenge expiré, réessaye depuis le début')
-        onCancel()
+      switch (result.status) {
+        case 'connected':
+          toast.success('Compte Garmin connecté !')
+          onConnected()
+          break
+        case 'invalid_code':
+          toast.error('Code MFA invalide')
+          break
+        case 'challenge_expired':
+          toast.error('Challenge expiré, réessaye depuis le début')
+          onCancel()
+          break
+        case 'challenge_user_mismatch':
+          toast.error('Challenge invalide pour cet utilisateur')
+          onCancel()
+          break
+        case 'rate_limited':
+          toast.error('Trop de tentatives Garmin — réessaye dans quelques minutes')
+          break
+        case 'garmin_error':
+          toast.error(`Garmin: ${result.detail}`)
+          break
+        case 'unexpected_error':
+          console.error('Garmin MFA unexpected error:', result)
+          toast.error(`Erreur: ${result.type} — ${result.detail}`)
+          break
       }
     } catch (err) {
       toast.error(`Erreur: ${(err as Error).message}`)
