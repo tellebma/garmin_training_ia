@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-import traceback
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -33,6 +32,10 @@ def _purge_expired() -> None:
         _pending_mfa.pop(k, None)
 
 
+def _new_error_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
 def start_connect_flow(*, user_id: str, email: str, password: str) -> dict[str, Any]:
     _purge_expired()
     try:
@@ -47,18 +50,23 @@ def start_connect_flow(*, user_id: str, email: str, password: str) -> dict[str, 
         except GarminRateLimitError:
             return {"status": "rate_limited"}
         except GarminError as e:
-            log.exception("Garmin error during connect for user=%s", user_id)
-            return {"status": "garmin_error", "detail": str(e)}
+            error_id = _new_error_id()
+            log.exception("[%s] Garmin error during connect for user=%s", error_id, user_id)
+            return {
+                "status": "garmin_error",
+                "error_id": error_id,
+                "type": type(e).__name__,
+            }
 
         _persist_tokens(user_id=user_id, tokens_json=tokens_json)
         return {"status": "connected"}
     except Exception as e:
-        log.exception("Unexpected error during connect for user=%s", user_id)
+        error_id = _new_error_id()
+        log.exception("[%s] Unexpected error during connect for user=%s", error_id, user_id)
         return {
             "status": "unexpected_error",
-            "detail": str(e),
+            "error_id": error_id,
             "type": type(e).__name__,
-            "traceback": traceback.format_exc(),
         }
 
 
@@ -80,18 +88,23 @@ def resume_connect_flow(*, user_id: str, challenge_id: str, code: str) -> dict[s
         except GarminRateLimitError:
             return {"status": "rate_limited"}
         except GarminError as e:
-            log.exception("Garmin error during MFA resume for user=%s", user_id)
-            return {"status": "garmin_error", "detail": str(e)}
+            error_id = _new_error_id()
+            log.exception("[%s] Garmin error during MFA resume for user=%s", error_id, user_id)
+            return {
+                "status": "garmin_error",
+                "error_id": error_id,
+                "type": type(e).__name__,
+            }
 
         _persist_tokens(user_id=user_id, tokens_json=tokens_json)
         return {"status": "connected"}
     except Exception as e:
-        log.exception("Unexpected error during MFA resume for user=%s", user_id)
+        error_id = _new_error_id()
+        log.exception("[%s] Unexpected error during MFA resume for user=%s", error_id, user_id)
         return {
             "status": "unexpected_error",
-            "detail": str(e),
+            "error_id": error_id,
             "type": type(e).__name__,
-            "traceback": traceback.format_exc(),
         }
 
 

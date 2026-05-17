@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import patch
+
+_ERROR_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
 def test_start_connect_flow_returns_unexpected_error_on_internal_crash() -> None:
     """If something blows up unexpectedly inside the flow, return a structured
-    error response (not raise) so the FastAPI handler stays at HTTP 200."""
+    error response (not raise) so the FastAPI handler stays at HTTP 200.
+
+    Response must only expose `error_id` + `type` — no `detail`, no `traceback`,
+    so we never leak Python stack info to the browser.
+    """
     from garmin_sync.connect import start_connect_flow
 
     with patch("garmin_sync.connect.login_with_credentials") as fake_login:
@@ -15,9 +22,10 @@ def test_start_connect_flow_returns_unexpected_error_on_internal_crash() -> None
         result = start_connect_flow(user_id="u1", email="a@b.c", password="p")
 
     assert result["status"] == "unexpected_error"
-    assert result["detail"] == "kaboom"
+    assert _ERROR_ID_RE.match(result["error_id"])
     assert result["type"] == "RuntimeError"
-    assert "Traceback" in result["traceback"]
+    assert "detail" not in result
+    assert "traceback" not in result
 
 
 def test_start_connect_flow_returns_invalid_credentials() -> None:
@@ -50,7 +58,11 @@ def test_start_connect_flow_returns_garmin_error() -> None:
         fake_login.side_effect = GarminError("connection refused")
         result = start_connect_flow(user_id="u1", email="a@b.c", password="p")
 
-    assert result == {"status": "garmin_error", "detail": "connection refused"}
+    assert result["status"] == "garmin_error"
+    assert _ERROR_ID_RE.match(result["error_id"])
+    assert result["type"] == "GarminError"
+    assert "detail" not in result
+    assert "traceback" not in result
 
 
 def test_resume_connect_flow_returns_unexpected_error_on_internal_crash() -> None:
@@ -64,9 +76,28 @@ def test_resume_connect_flow_returns_unexpected_error_on_internal_crash() -> Non
         result = resume_connect_flow(user_id="u1", challenge_id="cid", code="123456")
 
     assert result["status"] == "unexpected_error"
-    assert result["detail"] == "kaboom"
+    assert _ERROR_ID_RE.match(result["error_id"])
     assert result["type"] == "RuntimeError"
-    assert "Traceback" in result["traceback"]
+    assert "detail" not in result
+    assert "traceback" not in result
+
+
+def test_resume_connect_flow_returns_garmin_error() -> None:
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+    from garmin_sync.garmin_client import GarminError
+
+    challenge = object()
+    _pending_mfa["cid2"] = (9999999999.0, "u1", challenge)
+
+    with patch("garmin_sync.connect.submit_mfa_code") as fake_submit:
+        fake_submit.side_effect = GarminError("connection refused")
+        result = resume_connect_flow(user_id="u1", challenge_id="cid2", code="123456")
+
+    assert result["status"] == "garmin_error"
+    assert _ERROR_ID_RE.match(result["error_id"])
+    assert result["type"] == "GarminError"
+    assert "detail" not in result
+    assert "traceback" not in result
 
 
 def test_resume_connect_flow_challenge_expired() -> None:
