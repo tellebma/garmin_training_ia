@@ -1,35 +1,50 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { env } from '../env'
 
-export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request })
+/**
+ * Edge-runtime auth middleware.
+ *
+ * Why not `@supabase/ssr`?
+ * `@supabase/ssr` (and its dependency `@supabase/supabase-js`) bundle code
+ * paths that reference Node-only globals like `__dirname`. When those land
+ * in the Edge runtime (a V8 isolate, not Node) they crash at request time
+ * with `ReferenceError: __dirname is not defined` and Vercel returns 500
+ * for every route — including the `/login` page itself, since the
+ * middleware runs first.
+ *
+ * What we do instead: check whether the request carries a Supabase auth
+ * cookie. Supabase stores the session in cookies named
+ * `sb-<project-ref>-auth-token(.<n>)?`. Their presence is a strong signal
+ * that the user has a session — the actual JWT validation happens in
+ * server components / route handlers (`lib/supabase/server.ts`), which
+ * run on Node and can use `@supabase/ssr` safely.
+ *
+ * Worst case: a stale or invalid cookie lets the user reach a protected
+ * page, where the server-side Supabase client revalidates the token and
+ * redirects to `/login` if needed. That is acceptable — middleware is the
+ * fast filter, not the source of truth.
+ */
 
-  const supabase = createServerClient(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => {
-            request.cookies.set(name, value)
-          })
-          response = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options)
-          })
-        },
-      },
-    }
-  )
+// Extract the project ref from `https://<ref>.supabase.co` (or any host).
+const PROJECT_REF = (() => {
+  try {
+    const host = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname
+    // e.g. "abcd1234.supabase.co" → "abcd1234"
+    return host.split('.')[0] ?? ''
+  } catch {
+    return ''
+  }
+})()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+const AUTH_COOKIE_PREFIX = PROJECT_REF ? `sb-${PROJECT_REF}-auth-token` : 'sb-'
 
+function hasSupabaseSession(request: NextRequest): boolean {
+  // `cookies.getAll()` returns every cookie; Supabase may chunk the token
+  // across `<prefix>`, `<prefix>.0`, `<prefix>.1`, … Any match counts.
+  return request.cookies.getAll().some((c) => c.name.startsWith(AUTH_COOKIE_PREFIX))
+}
+
+export function updateSession(request: NextRequest): NextResponse {
   const url = new URL(request.url)
   const isAuthRoute = url.pathname.startsWith('/login') || url.pathname.startsWith('/auth')
   const isPublicAsset =
@@ -38,14 +53,15 @@ export async function updateSession(request: NextRequest) {
     url.pathname === '/manifest.webmanifest' ||
     url.pathname === '/favicon.ico'
 
-  if (!user && !isAuthRoute && !isPublicAsset && url.pathname !== '/') {
-    const redirectUrl = new URL('/login', request.url)
-    return NextResponse.redirect(redirectUrl)
+  const isAuthenticated = hasSupabaseSession(request)
+
+  if (!isAuthenticated && !isAuthRoute && !isPublicAsset && url.pathname !== '/') {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && isAuthRoute) {
+  if (isAuthenticated && isAuthRoute) {
     return NextResponse.redirect(new URL('/today', request.url))
   }
 
-  return response
+  return NextResponse.next({ request })
 }
