@@ -22,13 +22,27 @@ export function ConnectForm({ onMfaRequired, onConnected }: Readonly<Props>) {
     setLoading(true)
     try {
       const result = await connectGarmin(email, password)
-      if (result.status === 'connected') {
-        toast.success('Compte Garmin connecté !')
-        onConnected()
-      } else if (result.status === 'mfa_required') {
-        onMfaRequired(result.challenge_id)
-      } else {
-        toast.error('Identifiants Garmin invalides')
+      switch (result.status) {
+        case 'connected':
+          toast.success('Compte Garmin connecté !')
+          onConnected()
+          break
+        case 'mfa_required':
+          onMfaRequired(result.challenge_id)
+          break
+        case 'invalid_credentials':
+          toast.error('Identifiants Garmin invalides')
+          break
+        case 'rate_limited':
+          toast.error('Trop de tentatives Garmin — réessaye dans quelques minutes')
+          break
+        case 'garmin_error':
+          toast.error(`Garmin: ${result.detail}`)
+          break
+        case 'unexpected_error':
+          console.error('Garmin connect unexpected error:', result)
+          toast.error(`Erreur: ${result.type} — ${result.detail}`)
+          break
       }
     } catch (err) {
       toast.error(`Erreur: ${(err as Error).message}`)
