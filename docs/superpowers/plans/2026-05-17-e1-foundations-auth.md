@@ -10,6 +10,12 @@
 
 **Spec reference:** `docs/superpowers/specs/2026-05-17-garmin-training-design.md` § 7 (E1).
 
+> ⚠️ **Execution order with E1b — Quality Gates Setup** : ce plan doit s'interrompre **immédiatement après Task 1** (scaffold Next.js) pour exécuter **intégralement** le plan `2026-05-17-e1b-quality-gates-setup.md`. Reprendre ce plan à **Task 2** seulement quand E1b est en Definition of Done.
+>
+> Séquence : `E1 Task 1 → E1b (tout) → E1 Task 2 → … → E1 Task 10`.
+>
+> Raison : les gates installés en E1b (ESLint strict, husky, gitleaks, commitlint, Prettier, pre-commit hooks) doivent surveiller **tout** le code écrit à partir de Task 2 — y compris `lib/env.ts`, les tests Vitest, les composants. Si E1b est posé plus tard, du code passera au travers des gates et devra être retravaillé.
+
 ---
 
 ## File Structure
