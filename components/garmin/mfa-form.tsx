@@ -42,11 +42,16 @@ export function MfaForm({ challengeId, onConnected, onCancel }: Readonly<Props>)
           toast.error('Trop de tentatives Garmin — réessaye dans quelques minutes')
           break
         case 'garmin_error':
-          toast.error(`Garmin: ${result.detail}`)
+          toast.error(`Garmin a renvoyé une erreur (${result.type}). Code: ${result.error_id}`, {
+            duration: 15_000,
+          })
           break
         case 'unexpected_error':
           console.error('Garmin MFA unexpected error:', result)
-          toast.error(`Erreur: ${result.type} — ${result.detail}`)
+          toast.error(
+            `Erreur inattendue (${result.type}). Code: ${result.error_id} — partage ce code pour debug.`,
+            { duration: 15_000 }
+          )
           break
       }
     } catch (err) {

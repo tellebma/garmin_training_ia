@@ -5,8 +5,8 @@ export type ConnectResult =
   | { status: 'mfa_required'; challenge_id: string }
   | { status: 'invalid_credentials' }
   | { status: 'rate_limited' }
-  | { status: 'garmin_error'; detail: string }
-  | { status: 'unexpected_error'; detail: string; type: string; traceback?: string }
+  | { status: 'garmin_error'; error_id: string; type: string }
+  | { status: 'unexpected_error'; error_id: string; type: string }
 
 export type MfaResult =
   | { status: 'connected' }
@@ -14,8 +14,8 @@ export type MfaResult =
   | { status: 'challenge_expired' }
   | { status: 'challenge_user_mismatch' }
   | { status: 'rate_limited' }
-  | { status: 'garmin_error'; detail: string }
-  | { status: 'unexpected_error'; detail: string; type: string; traceback?: string }
+  | { status: 'garmin_error'; error_id: string; type: string }
+  | { status: 'unexpected_error'; error_id: string; type: string }
 
 export async function workerPost<T>(path: string, body: unknown, userJwt: string): Promise<T> {
   const { WORKER_URL } = getServerEnv()

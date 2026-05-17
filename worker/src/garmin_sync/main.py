@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-import traceback
+import uuid
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, status
@@ -47,6 +47,10 @@ def _require_user_jwt(authorization: str | None) -> str:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
 
 
+def _new_error_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
 @app.post("/sync/{user_id}")
 def sync_user(
     user_id: str,
@@ -78,12 +82,12 @@ def garmin_connect(
 
         return start_connect_flow(user_id=user_id, email=body.email, password=body.password)
     except Exception as e:
-        log.exception("garmin_connect endpoint crashed for user=%s", user_id)
+        error_id = _new_error_id()
+        log.exception("[%s] garmin_connect endpoint crashed for user=%s", error_id, user_id)
         return {
             "status": "unexpected_error",
-            "detail": str(e),
+            "error_id": error_id,
             "type": type(e).__name__,
-            "traceback": traceback.format_exc(),
         }
 
 
@@ -98,10 +102,10 @@ def garmin_mfa(
 
         return resume_connect_flow(user_id=user_id, challenge_id=body.challenge_id, code=body.code)
     except Exception as e:
-        log.exception("garmin_mfa endpoint crashed for user=%s", user_id)
+        error_id = _new_error_id()
+        log.exception("[%s] garmin_mfa endpoint crashed for user=%s", error_id, user_id)
         return {
             "status": "unexpected_error",
-            "detail": str(e),
+            "error_id": error_id,
             "type": type(e).__name__,
-            "traceback": traceback.format_exc(),
         }
