@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
+    "test": "echo 'No tests yet — Vitest installed in E1.T2' && exit 0",
     "prepare": "husky"
   },
   "dependencies": {
