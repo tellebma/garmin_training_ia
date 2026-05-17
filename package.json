@@ -11,7 +11,10 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests yet — Vitest installed in E1.T2' && exit 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "prepare": "husky"
   },
   "dependencies": {
@@ -28,6 +31,8 @@
     "@types/node": "^20",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",
@@ -42,6 +47,7 @@
     "tailwindcss": "^4",
     "tsc-files": "^1.1.4",
     "typescript": "^5",
-    "typescript-eslint": "^8.59.3"
+    "typescript-eslint": "^8.59.3",
+    "vitest": "^4.1.6"
   }
 }
