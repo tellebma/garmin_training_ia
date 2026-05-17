@@ -64,3 +64,8 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Local-only setup folder containing production secrets (Fernet key, shared token,
+# Supabase service role). Used to bridge dev workstation → UNRAID server.
+# DO NOT COMMIT.
+local-setup/
