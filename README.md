@@ -34,3 +34,38 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Quality Gates
+
+Voir `QUALITY_GATES.md` pour la politique complète.
+
+**TL;DR développeur** :
+
+```bash
+pnpm lint          # ESLint
+pnpm typecheck     # TypeScript
+pnpm test          # Vitest
+pnpm test:coverage # avec coverage
+pnpm test:e2e      # Playwright (installé en E1.T2)
+pnpm format        # Prettier auto-fix
+pnpm build         # Build prod
+```
+
+Tous ces gates tournent automatiquement :
+- Sur `git commit` (Prettier + ESLint + tsc + gitleaks + commitlint)
+- Sur `git push` (typecheck + tests + build)
+- Sur PR GitHub (tous les jobs CI + Lighthouse + SonarQube self-hosted)
+
+Pour contourner un gate (cas rare et justifié), ajouter un commentaire avec justification au-dessus du code et utiliser `// eslint-disable-next-line <rule> -- <raison>`.
+
+### SonarQube self-hosted
+
+Le projet utilise une instance SonarQube auto-hébergée à https://sonarqube.tellebma.fr/. La Quality Gate est configurée pour exiger :
+
+- **Coverage on New Code ≥ 95%**
+- Duplicated Lines on New Code ≤ 3%
+- Maintainability / Reliability / Security Ratings on New Code: A
+
+Les secrets GitHub Actions requis pour le job SonarQube :
+- `SONAR_TOKEN` — User Token généré dans SonarQube → User → Security
+- `SONAR_HOST_URL` — `https://sonarqube.tellebma.fr/`
