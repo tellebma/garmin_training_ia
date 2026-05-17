@@ -31,7 +31,10 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
         return {"status": "no_credentials"}
 
     cipher = TokenCipher()
-    serialized = cipher.decrypt(bytes(creds["oauth_tokens_encrypted"]))
+    # oauth_tokens_encrypted is stored as text (ASCII base64 from Fernet);
+    # re-encode to bytes for decryption.
+    encrypted_str = creds["oauth_tokens_encrypted"]
+    serialized = cipher.decrypt(encrypted_str.encode("ascii"))
     try:
         client = login_with_tokens(serialized)
     except GarminAuthError:
