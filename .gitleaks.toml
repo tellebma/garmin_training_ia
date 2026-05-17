@@ -8,8 +8,13 @@ paths = [
   '''pnpm-lock\.yaml''',
   '''\.env\.local\.example''',
   '''public/.+\.(png|jpg|svg|webp|ico)''',
+  '''docs/superpowers/.*\.md''',
+  '''worker/tests/.*\.py''',
+  '''worker/\.env\.example''',
 ]
 regexes = [
   '''example\.(com|supabase\.co)''',
   '''your-(anon-key|project)''',
+  '''Mk7-aBcDEfGhIjKlMnOpQrStUvWxYz0123456789abc=''',
+  '''(?i)(fake|test|sample|dummy|placeholder)[-_]?(key|token|secret)''',
 ]
