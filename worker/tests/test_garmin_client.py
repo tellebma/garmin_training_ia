@@ -68,6 +68,7 @@ def test_login_with_credentials_invalid_creds_raises(fake_garmin: MagicMock) -> 
     # python-garminconnect raises GarminConnectAuthenticationError on bad creds;
     # we wrap it in our own GarminAuthError.
     from garminconnect import GarminConnectAuthenticationError
+
     instance.login.side_effect = GarminConnectAuthenticationError("nope")
 
     with pytest.raises(GarminAuthError):

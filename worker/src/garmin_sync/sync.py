@@ -37,9 +37,7 @@ def sync_user_for_date_range(
         activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
         rows = [transform_activity(user_id=user_id, raw=a) for a in activities]
         if rows:
-            db.table("activities").upsert(
-                rows, on_conflict="user_id,garmin_activity_id"
-            ).execute()
+            db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
     except Exception:
         # Resilience: one endpoint failure must not abort the others.
         log.exception("activities sync failed for user=%s", user_id)
