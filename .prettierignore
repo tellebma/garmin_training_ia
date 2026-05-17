@@ -1,0 +1,10 @@
+.next/
+node_modules/
+public/
+pnpm-lock.yaml
+*.md
+coverage/
+test-results/
+playwright-report/
+.vercel/
+supabase/migrations/
