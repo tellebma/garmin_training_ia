@@ -20,7 +20,6 @@ class Settings(BaseSettings):
 
     supabase_url: HttpUrl
     supabase_service_role_key: SecretStr
-    supabase_jwt_secret: SecretStr
     fernet_key: SecretStr
     worker_shared_token: SecretStr
     env: Literal["dev", "test", "staging", "prod"] = Field(default="dev")
