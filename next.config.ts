@@ -24,6 +24,19 @@ interface WebpackConfigShape {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Run middleware on the Node.js runtime (Next.js 15 experimental opt-in).
+  // The Edge runtime is a V8 isolate that doesn't expose `__dirname`, so any
+  // package that bundles it (transitively through `@supabase/ssr` /
+  // `@supabase/supabase-js`) crashes at request time with
+  // `ReferenceError: __dirname is not defined`. Switching the middleware to
+  // Node lets us mock those Node globals at build time and avoids the crash.
+  //
+  // The `nodeMiddleware` flag is read at runtime by Next.js 15.5+ but the
+  // public TS types still mark middleware as Edge-only, so we cast through
+  // `Record<string, unknown>` to escape the type check.
+  experimental: {
+    nodeMiddleware: true,
+  } as NextConfig['experimental'] & { nodeMiddleware: boolean },
   // Fix "ReferenceError: __dirname is not defined" on Vercel.
   // Pre-compiled deps shipped inside Next.js (e.g. ua-parser-js) reference
   // __dirname / __filename. On Vercel's serverless runtime those globals are
