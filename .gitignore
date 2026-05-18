@@ -40,6 +40,7 @@ yarn-error.log*
 /test-results/
 /playwright-report/
 /playwright/.cache/
+.playwright-mcp/
 
 # vercel
 .vercel
@@ -64,6 +65,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+worker/coverage/
 
 # Local-only setup folder containing production secrets (Fernet key, shared token,
 # Supabase service role). Used to bridge dev workstation → UNRAID server.
