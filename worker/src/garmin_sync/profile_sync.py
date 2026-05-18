@@ -15,7 +15,20 @@ Design notes
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from datetime import UTC, date, datetime
+from typing import Any, cast
+
+from garminconnect import (
+    GarminConnectAuthenticationError,
+    GarminConnectTooManyRequestsError,
+)
+
+from garmin_sync.crypto import TokenCipher
+from garmin_sync.garmin_client import GarminAuthError, login_with_tokens
+from garmin_sync.supabase_client import get_admin_client
+
+log = logging.getLogger(__name__)
 
 
 def _safe_int(value: Any) -> int | None:
@@ -60,3 +73,49 @@ def _transform_profile(user_profile: dict[str, Any], max_metrics: dict[str, Any]
     if fcmax is not None:
         row["fc_max_bpm"] = fcmax
     return row
+
+
+def sync_garmin_profile(user_id: str) -> dict[str, Any]:
+    """Auto-fetch FTP/VMA/FCmax from Garmin Connect, upsert into athlete_profiles.
+
+    Returns one of:
+        {"status": "ok", "fetched": {...}}
+        {"status": "no_credentials"}
+        {"status": "auth_failed"}        — tokens dead, user must reconnect Garmin
+        {"status": "rate_limited"}       — Garmin 429
+        {"status": "garmin_error", "type": "..."}
+    """
+    db = get_admin_client()
+    creds_resp = (
+        db.table("garmin_credentials")
+        .select("oauth_tokens_encrypted")
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    creds = cast("dict[str, Any] | None", creds_resp.data)
+    if not creds or not creds.get("oauth_tokens_encrypted"):
+        return {"status": "no_credentials"}
+
+    cipher = TokenCipher()
+    serialized = cipher.decrypt(creds["oauth_tokens_encrypted"].encode("ascii"))
+    try:
+        client = login_with_tokens(serialized)
+    except (GarminAuthError, GarminConnectAuthenticationError):
+        return {"status": "auth_failed"}
+
+    try:
+        user_profile = client.get_user_profile()
+        max_metrics = client.get_max_metrics(date.today().isoformat())
+    except GarminConnectTooManyRequestsError:
+        log.warning("Garmin rate-limited /profile-sync for user=%s", user_id)
+        return {"status": "rate_limited"}
+    except Exception as e:
+        log.exception("Garmin error during /profile-sync for user=%s", user_id)
+        return {"status": "garmin_error", "type": type(e).__name__}
+
+    row = _transform_profile(user_profile or {}, max_metrics or {})
+    db.table("athlete_profiles").update(
+        {**row, "garmin_synced_at": datetime.now(UTC).isoformat()}
+    ).eq("user_id", user_id).execute()
+    return {"status": "ok", "fetched": row}
