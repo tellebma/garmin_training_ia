@@ -6,6 +6,11 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
+from garminconnect import (
+    GarminConnectAuthenticationError,
+    GarminConnectTooManyRequestsError,
+)
+
 from garmin_sync.crypto import TokenCipher
 from garmin_sync.garmin_client import GarminAuthError, login_with_tokens
 from garmin_sync.supabase_client import get_admin_client
@@ -49,7 +54,26 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
     else:
         start = today - timedelta(days=2)
 
-    sync_user_for_date_range(user_id=user_id, client=client, start=start, end=today)
+    try:
+        sync_user_for_date_range(user_id=user_id, client=client, start=start, end=today)
+    except GarminConnectTooManyRequestsError:
+        db.table("garmin_credentials").update(
+            {
+                "last_sync_at": datetime.now(UTC).isoformat(),
+                "last_sync_status": "rate_limited",
+            }
+        ).eq("user_id", user_id).execute()
+        log.warning("sync rate-limited for user=%s — aborted", user_id)
+        return {"status": "rate_limited"}
+    except GarminConnectAuthenticationError:
+        db.table("garmin_credentials").update(
+            {
+                "token_refresh_failed_at": datetime.now(UTC).isoformat(),
+                "last_sync_status": "auth_failed",
+            }
+        ).eq("user_id", user_id).execute()
+        log.warning("sync auth-failed for user=%s — token marked stale", user_id)
+        return {"status": "auth_failed"}
 
     db.table("garmin_credentials").update(
         {

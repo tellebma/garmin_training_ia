@@ -3,17 +3,17 @@ import { getServerEnv } from './env'
 export type ConnectResult =
   | { status: 'connected' }
   | { status: 'mfa_required'; challenge_id: string }
-  | { status: 'invalid_credentials' }
-  | { status: 'rate_limited' }
+  | { status: 'invalid_credentials'; retry_after_seconds?: number }
+  | { status: 'rate_limited'; retry_after_seconds?: number }
   | { status: 'garmin_error'; error_id: string; type: string }
   | { status: 'unexpected_error'; error_id: string; type: string }
 
 export type MfaResult =
   | { status: 'connected' }
-  | { status: 'invalid_code' }
+  | { status: 'invalid_code'; retry_after_seconds?: number }
   | { status: 'challenge_expired' }
   | { status: 'challenge_user_mismatch' }
-  | { status: 'rate_limited' }
+  | { status: 'rate_limited'; retry_after_seconds?: number }
   | { status: 'garmin_error'; error_id: string; type: string }
   | { status: 'unexpected_error'; error_id: string; type: string }
 
