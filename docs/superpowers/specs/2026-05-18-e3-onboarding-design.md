@@ -145,7 +145,7 @@ lib/
 2. `/onboarding/page.tsx` (Server) lit en parallèle `athlete_profiles` + `race_goals (is_primary=true)`, calcule `initialStep` = première étape non remplie (perso si first_name null, sinon race si pas de race_goal, sinon perf si ftp/vma/fcmax tous null ET garmin_synced_at null, sinon dispo). Rend `<OnboardingWizard initial={...} initialStep={...} />`.
 3. Wizard client : 4 tabs visibles (Perso / Course / Perf / Dispo) avec un ✓ vert sur les étapes complètes. User remplit, clique "Suivant".
 4. Server Action correspondante (`saveStepPerso`, `saveStepRace`, `saveStepPerf`, `saveStepDispo`) : Zod valide → upsert Supabase (anon client + RLS) → retourne `{ success: true, nextStep }` ou `{ success: false, errors }`.
-5. À l'entrée de **l'étape Perf** : le step component appelle `syncGarminProfile()` (Server Action proxy vers le worker). Si succès → champs pré-remplis + badge "Récupéré de Garmin" + champs éditables. Si échec → champs vides + hint "Ta montre Garmin > Performance > Statistiques".
+5. À l'entrée de **l'étape Perf** : le step component appelle `syncGarminProfile()` (Server Action proxy vers le worker) **uniquement si `garmin_synced_at IS NULL`** (premier auto-fetch). Si succès → champs pré-remplis + badge "↻ Synchronisé de Garmin le DD/MM" sous chaque champ + champs éditables. Si échec → champs vides + hint "Ta montre Garmin > Performance > Statistiques". Si `garmin_synced_at` déjà set → on ne re-sync pas auto, on affiche les valeurs courantes telles quelles (l'user a éventuellement modifié manuellement entre-temps, on respecte sa saisie).
 6. À la fin de **l'étape Dispo** (dernière) → submit appelle `finalizeOnboarding()` qui set `onboarding_completed_at = now()` + `consent_signed_at = now()` → redirect `/profile`.
 
 ### 5.3 Flow édition `/profile`
@@ -233,7 +233,12 @@ L'UPDATE Supabase est ensuite : `db.table("athlete_profiles").update({**row, "ga
 
 Notes :
 
-- Garmin est source de vérité **uniquement quand il a une valeur**. Si Garmin renvoie FTP=250 et l'user avait saisi FTP=200, on écrase à 250 — c'est cohérent (Garmin calcule à partir des sorties power-meter, plus précis). L'user peut overrider à nouveau via `/profile` edit.
+- **Quand Garmin écrase la saisie user** :
+  - Au **premier auto-fetch** à l'étape Perf du wizard (seul cas où c'est implicite).
+  - Sur **clic explicite** de "↻ Sync Garmin" depuis `/profile` (action volontaire de l'user).
+  - Pas de re-sync automatique récurrent (un cron `/garmin/profile-sync` mensuel est listé en post-MVP, à activer plus tard avec consentement).
+- L'user voit toujours **une seule valeur courante par champ** + un badge "↻ Synchronisé de Garmin le DD/MM" si applicable. Pas de double affichage user/Garmin (overhead UI et schéma pour MVP, YAGNI). L'horodatage `garmin_synced_at` rend la provenance transparente.
+- Choix sportif : Garmin (FTP auto-detected sur 8 sem. de sorties power-meter, FCmax observé sur 30j, VO2max recalculé en continu) est généralement plus précis que la saisie manuelle. L'user peut overrider à tout moment via `/profile` edit, sa valeur sera respectée jusqu'au prochain "↻ Sync Garmin" volontaire.
 - Pas de cooldown sur `/garmin/profile-sync` : l'endpoint ne déclenche aucune cascade auth (tokens déjà valides). Si tokens KO → retour `auth_failed` immédiat. Si Garmin 429 sur les endpoints de profil → retour `rate_limited` sans matraquage.
 
 ### 6.4 Réutilisation infra existante
