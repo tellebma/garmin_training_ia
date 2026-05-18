@@ -42,8 +42,9 @@ create policy "users delete own race_goals" on public.race_goals for delete
   using (auth.uid() = user_id);
 
 drop trigger if exists touch_race_goals_updated_at on public.race_goals;
-create trigger touch_race_goals_updated_at before update on public.race_goals
-  for each row execute function public.touch_updated_at();
+drop trigger if exists trg_race_goals_updated_at on public.race_goals;
+create trigger trg_race_goals_updated_at before update on public.race_goals
+  for each row execute procedure public.touch_updated_at();
 
 -- =========================================
 -- Alter: athlete_profiles
