@@ -109,3 +109,27 @@ def garmin_mfa(
             "error_id": error_id,
             "type": type(e).__name__,
         }
+
+
+@app.post("/garmin/profile-sync")
+def garmin_profile_sync(
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Pull FTP/VMA/FCmax from Garmin and upsert into athlete_profiles.
+
+    Called by the wizard step Perf (first arrival only) and by the manual
+    'Sync Garmin' button on /profile. Idempotent — safe to call repeatedly.
+    """
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.profile_sync import sync_garmin_profile
+
+        return sync_garmin_profile(user_id)
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception("[%s] garmin_profile_sync endpoint crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
