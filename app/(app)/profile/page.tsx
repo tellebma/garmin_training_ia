@@ -27,10 +27,16 @@ interface AthleteProfileRow {
 
 interface RaceGoalRow {
   race_date: string
-  race_distance: string
+  discipline: 'triathlon' | 'duathlon' | 'aquathlon' | 'run' | 'bike' | 'swim' | 'autre'
   name: string | null
   location: string | null
   target_time_seconds: number | null
+  legs: {
+    order: number
+    discipline: 'swim' | 'bike' | 'run'
+    distance_km: number
+    elevation_gain_m: number
+  }[]
 }
 
 interface GarminCredentialsRow {
@@ -64,7 +70,7 @@ export default async function ProfilePage() {
       .single<AthleteProfileRow>(),
     supabase
       .from('race_goals')
-      .select('race_date, race_distance, name, location, target_time_seconds')
+      .select('race_date, discipline, name, location, target_time_seconds, legs')
       .eq('user_id', userId)
       .eq('is_primary', true)
       .maybeSingle<RaceGoalRow>(),
@@ -93,10 +99,11 @@ export default async function ProfilePage() {
   const raceInitial: RaceInput | null = race
     ? {
         race_date: race.race_date,
-        race_distance: race.race_distance as RaceInput['race_distance'],
+        discipline: race.discipline,
         name: race.name ?? undefined,
         location: race.location ?? undefined,
         target_time_seconds: race.target_time_seconds ?? undefined,
+        legs: race.legs,
       }
     : null
 

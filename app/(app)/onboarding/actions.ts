@@ -10,6 +10,7 @@ import {
   perfSchema,
   dispoSchema,
   DISPO_DEFAULTS,
+  computeTotals,
   type PersonInput,
   type RaceInput,
   type PerfInput,
@@ -71,6 +72,11 @@ export async function saveStepRace(input: RaceInput): Promise<StepResult> {
   if (typeof userIdOrErr !== 'string') return userIdOrErr
 
   const supabase = await createClient()
+
+  // Defense in depth — UI computes totals live, but Server Action recompute
+  // to avoid trusting client-supplied totals.
+  const { total_distance_km, total_elevation_gain_m } = computeTotals(parsed.data.legs)
+
   const { data: existing } = await supabase
     .from('race_goals')
     .select('id')
@@ -81,10 +87,13 @@ export async function saveStepRace(input: RaceInput): Promise<StepResult> {
   const payload = {
     user_id: userIdOrErr,
     race_date: parsed.data.race_date,
-    race_distance: parsed.data.race_distance,
+    discipline: parsed.data.discipline,
     name: parsed.data.name ?? null,
     location: parsed.data.location ?? null,
     target_time_seconds: parsed.data.target_time_seconds ?? null,
+    legs: parsed.data.legs,
+    total_distance_km,
+    total_elevation_gain_m,
     is_primary: true,
   }
 
