@@ -42,7 +42,9 @@ YAGNI (volontairement hors scope E-Auth, à revoir post-MVP) :
 - Captcha sur `/register`, `/login`, `/forgot-password` (CLAUDE.md TODO).
 - 2FA / OAuth providers (Google, Apple, etc.).
 - HIBP (leaked password check) — Pro plan only.
-- Audit log des tentatives de connexion.
+
+**Promu en MVP suite audit cyber** :
+- Audit log `auth_events` (table insert-only, RLS deny-all, RPC insert). Sans ça, l'owner ne peut pas détecter ni investiguer un compromis.
 
 ### 3.1 Gestion `allowed_emails` (MVP vs post-MVP)
 
@@ -59,12 +61,18 @@ create table if not exists public.allowed_emails (
   email text primary key,
   invited_by uuid references auth.users(id) on delete set null,
   note text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Force lowercase storage (M5 — évite mismatch case-sensitive)
+  constraint allowed_emails_lowercase check (email = lower(email))
 );
 
 alter table public.allowed_emails enable row level security;
 -- Pas de policies : RLS bloque tout pour anon/authenticated.
 -- Le check se fait via une fonction RPC security definer (ci-dessous).
+
+-- Trigger de notification (M6) : email owner sur tout insert (à activer une fois SMTP custom configuré).
+-- MVP : on accepte le risque de leak Studio creds, on ajoute juste un index sur created_at pour faciliter l'audit manuel.
+create index if not exists allowed_emails_created_at_idx on public.allowed_emails (created_at desc);
 ```
 
 ### 4.1bis Fonction RPC `is_email_allowed`
@@ -79,13 +87,44 @@ security definer
 set search_path = public
 stable
 as $$
-  select exists (select 1 from public.allowed_emails where email = p_email)
+  -- M5 : case-insensitive
+  select exists (select 1 from public.allowed_emails where email = lower(p_email))
 $$;
 
 grant execute on function public.is_email_allowed(text) to anon, authenticated;
 ```
 
 La fonction `security definer` exécute en tant que propriétaire (postgres) et passe au-dessus de RLS. Elle retourne uniquement un booléen — l'appelant ne voit jamais la liste entière. Pas de fuite d'enum d'emails.
+
+### 4.1bis-2 Fonction RPC `email_needs_signup` (anti-spam audit I3)
+
+`is_email_allowed` ne suffit pas pour `/register` : si un email est allowlisté ET déjà inscrit avec mdp set, un attaquant peut spammer un magic-link de re-connexion vers la boîte de cet user (DoS + phishing vector). On veut envoyer un OTP **uniquement** quand l'email est allowlisté ET pas encore inscrit (ou inscrit sans mdp).
+
+```sql
+create or replace function public.email_needs_signup(p_email text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  with allowed as (
+    select 1 from public.allowed_emails where email = lower(p_email)
+  ),
+  active_user as (
+    select 1
+    from auth.users u
+    join public.athlete_profiles p on p.user_id = u.id
+    where lower(u.email) = lower(p_email)
+      and p.password_set = true
+  )
+  select exists (select 1 from allowed) and not exists (select 1 from active_user)
+$$;
+
+grant execute on function public.email_needs_signup(text) to anon, authenticated;
+```
+
+Server Action `/register` appelle d'abord `is_email_allowed` (pour le message d'erreur "pas autorisé") puis `email_needs_signup` (pour décider d'envoyer ou non l'OTP). Si allowlisté mais déjà inscrit avec mdp → réponse générique "Lien envoyé" sans envoi (anti-leak + anti-spam).
 
 ### 4.1ter Rate limit IP-based — table `auth_rate_limits` + RPC
 
@@ -108,7 +147,7 @@ alter table public.auth_rate_limits enable row level security;
 -- Pas de policies → seul le RPC security definer y accède.
 ```
 
-**Fonction RPC `check_and_log_auth_rate_limit`** :
+**Fonction RPC `check_and_log_auth_rate_limit`** (avec cleanup probabiliste + hard cap, suite audit I1) :
 
 ```sql
 create or replace function public.check_and_log_auth_rate_limit(
@@ -124,8 +163,17 @@ set search_path = public
 as $$
 declare
   v_count integer;
+  v_daily_count integer;
 begin
-  -- Count recent attempts for this (ip, action) within the window
+  -- I1 : Hard cap par IP/24h (anti-DoS sur la table elle-même)
+  select count(*) into v_daily_count
+  from public.auth_rate_limits
+  where ip = p_ip and created_at > now() - interval '24 hours';
+  if v_daily_count >= 1000 then
+    return false;
+  end if;
+
+  -- Count recent attempts pour la fenêtre demandée
   select count(*) into v_count
   from public.auth_rate_limits
   where ip = p_ip
@@ -136,22 +184,20 @@ begin
     return false;
   end if;
 
-  -- Log this attempt (atomic with the check via the same connection)
+  -- Log this attempt
   insert into public.auth_rate_limits (ip, action) values (p_ip, p_action);
+
+  -- I1 : Cleanup probabiliste (1 % des calls) → pas besoin de pg_cron
+  if random() < 0.01 then
+    delete from public.auth_rate_limits where created_at < now() - interval '7 days';
+  end if;
+
   return true;
 end
 $$;
 
 grant execute on function public.check_and_log_auth_rate_limit(text, text, integer, integer)
   to anon, authenticated;
-```
-
-**Cleanup périodique** : pas de `pg_cron` MVP (extension non activée par défaut sur Supabase free tier). À la place, on `delete` les vieux records au début de chaque check :
-
-```sql
--- À déclencher tous les ~100 inserts via une variante de la RPC, ou via un script cron weekly.
--- MVP : on accepte la croissance ~ <100 rows/jour, on nettoie manuellement si besoin.
-delete from public.auth_rate_limits where created_at < now() - interval '7 days';
 ```
 
 **Limites par action (constantes côté Server Action)** :
@@ -162,17 +208,33 @@ delete from public.auth_rate_limits where created_at < now() - interval '7 days'
 | `forgot_password` | 3 | 1 heure | Idem |
 | `login` | 10 | 15 minutes | Tolère brute-force humain (faute de frappe) sans bloquer trop vite |
 
-**Détection IP** côté Server Action :
+**Détection IP** côté Server Action (suite audit I2) :
 
 ```ts
 import { headers } from 'next/headers'
 
-async function clientIp(): Promise<string> {
+/**
+ * Resolve client IP. Vercel-aware ordering :
+ *  1. x-vercel-forwarded-for : Vercel-only, normalized by their edge
+ *  2. x-real-ip : fallback (proxies non-Vercel)
+ *  3. x-forwarded-for : last resort, peut être spoofé hors-Vercel
+ * En production, refuse si 'unknown' (failure-closed plutôt que open).
+ */
+export async function clientIp(): Promise<string> {
   const h = await headers()
-  // Vercel forwarde via x-forwarded-for; fallback x-real-ip; sinon 'unknown'
+  const vercel = h.get('x-vercel-forwarded-for')
+  if (vercel) return vercel.split(',')[0].trim()
+  const real = h.get('x-real-ip')
+  if (real) return real
   const fwd = h.get('x-forwarded-for')
   if (fwd) return fwd.split(',')[0].trim()
-  return h.get('x-real-ip') ?? 'unknown'
+  return 'unknown'
+}
+
+// Dans chaque Server Action sensible :
+const ip = await clientIp()
+if (ip === 'unknown' && process.env.NODE_ENV === 'production') {
+  return { error: 'ip_unresolved' }   // failure-closed
 }
 ```
 
@@ -196,6 +258,58 @@ if (!allowed) return { error: 'rate_limited' }
 - IPv6 : un attaquant peut basculer sur des IPs voisines du même /64. Acceptable pour MVP — Captcha post-MVP couvrira ce vecteur.
 - Pas de différenciation user authentifié vs anon (volontaire : on protège l'envoi mail, pas la session).
 
+### 4.1quater Audit log `auth_events` (suite audit I5)
+
+Sans audit log, l'owner ne peut ni détecter ni investiguer un compromis. Table insert-only, queryable via Studio.
+
+```sql
+create table if not exists public.auth_events (
+  id bigserial primary key,
+  user_id uuid references auth.users(id) on delete set null,
+  event_type text not null check (event_type in (
+    'register_initiated',         -- OTP envoyé via /register
+    'password_set',               -- /auth/set-password réussi
+    'password_reset_requested',   -- /forgot-password réussi (OTP envoyé)
+    'password_reset_completed',   -- /auth/reset-password réussi
+    'login_success',
+    'login_failure'
+  )),
+  ip text,
+  user_agent text,
+  email text,                     -- l'email tenté (sur register / login failure, user_id peut être null)
+  created_at timestamptz not null default now()
+);
+
+create index if not exists auth_events_user_created_idx
+  on public.auth_events (user_id, created_at desc);
+create index if not exists auth_events_event_created_idx
+  on public.auth_events (event_type, created_at desc);
+
+alter table public.auth_events enable row level security;
+-- Pas de policies : RLS deny-all, on insère via le RPC ci-dessous (security definer).
+
+create or replace function public.log_auth_event(
+  p_user_id uuid,
+  p_event_type text,
+  p_ip text,
+  p_user_agent text,
+  p_email text
+)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.auth_events (user_id, event_type, ip, user_agent, email)
+  values (p_user_id, p_event_type, p_ip, p_user_agent, p_email)
+$$;
+
+grant execute on function public.log_auth_event(uuid, text, text, text, text)
+  to anon, authenticated;
+```
+
+Chaque Server Action sensible appelle `log_auth_event` après son action principale (succès ou échec). Le `user_id` peut être null si l'opération est anonyme (register, login_failure sur email inconnu).
+
 ### 4.2 Alter `athlete_profiles`
 
 ```sql
@@ -218,14 +332,17 @@ L'owner pourra ainsi recréer un compte si besoin, et son flag `password_set` re
 
 ### 4.4 Migration
 
-Un fichier `supabase/migrations/20260519000000_eauth_password_set_allowlist.sql` regroupant les six changements ci-dessus :
+Un fichier `supabase/migrations/20260519000000_eauth_password_set_allowlist.sql` regroupant tous les changements ci-dessus :
 
-1. Table `allowed_emails` + RLS
+1. Table `allowed_emails` + RLS + constraint lowercase + index
 2. RPC `is_email_allowed` (4.1bis)
-3. Table `auth_rate_limits` + RLS + index
-4. RPC `check_and_log_auth_rate_limit` (4.1ter)
-5. Alter `athlete_profiles.password_set`
-6. Seed owner dans `allowed_emails`
+3. RPC `email_needs_signup` (4.1bis-2)
+4. Table `auth_rate_limits` + RLS + index
+5. RPC `check_and_log_auth_rate_limit` (4.1ter)
+6. Table `auth_events` + RLS + index (4.1quater)
+7. RPC `log_auth_event` (4.1quater)
+8. Alter `athlete_profiles.password_set`
+9. Seed owner dans `allowed_emails`
 
 ## 5. Architecture frontend
 
@@ -264,63 +381,105 @@ supabase/email-templates/
 
 ### 5.2 Flows
 
-**Flow Register (nouveau user)**
+**Flow Register (nouveau user)** — intègre rate limit + audit + anti-timing + anti-spam (C2 / I3 / I5)
 
 ```
 [/register] form email → [Server Action registerWithMagicLink(email)]
+  0. t0 = Date.now()
   1. Zod parse email
-  2. const { data: allowed } = await supabase.rpc('is_email_allowed', { p_email: email })
-  3. si !allowed → { error: 'email_not_allowed' }
-  4. supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: `${origin}/auth/callback?next=/auth/set-password` } })
-  5. return { success: true } (UI "Lien envoyé")
+  2. ip = clientIp() — refuse si 'unknown' en prod (I2)
+  3. ok = await supabase.rpc('check_and_log_auth_rate_limit', { p_ip: ip, p_action: 'register', p_max_count: 3, p_window_seconds: 3600 })
+  4. si !ok → log_auth_event(null, 'login_failure', ip, ua, email) — bucket erreurs ; return { error: 'rate_limited' } APRÈS pause anti-timing
+  5. const { data: allowed } = await supabase.rpc('is_email_allowed', { p_email: email })
+  6. si !allowed → return { error: 'email_not_allowed' } APRÈS pause anti-timing
+  7. const { data: needsSignup } = await supabase.rpc('email_needs_signup', { p_email: email }) (I3)
+     si false (= email allowlisté mais déjà actif) → ne PAS appeler signInWithOtp, return success générique APRÈS pause
+  8. await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true,
+       emailRedirectTo: `${origin}/auth/callback?next=/auth/set-password` } })
+  9. log_auth_event(null, 'register_initiated', ip, ua, email)
+  10. C2 — anti-timing : await sleepUntil(t0 + 800ms) AVANT return
+  11. return { success: true } (UI "Lien envoyé")
 
 [email FR confirm-signup.html, clic lien]
 
 [GET /auth/callback?code=...&next=/auth/set-password]
-  1. exchangeCodeForSession(code) → session établie
-  2. profile = supabase.from('athlete_profiles').select('password_set').eq('user_id', userId).single()
-  3. si !profile.password_set → redirect(next ?? '/auth/set-password')
-  4. sinon → redirect('/today')
+  1. C1 — Whitelist next : SAFE_NEXT = ['/auth/set-password','/auth/reset-password','/today','/onboarding']
+     const next = SAFE_NEXT.includes(raw) ? raw : '/today'
+  2. exchangeCodeForSession(code) → session établie
+  3. profile = supabase.from('athlete_profiles').select('password_set').eq('user_id', userId).single()
+  4. si !profile.password_set → redirect(next || '/auth/set-password')
+  5. sinon → redirect('/today')
 
 [/auth/set-password] form mdp + confirm → [Server Action setInitialPassword(password)]
-  1. Zod parse (min 8, confirm match)
-  2. supabase.auth.updateUser({ password })
-  3. supabase.from('athlete_profiles').update({ password_set: true }).eq('user_id', userId)
-  4. redirect('/onboarding')
+  0. t0 = Date.now()
+  1. Zod parse (min 10 chars, confirm match, pas dans top-100 common — M1)
+  2. session check : si pas de user authentifié → redirect /login
+  3. I4 — Guard : profile = select password_set ; si profile.password_set === true → return { error: 'already_set' }
+     (anti session-theft → password-rotate lockout)
+  4. supabase.auth.updateUser({ password })
+  5. supabase.from('athlete_profiles').update({ password_set: true }).eq('user_id', userId)
+  6. log_auth_event(userId, 'password_set', ip, ua, email)
+  7. redirect('/onboarding')
 ```
 
-**Flow Login (user avec mdp set)**
+**Flow Login (user avec mdp set)** — intègre rate limit + audit + anti-timing
 
 ```
 [/login] form email + mdp → [Server Action login(email, password)]
+  0. t0 = Date.now()
   1. Zod parse
-  2. supabase.auth.signInWithPassword({ email, password })
-  3. error → { error: 'invalid_credentials' } (UI "Email ou mot de passe incorrect")
-  4. success → redirect('/today')  (le guard requireOnboarded ajustera si besoin)
+  2. ip = clientIp() — refuse si 'unknown' en prod
+  3. ok = check_and_log_auth_rate_limit(ip, 'login', max=10, window=900) — 10/15min
+  4. si !ok → return { error: 'rate_limited' } APRÈS pause anti-timing
+  5. { error } = await supabase.auth.signInWithPassword({ email, password })
+  6. si error → log_auth_event(null, 'login_failure', ip, ua, email)
+              → return { error: 'invalid_credentials' } APRÈS pause anti-timing
+  7. log_auth_event(userId, 'login_success', ip, ua, email)
+  8. await sleepUntil(t0 + 800ms)
+  9. redirect('/today')  (le guard requireOnboarded ajustera si besoin)
 ```
 
-**Flow Mot de passe oublié + reset (inclut migration legacy)**
+**Flow Mot de passe oublié + reset** — intègre rate limit + audit + anti-timing (C2 / I5)
 
 ```
 [/forgot-password] form email → [Server Action requestPasswordReset(email)]
+  0. t0 = Date.now()
   1. Zod parse
-  2. supabase.auth.resetPasswordForEmail(email, { redirectTo: `${origin}/auth/callback?next=/auth/reset-password` })
-  3. ALWAYS return { success: true }
+  2. ip = clientIp() — refuse si 'unknown' en prod
+  3. ok = check_and_log_auth_rate_limit(ip, 'forgot_password', max=3, window=3600)
+  4. si !ok → return { success: true } APRÈS pause (toujours success-générique — C2)
+  5. await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${origin}/auth/callback?next=/auth/reset-password` })
+  6. log_auth_event(null, 'password_reset_requested', ip, ua, email)
+  7. await sleepUntil(t0 + 800ms)
+  8. return { success: true } (toujours)
 
 [email FR reset-password.html, clic lien]
 
 [GET /auth/callback?code=...&next=/auth/reset-password]
-  1. exchangeCodeForSession → session établie
-  2. redirect(next ?? '/today')
+  1. C1 — Whitelist next (idem flow register)
+  2. exchangeCodeForSession → session établie
+  3. redirect(next || '/today')
 
 [/auth/reset-password] form nouveau mdp + confirm → [Server Action setPasswordAfterReset(password)]
-  1. Zod parse
-  2. supabase.auth.updateUser({ password })
-  3. supabase.from('athlete_profiles').update({ password_set: true }).eq('user_id', userId)
-  4. redirect('/today')
+  1. Zod parse (min 10 chars, confirm match, pas dans top-100 common — M1)
+  2. session check : si pas de user authentifié → redirect /login
+  3. supabase.auth.updateUser({ password })
+  4. supabase.from('athlete_profiles').update({ password_set: true }).eq('user_id', userId)
+  5. log_auth_event(userId, 'password_reset_completed', ip, ua, email)
+  6. redirect('/today')
 ```
 
-**Migration owner** : tu visites `/login` après merge → clic "Mot de passe oublié" → reçois lien → set mdp → flag `password_set = true` → ensuite login normal. Aucune action automatisée.
+**Migration owner — C3 attention** : avant le déploiement public de cette EPIC, l'owner DOIT déjà avoir un mdp set. Procédure :
+1. Avant le merge : ouvrir Supabase Studio → Authentication → Users → cliquer sur l'owner → "Send password recovery". Recevoir l'email, set le mdp via le lien (qui ouvre le flow legacy magic-link).
+2. Une fois `password_set` flag mis en place (post-migration), passer `password_set = true` manuellement pour l'owner via SQL :
+   ```sql
+   update public.athlete_profiles set password_set = true
+   where user_id = (select id from auth.users where email = 'pdmtc.bellet@gmail.com');
+   ```
+3. Vérifier que `select password_set from athlete_profiles where ...` retourne `true`.
+4. **Seulement après**, faire le deploy de la nouvelle UI.
+
+Le but : ne **jamais** laisser l'état `password_set = false` exister en prod, car une fenêtre attaquable se crée (un attaquant qui spamme `/forgot-password` sur l'email owner pourrait racer la légitime).
 
 ### 5.3 Réutilisation maximale
 
@@ -346,17 +505,30 @@ Documentation à mettre à jour : `supabase/email-templates/README.md` listant l
 
 ## 7. Validation (Zod schemas)
 
-`lib/auth/schemas.ts` :
+`lib/auth/schemas.ts` (intègre audit M1) :
 
 ```ts
 import { z } from 'zod'
 
-export const emailSchema = z.email('Email invalide')
+export const emailSchema = z
+  .email('Email invalide')
+  .transform((s) => s.toLowerCase().trim())   // M5 cohérence case-insensitive
+
+// Top-100 most common passwords — bloque les compromise rapides
+// Sourcé d'une liste publique (NCSC top-100 2019 + SecLists 1k).
+const COMMON_PASSWORDS = new Set([
+  'password', 'password1', '12345678', '123456789', 'qwerty123',
+  'azerty123', 'iloveyou', 'admin123', 'welcome1', 'monkey123',
+  // … 90 autres en MVP, dans le fichier final
+])
 
 export const passwordSchema = z
   .string()
-  .min(8, 'Au moins 8 caractères')
-  .max(72, 'Maximum 72 caractères') // bcrypt limit côté Supabase
+  .min(10, 'Au moins 10 caractères')          // M1 — promu de 8 à 10
+  .max(72, 'Maximum 72 caractères')           // bcrypt Supabase
+  .refine((p) => !COMMON_PASSWORDS.has(p.toLowerCase()), {
+    message: 'Mot de passe trop courant — choisis-en un autre',
+  })
 
 export const registerSchema = z.object({
   email: emailSchema,
@@ -364,7 +536,7 @@ export const registerSchema = z.object({
 
 export const loginSchema = z.object({
   email: emailSchema,
-  password: passwordSchema,
+  password: z.string().min(1, 'Requis').max(72), // login : pas de check complexité (l'user a déjà choisi)
 })
 
 export const forgotPasswordSchema = z.object({
@@ -374,7 +546,7 @@ export const forgotPasswordSchema = z.object({
 export const setPasswordSchema = z
   .object({
     password: passwordSchema,
-    confirm: passwordSchema,
+    confirm: z.string(),
   })
   .refine((d) => d.password === d.confirm, {
     path: ['confirm'],
@@ -400,9 +572,29 @@ export const setPasswordSchema = z
 
 **Sécurité — choix explicites** :
 
-- Pas de leak d'enum d'emails (`/login`, `/forgot-password`).
-- `allowed_emails` lecture uniquement via service-role (RLS bloque le reste).
+- Pas de leak d'enum d'emails (`/login`, `/forgot-password`, `/register` retournent toujours success-générique).
+- `allowed_emails` lecture uniquement via RPC `security definer` (RLS bloque l'accès direct).
 - Validation Zod côté Server Action = autorité. Client = défense en profondeur.
+- **C2 — Anti-timing** : chaque Server Action auth-sensible (`registerWithMagicLink`, `login`, `requestPasswordReset`) garantit un **minimum 800ms** de temps d'exécution avant return, quel que soit le résultat. Helper utilitaire :
+
+  ```ts
+  export async function sleepUntil(targetMs: number): Promise<void> {
+    const remaining = targetMs - Date.now()
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining))
+  }
+  ```
+
+  Sans ça, un attaquant peut différentier `email_not_allowed` (~5ms RPC) vs `signInWithOtp` (~200-800ms SMTP) par mesure de latence et enum la liste.
+
+- **M2 — Cookies Supabase Auth** : Supabase met `Secure=true`, `HttpOnly=true`, `SameSite=Lax` par défaut. À vérifier post-deploy via devtools navigateur et documenter dans `supabase/email-templates/README.md`.
+
+- **M4 — CSRF** : toutes les mutations d'auth passent par des Next.js Server Actions (POST avec `Origin` header verifié par le framework). Pas de protection custom additionnelle nécessaire.
+
+- **M3 — Email phishing-resistance** : les templates FR (`confirm-signup.html` et `reset-password.html`) DOIVENT :
+  - Afficher l'URL complète du lien (pas seulement un anchor "Cliquer ici")
+  - Inclure une phrase de contexte vérifiable par l'user : "Ce lien a été demandé depuis l'IP {ip} le {datetime}" (substitution via Supabase template vars)
+  - Mentionner le domaine d'envoi attendu (`noreply@<supabase-domain>` ou domaine custom une fois SMTP custom configuré)
+  - Avertir explicitement : "Si tu n'as pas demandé ce lien, ignore cet email — aucune action ne sera prise."
 
 ## 9. Tests
 
@@ -414,35 +606,64 @@ export const setPasswordSchema = z
 | **Server Action `setInitialPassword`** | Vitest + mock | (1) update user + flag password_set, (2) refuse si pas de session |
 | **Server Action `setPasswordAfterReset`** | Vitest + mock | (1) update + flag, (2) refuse si pas de session |
 | **Server Action `requestPasswordReset`** | Vitest + mock | (1) appelle resetPasswordForEmail, (2) retourne toujours success |
+| **Anti-timing** (C2) | Vitest + fake timers | Chaque action `registerWithMagicLink` / `login` / `requestPasswordReset` prend min 800ms même si elle "échoue" tôt (rate limit ou email not allowed) |
+| **Rate limit IP** (I1/I2) | Vitest + mock RPC | (1) Premier appel passe, 4ème dans la même fenêtre bloque (register max=3), (2) IP `unknown` en prod refuse, (3) hard cap 1000/24h respecté |
+| **Anti-spam I3** | Vitest + mock | Register sur email allowlisté + active → réponse success-générique SANS appel à signInWithOtp |
+| **Set-password guard I4** | Vitest + mock | setInitialPassword refuse si `password_set=true` déjà |
+| **Audit log I5** | Vitest + mock | Chaque action logue l'event approprié dans `auth_events` |
+| **Open redirect C1** | Vitest sur callback handler | `next=https://evil.com` → fallback `/today` ; `next=/auth/set-password` → autorisé |
 | **Callback route** | Test manuel | Couvert par smoke test post-merge (deep-link + flow complet) |
-| **Migration DB** | Vérification via Supabase MCP | `allowed_emails` créé, RLS bloque pour anon, `password_set` ajouté, seed inséré |
+| **Migration DB** | Vérification via Supabase MCP | Tables + RPCs + RLS + indexes créés, `password_set` ajouté, seed inséré, contrainte lowercase active |
 | **E2E Playwright** | Skippé MVP (cohérence avec E3) | Follow-up |
 
 ## 10. Découpage en sous-livrables (input du plan)
 
-1. **Migration DB** — `allowed_emails` + alter `athlete_profiles.password_set` + seed owner. Vérif MCP.
-2. **Email templates FR** — `confirm-signup.html` (renommé) + `reset-password.html` (nouveau) + subjects + README update.
-3. **Zod schemas auth** (`lib/auth/schemas.ts`) + tests Vitest.
-4. **Server Actions** (`app/(auth)/_actions/auth.ts`) : 5 actions (`registerWithMagicLink`, `login`, `requestPasswordReset`, `setInitialPassword`, `setPasswordAfterReset`).
-5. **`/login` refactor** — remplace MagicLinkForm par EmailPasswordForm + lien "Mot de passe oublié".
-6. **`/register` page + RegisterForm**.
-7. **`/forgot-password` page + ForgotPasswordForm**.
-8. **`/auth/set-password` page + SetPasswordForm + session guard**.
-9. **`/auth/reset-password` page** (réutilise SetPasswordForm).
-10. **`/auth/callback/route.ts` refactor** — detect `next` query param + check `password_set`.
-11. **Suppression** de `components/auth/magic-link-form.tsx` + nettoyage imports.
-12. **Documentation Supabase config** (Redirect URLs + templates) dans `supabase/email-templates/README.md`.
+1. **Migration DB** — `allowed_emails` (+ constraint lowercase, index), `auth_rate_limits` (+ index), `auth_events` (+ indexes), 4 RPCs (`is_email_allowed`, `email_needs_signup`, `check_and_log_auth_rate_limit`, `log_auth_event`), alter `athlete_profiles.password_set`, seed owner. Vérif MCP.
+2. **Pré-déploiement owner** — Supabase Studio "Send password recovery" sur l'owner + force `password_set=true` via SQL. **CRITIQUE — à faire avant tout deploy UI.**
+3. **Email templates FR** — `confirm-signup.html` (renommé + phishing-resistance M3) + `reset-password.html` (nouveau, idem) + subjects + README update.
+4. **Zod schemas auth** (`lib/auth/schemas.ts`) + blocklist top-100 + tests Vitest.
+5. **Utilitaires auth** (`lib/auth/`) : `clientIp.ts` (Vercel-aware), `timing.ts` (sleepUntil 800ms helper), `ip-guard.ts` (refuse 'unknown' en prod).
+6. **Server Actions** (`app/(auth)/_actions/auth.ts`) : 5 actions intégrant rate limit + audit log + anti-timing :
+   - `registerWithMagicLink` (rate limit + is_email_allowed + email_needs_signup + signInWithOtp + log)
+   - `login` (rate limit + signInWithPassword + log success/failure)
+   - `requestPasswordReset` (rate limit + resetPasswordForEmail + log)
+   - `setInitialPassword` (session guard + I4 guard password_set=false required + updateUser + flag + log)
+   - `setPasswordAfterReset` (session guard + updateUser + flag + log)
+7. **`/login` refactor** — remplace MagicLinkForm par EmailPasswordForm + lien "Mot de passe oublié".
+8. **`/register` page + RegisterForm**.
+9. **`/forgot-password` page + ForgotPasswordForm**.
+10. **`/auth/set-password` page + SetPasswordForm + session guard**.
+11. **`/auth/reset-password` page** (réutilise SetPasswordForm).
+12. **`/auth/callback/route.ts` refactor** — whitelist `next` (C1) + check `password_set`.
+13. **Suppression** de `components/auth/magic-link-form.tsx` + nettoyage imports.
+14. **Documentation Supabase config** (Redirect URLs + 2FA admin + templates) dans `supabase/email-templates/README.md`.
 
-Ordre conseillé : 1 → 2 → 3 → 4 → 5+6+7+8+9 (en parallèle, surfaces indépendantes) → 10 → 11+12.
+Ordre conseillé : 1 → 2 (manuel, owner) → 3 → 4 → 5 → 6 → 7+8+9+10+11 (parallèles) → 12 → 13+14.
 
-## 11. Points de vigilance
+## 11. Points de vigilance (audit cyber Red/Blue Team intégré)
 
-- **Cohérence avec le flow magic-link existant** : `/auth/callback/route.ts` est déjà utilisé. Il faut ajouter la logique `password_set` sans casser la branche `next ?? '/today'` actuelle.
-- **`shouldCreateUser=true` sur signInWithOtp** : envoie un magic link même si l'user existe déjà. C'est OK — le callback gère le routing selon `password_set`.
-- **L'owner doit absolument être seedé dans `allowed_emails`** avant le merge pour ne pas se locker out.
-- **Le template magic-link.html actuel est renommé en confirm-signup.html** : le contenu est OK mais le sujet doit être adapté ("Active ton compte" vs "Voici ton lien de connexion").
-- **Supabase Auth rate limit** : 3 OTP/heure par défaut. Si on test le flow en local plusieurs fois rapidement, on hit ce limit. Pas un bug — c'est attendu.
-- **Pas de service-role key requise côté frontend** : la fonction RPC `is_email_allowed` (section 4.1bis) est `security definer` et `grant execute to anon, authenticated` — le Server Action peut l'appeler avec le client Supabase anon standard. On évite ainsi d'ajouter `SUPABASE_SERVICE_ROLE_KEY` aux env vars Vercel.
+### Pré-requis avant deploy (checklist obligatoire)
+
+- [ ] **C3 — Owner password pré-set** : avant la mise en prod, l'owner a un mdp set via Supabase Studio → Authentication → "Send password recovery". Le flag `password_set = true` est forcé manuellement dans `athlete_profiles` pour l'owner. Aucun user en `password_set=false` ne doit exister en prod (sinon fenêtre attaquable).
+- [ ] **Allowlist seedée** : l'owner est dans `allowed_emails` (script de migration le fait, vérifier post-apply).
+- [ ] **Supabase Dashboard 2FA activé** (M6) : protège la surface critique d'admin (édition Studio = ajout d'emails à l'allowlist).
+- [ ] **Redirect URLs** dans Auth → URL Configuration : `/auth/set-password` et `/auth/reset-password` ajoutés (prod + previews + localhost).
+- [ ] **Email templates FR** importés via Studio (`confirm-signup.html` renommé du magic-link, `reset-password.html` nouveau).
+
+### Risques résiduels acceptés (à revoir post-MVP)
+
+- **Pas de Captcha** : OK tant que la surface est privée (allowlist + rate limit IP). À ajouter dès qu'on ouvre publiquement.
+- **Pas de 2FA app** : `auth_events` permet de détecter rétroactivement une compromission. Pas de protection préventive.
+- **IPv6 /64 rotation** : un attaquant déterminé peut bypasser le rate limit IP en utilisant des IPs voisines. Acceptable car Captcha post-MVP couvre ce cas.
+- **`shouldCreateUser=true` sur `signInWithOtp`** : on filtre maintenant en amont via `email_needs_signup` (I3), donc on n'envoie pas d'OTP à un user déjà actif. Pas de spam SMTP possible sur les comptes existants.
+- **Pas de service-role key requise côté frontend** : RPC `security definer` partout. Surface d'exposition minimale.
+
+### Points opérationnels
+
+- **Cohérence avec le flow magic-link existant** : `/auth/callback/route.ts` est refactor pour gérer `next` whitelisté + check `password_set`. Tester le flow legacy magic-link continue de fonctionner pendant la transition (avant le merge UI register).
+- **Le template magic-link.html actuel est renommé en confirm-signup.html** : contenu adapté pour le sujet ("Active ton compte" au lieu de "Voici ton lien de connexion") + phrase de contexte phishing-resistant (M3).
+- **Supabase Auth rate limit natif** : 3 OTP/heure par utilisateur. Notre rate limit IP-based ajoute une couche par IP. Les deux se complètent.
+- **Audit log queryable** : l'owner peut investiguer un incident via `select * from auth_events where event_type = 'login_failure' order by created_at desc limit 100` dans Studio.
 
 ---
 
