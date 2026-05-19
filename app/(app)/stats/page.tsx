@@ -31,19 +31,19 @@ export default async function StatsPage() {
     supabase
       .from('activities')
       .select(
-        'id, garmin_activity_id, start_time, sport, duration_s, distance_km, elevation_gain_m, tss, hr_avg'
+        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
       )
       .eq('user_id', userId)
       .gte('start_time', twelveWeeksAgo),
     supabase
       .from('hrv')
-      .select('date, last_night_avg, baseline_low, baseline_high')
+      .select('date, hrv_rmssd, hrv_status, hrv_weekly_avg')
       .eq('user_id', userId)
       .gte('date', thirtyDaysAgo)
       .order('date', { ascending: true }),
     supabase
       .from('sleep')
-      .select('date, score, total_seconds')
+      .select('date, sleep_score, sleep_duration_s')
       .eq('user_id', userId)
       .gte('date', thirtyDaysAgo)
       .order('date', { ascending: true }),

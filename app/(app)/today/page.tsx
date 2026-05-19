@@ -85,13 +85,13 @@ export default async function TodayPage() {
       .maybeSingle(),
     supabase
       .from('sleep')
-      .select('date, score, total_seconds')
+      .select('date, sleep_score, sleep_duration_s')
       .eq('user_id', userId)
       .eq('date', today)
       .maybeSingle(),
     supabase
       .from('hrv')
-      .select('date, last_night_avg, baseline_low, baseline_high')
+      .select('date, hrv_rmssd, hrv_status, hrv_weekly_avg')
       .eq('user_id', userId)
       .eq('date', today)
       .maybeSingle(),
@@ -104,7 +104,7 @@ export default async function TodayPage() {
     supabase
       .from('activities')
       .select(
-        'id, garmin_activity_id, start_time, sport, duration_s, distance_km, elevation_gain_m, tss, hr_avg'
+        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
       )
       .eq('user_id', userId)
       .order('start_time', { ascending: false })
@@ -136,10 +136,8 @@ export default async function TodayPage() {
   const garminSyncStatus = (garminCredsRes.data?.last_sync_status ?? null) as string | null
   const garminSyncError = (garminCredsRes.data?.last_sync_error_message ?? null) as string | null
 
-  const sleepValue = sleep?.score ? String(sleep.score) : '—'
-  const hrvValue = hrv?.last_night_avg
-    ? `${String(Math.round(Number(hrv.last_night_avg)))} ms`
-    : '—'
+  const sleepValue = sleep?.sleep_score ? String(sleep.sleep_score) : '—'
+  const hrvValue = hrv?.hrv_rmssd ? `${String(Math.round(Number(hrv.hrv_rmssd)))} ms` : '—'
   const batteryValue = daily?.body_battery_high ? String(daily.body_battery_high) : '—'
 
   return (

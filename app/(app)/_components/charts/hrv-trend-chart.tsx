@@ -16,18 +16,17 @@ interface HrvTrendChartProps {
 }
 
 export function HrvTrendChart({ data, height = 200 }: HrvTrendChartProps) {
-  const baselineLow = data.find((d) => d.baseline_low !== null)?.baseline_low ?? null
-  const baselineHigh = data.find((d) => d.baseline_high !== null)?.baseline_high ?? null
+  const weeklyAvg = data.find((d) => d.hrv_weekly_avg !== null)?.hrv_weekly_avg ?? null
 
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
         <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(s: string) => s.slice(5)} />
         <YAxis tick={{ fontSize: 10 }} />
-        {baselineLow !== null && baselineHigh !== null && (
+        {weeklyAvg !== null && (
           <ReferenceArea
-            y1={baselineLow}
-            y2={baselineHigh}
+            y1={weeklyAvg - 5}
+            y2={weeklyAvg + 5}
             fill="var(--chart-3)"
             fillOpacity={0.12}
           />
@@ -42,7 +41,7 @@ export function HrvTrendChart({ data, height = 200 }: HrvTrendChartProps) {
         />
         <Line
           type="monotone"
-          dataKey="last_night_avg"
+          dataKey="hrv_rmssd"
           stroke="var(--chart-1)"
           strokeWidth={2}
           dot={false}

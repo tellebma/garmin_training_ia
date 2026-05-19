@@ -32,11 +32,11 @@ export interface PlannedSession {
 
 export interface ActivityRowDto {
   id: string
-  garmin_activity_id: string
+  garmin_activity_id: number
   start_time: string
   sport: string
   duration_s: number | null
-  distance_km: number | null
+  distance_m: number | null
   elevation_gain_m: number | null
   tss: number | null
   hr_avg: number | null
@@ -65,13 +65,13 @@ export interface DailyMetricsDto {
 
 export interface SleepDto {
   date: string
-  score: number | null
-  total_seconds: number | null
+  sleep_score: number | null
+  sleep_duration_s: number | null
 }
 
 export interface HrvDto {
   date: string
-  last_night_avg: number | null
-  baseline_low: number | null
-  baseline_high: number | null
+  hrv_rmssd: number | null
+  hrv_status: string | null
+  hrv_weekly_avg: number | null
 }

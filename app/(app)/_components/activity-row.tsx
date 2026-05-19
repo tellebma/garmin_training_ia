@@ -3,7 +3,7 @@ import { Activity as ActivityIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SPORT_ICON, SPORT_LABEL } from './sport-icon'
 import {
-  formatDistanceKm,
+  formatDistanceFromMeters,
   formatDuration,
   formatRelativeDate,
   formatTSS,
@@ -41,7 +41,7 @@ export function ActivityRow({ activity, className }: Readonly<ActivityRowProps>)
       </div>
       <div className="text-right text-xs">
         <p className="text-foreground font-medium">
-          {formatDuration(activity.duration_s)} · {formatDistanceKm(activity.distance_km)}
+          {formatDuration(activity.duration_s)} · {formatDistanceFromMeters(activity.distance_m)}
         </p>
         <p className="text-muted-foreground mt-0.5">{formatTSS(activity.tss)}</p>
       </div>

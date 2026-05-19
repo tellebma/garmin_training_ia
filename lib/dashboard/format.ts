@@ -18,6 +18,11 @@ export function formatDistanceKm(km: number | null | undefined): string {
   return `${String(Math.round(km))} km`
 }
 
+export function formatDistanceFromMeters(meters: number | null | undefined): string {
+  if (meters === null || meters === undefined) return '—'
+  return formatDistanceKm(meters / 1000)
+}
+
 export function formatRelativeDate(isoDate: string, today = new Date()): string {
   const d = new Date(isoDate)
   const diffMs = today.setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)

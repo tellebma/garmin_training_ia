@@ -38,9 +38,9 @@ export function SleepTrendChart({ data, height = 200 }: SleepTrendChartProps) {
           }}
         />
         <ReferenceLine y={80} stroke="var(--chart-3)" strokeDasharray="3 3" />
-        <Bar dataKey="score" name="Score sommeil">
+        <Bar dataKey="sleep_score" name="Score sommeil">
           {data.map((d) => (
-            <Cell key={d.date} fill={scoreColor(d.score)} />
+            <Cell key={d.date} fill={scoreColor(d.sleep_score)} />
           ))}
         </Bar>
       </BarChart>

@@ -5,11 +5,11 @@ import type { ActivityRowDto } from '@/lib/dashboard/types'
 function mkActivity(overrides: Partial<ActivityRowDto>): ActivityRowDto {
   return {
     id: crypto.randomUUID(),
-    garmin_activity_id: 'g-1',
+    garmin_activity_id: 1,
     start_time: '2026-05-19T08:00:00Z',
     sport: 'bike',
     duration_s: 3600,
-    distance_km: 30,
+    distance_m: 30_000,
     elevation_gain_m: 200,
     tss: 60,
     hr_avg: 140,
