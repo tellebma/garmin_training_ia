@@ -17,6 +17,14 @@ export type MfaResult =
   | { status: 'garmin_error'; error_id: string; type: string }
   | { status: 'unexpected_error'; error_id: string; type: string }
 
+export type ProfileSyncResult =
+  | { status: 'ok'; fetched: { ftp_watts?: number; vma_kmh?: number; fc_max_bpm?: number } }
+  | { status: 'no_credentials' }
+  | { status: 'auth_failed' }
+  | { status: 'rate_limited' }
+  | { status: 'garmin_error'; type: string }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
 export async function workerPost<T>(path: string, body: unknown, userJwt: string): Promise<T> {
   const { WORKER_URL } = getServerEnv()
   const res = await fetch(`${WORKER_URL}${path}`, {
