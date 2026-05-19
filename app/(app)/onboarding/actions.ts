@@ -182,6 +182,41 @@ export async function finalizeOnboarding(): Promise<void> {
   if (typeof userIdOrErr !== 'string') redirect('/login')
 
   const supabase = await createClient()
+
+  // Defense in depth : verify Perso (first_name+dob+sex+consent) AND Race
+  // minimum BEFORE flagging onboarding complete. Prevents corrupted state if
+  // the client wizard ever lets the user skip a required step.
+  const [{ data: profile }, { data: race }] = await Promise.all([
+    supabase
+      .from('athlete_profiles')
+      .select('first_name, dob, sex, consent_data_processing')
+      .eq('user_id', userIdOrErr)
+      .single<{
+        first_name: string | null
+        dob: string | null
+        sex: 'M' | 'F' | 'X' | null
+        consent_data_processing: boolean
+      }>(),
+    supabase
+      .from('race_goals')
+      .select('id')
+      .eq('user_id', userIdOrErr)
+      .eq('is_primary', true)
+      .maybeSingle(),
+  ])
+
+  if (
+    !profile?.first_name ||
+    !profile.dob ||
+    !profile.sex ||
+    !profile.consent_data_processing ||
+    !race
+  ) {
+    // Not enough data — redirect back to /onboarding so the wizard re-opens
+    // at the first incomplete step (computed by page.tsx).
+    redirect('/onboarding')
+  }
+
   await supabase
     .from('athlete_profiles')
     .update({ onboarding_completed_at: new Date().toISOString() })

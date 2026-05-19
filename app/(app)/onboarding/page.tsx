@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { Toaster } from '@/components/ui/sonner'
 import { OnboardingWizard, type WizardInitial } from './_components/onboarding-wizard'
 import type { Step } from '@/lib/onboarding/steps'
 
@@ -121,6 +122,7 @@ export default async function OnboardingPage() {
         </p>
       </header>
       <OnboardingWizard initial={initial} initialStep={initialStep} />
+      <Toaster />
     </div>
   )
 }

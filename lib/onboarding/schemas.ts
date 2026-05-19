@@ -12,9 +12,11 @@ export const personSchema = z.object({
   sex: z.enum(['M', 'F', 'X']),
   city: z.string().trim().max(120).optional(),
   country: z.string().trim().max(80).optional(),
-  consent_data_processing: z.literal(true, {
-    error: () => ({ message: 'Tu dois accepter le traitement des données' }),
-  }),
+  // Zod v4 : .literal() params only accept string `error`. We use the
+  // boolean-refine pattern to get a clean, predictable error message.
+  consent_data_processing: z
+    .boolean()
+    .refine((v) => v, 'Tu dois accepter le traitement des données'),
 })
 
 export const PARENT_DISCIPLINES = [
