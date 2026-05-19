@@ -92,7 +92,16 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
   const totals = computeTotals(legs)
 
   function updateLeg(index: number, patch: Partial<Leg>) {
-    setLegs((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
+    setLegs((prev) =>
+      prev.map((l, i) => {
+        if (i !== index) return l
+        const merged = { ...l, ...patch }
+        // Force elevation_gain_m = 0 quand la discipline du leg est natation
+        // (pas de dénivelé en piscine ni open water, donc le champ est caché côté UI).
+        if (merged.discipline === 'swim') merged.elevation_gain_m = 0
+        return merged
+      })
+    )
   }
 
   function addLeg() {
@@ -281,7 +290,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
                 </Button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={leg.discipline === 'swim' ? '' : 'grid grid-cols-2 gap-2'}>
               <div>
                 <Label className="text-xs" htmlFor={`leg-${String(i)}-distance`}>
                   Distance (km)
@@ -298,24 +307,26 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
                   }}
                 />
               </div>
-              <div>
-                <Label className="text-xs" htmlFor={`leg-${String(i)}-elevation`}>
-                  D+ (m)
-                </Label>
-                <Input
-                  id={`leg-${String(i)}-elevation`}
-                  type="number"
-                  step="1"
-                  min={0}
-                  max={20000}
-                  value={leg.elevation_gain_m || ''}
-                  onChange={(e) => {
-                    updateLeg(i, {
-                      elevation_gain_m: Number.parseInt(e.target.value, 10) || 0,
-                    })
-                  }}
-                />
-              </div>
+              {leg.discipline !== 'swim' && (
+                <div>
+                  <Label className="text-xs" htmlFor={`leg-${String(i)}-elevation`}>
+                    D+ (m)
+                  </Label>
+                  <Input
+                    id={`leg-${String(i)}-elevation`}
+                    type="number"
+                    step="1"
+                    min={0}
+                    max={20000}
+                    value={leg.elevation_gain_m || ''}
+                    onChange={(e) => {
+                      updateLeg(i, {
+                        elevation_gain_m: Number.parseInt(e.target.value, 10) || 0,
+                      })
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         ))}

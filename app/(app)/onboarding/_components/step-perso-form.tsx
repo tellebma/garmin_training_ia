@@ -40,7 +40,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
       sex,
       city: city || undefined,
       country: country || undefined,
-      consent_data_processing: consent as true,
+      consent_data_processing: consent,
     })
     setLoading(false)
     if (!result.success) {

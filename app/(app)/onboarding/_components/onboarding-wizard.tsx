@@ -40,24 +40,33 @@ export function OnboardingWizard({ initial, initialStep }: Readonly<Props>) {
   return (
     <section className="space-y-6">
       <nav aria-label="Étapes" className="flex flex-wrap gap-2 text-sm">
-        {STEPS.map((s, i) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => {
-              setStep(s)
-            }}
-            className={cn(
-              'rounded-full border px-3 py-1 transition',
-              step === s && 'bg-primary text-primary-foreground',
-              completed.has(s) && step !== s && 'bg-emerald-500/10 text-emerald-600',
-              !completed.has(s) && step !== s && 'text-muted-foreground'
-            )}
-          >
-            {completed.has(s) && step !== s ? '✓ ' : `${String(i + 1)}. `}
-            {STEP_LABELS[s]}
-          </button>
-        ))}
+        {STEPS.map((s, i) => {
+          // Navigation autorisée vers : l'étape courante, les étapes déjà
+          // complétées, OU la prochaine étape juste après la dernière complétée.
+          // Empêche de skipper Perso pour aller direct sur Course.
+          const previousStepsAllDone = STEPS.slice(0, i).every((prev) => completed.has(prev))
+          const canNavigate = step === s || completed.has(s) || previousStepsAllDone
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                if (canNavigate) setStep(s)
+              }}
+              disabled={!canNavigate}
+              className={cn(
+                'rounded-full border px-3 py-1 transition',
+                step === s && 'bg-primary text-primary-foreground',
+                completed.has(s) && step !== s && 'bg-emerald-500/10 text-emerald-600',
+                !completed.has(s) && step !== s && canNavigate && 'text-muted-foreground',
+                !canNavigate && 'cursor-not-allowed opacity-40'
+              )}
+            >
+              {completed.has(s) && step !== s ? '✓ ' : `${String(i + 1)}. `}
+              {STEP_LABELS[s]}
+            </button>
+          )
+        })}
       </nav>
 
       <div className="rounded-lg border p-6">

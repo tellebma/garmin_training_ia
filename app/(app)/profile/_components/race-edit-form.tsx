@@ -81,7 +81,8 @@ function RaceSummary({ race }: Readonly<{ race: RaceInput }>) {
       <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-xs">
         {race.legs.map((l, i) => (
           <span key={`leg-${String(i)}`} className="inline-flex items-center gap-1">
-            {LEG_ICON[l.discipline]} {l.distance_km} km · {String(l.elevation_gain_m)} m
+            {LEG_ICON[l.discipline]} {l.distance_km} km
+            {l.discipline !== 'swim' && ` · ${String(l.elevation_gain_m)} m`}
             {i < race.legs.length - 1 && <span className="mx-1">→</span>}
           </span>
         ))}
@@ -117,7 +118,15 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
   const totals = computeTotals(legs)
 
   function updateLeg(index: number, patch: Partial<Leg>) {
-    setLegs((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
+    setLegs((prev) =>
+      prev.map((l, i) => {
+        if (i !== index) return l
+        const merged = { ...l, ...patch }
+        // Force elevation_gain_m = 0 quand la discipline est natation.
+        if (merged.discipline === 'swim') merged.elevation_gain_m = 0
+        return merged
+      })
+    )
   }
 
   function addLeg() {
@@ -318,7 +327,7 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
                 </Button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={leg.discipline === 'swim' ? '' : 'grid grid-cols-2 gap-2'}>
               <div>
                 <Label className="text-xs" htmlFor={`re-leg-${String(i)}-d`}>
                   Distance (km)
@@ -335,22 +344,24 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
                   }}
                 />
               </div>
-              <div>
-                <Label className="text-xs" htmlFor={`re-leg-${String(i)}-e`}>
-                  D+ (m)
-                </Label>
-                <Input
-                  id={`re-leg-${String(i)}-e`}
-                  type="number"
-                  step="1"
-                  min={0}
-                  max={20000}
-                  value={leg.elevation_gain_m || ''}
-                  onChange={(e) => {
-                    updateLeg(i, { elevation_gain_m: Number.parseInt(e.target.value, 10) || 0 })
-                  }}
-                />
-              </div>
+              {leg.discipline !== 'swim' && (
+                <div>
+                  <Label className="text-xs" htmlFor={`re-leg-${String(i)}-e`}>
+                    D+ (m)
+                  </Label>
+                  <Input
+                    id={`re-leg-${String(i)}-e`}
+                    type="number"
+                    step="1"
+                    min={0}
+                    max={20000}
+                    value={leg.elevation_gain_m || ''}
+                    onChange={(e) => {
+                      updateLeg(i, { elevation_gain_m: Number.parseInt(e.target.value, 10) || 0 })
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         ))}

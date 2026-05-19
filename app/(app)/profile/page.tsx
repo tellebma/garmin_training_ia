@@ -93,7 +93,7 @@ export default async function ProfilePage() {
     sex: (profile?.sex ?? 'M') as 'M' | 'F' | 'X',
     city: profile?.city ?? undefined,
     country: profile?.country ?? undefined,
-    consent_data_processing: (profile?.consent_data_processing ?? false) as true,
+    consent_data_processing: profile?.consent_data_processing ?? false,
   }
 
   const raceInitial: RaceInput | null = race

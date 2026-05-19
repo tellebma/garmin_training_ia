@@ -138,7 +138,7 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
           type="checkbox"
           checked={values.consent_data_processing}
           onChange={(e) => {
-            setValues((v) => ({ ...v, consent_data_processing: e.target.checked as true }))
+            setValues((v) => ({ ...v, consent_data_processing: e.target.checked }))
           }}
           className="mt-0.5"
         />
