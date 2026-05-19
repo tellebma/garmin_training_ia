@@ -72,6 +72,12 @@ export default [
     rules: {
       'sonarjs/no-duplicate-string': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
+      // Test mocks use async functions without await intentionally
+      '@typescript-eslint/require-await': 'off',
+      // Hardcoded test IPs are safe in test context
+      'sonarjs/no-hardcoded-ip': 'off',
+      // Inline ternaries in mock factory functions are acceptable
+      'sonarjs/no-nested-conditional': 'off',
     },
   },
   {

@@ -1,13 +1,13 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { createClient } from '@/lib/supabase/client'
+import { requestPasswordReset } from '@/app/(auth)/_actions/auth'
 
-export function MagicLinkForm() {
+export function ForgotPasswordForm() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
@@ -16,31 +16,24 @@ export function MagicLinkForm() {
     e.preventDefault()
     setLoading(true)
 
-    const supabase = createClient()
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    await requestPasswordReset({ email })
 
+    // Always show generic success (no email enum leak)
     setLoading(false)
-
-    if (error) {
-      toast.error(`Erreur: ${error.message}`)
-      return
-    }
-
     setSent(true)
   }
 
   if (sent) {
     return (
-      <div className="space-y-2 text-center">
-        <h2 className="text-xl font-semibold">Vérifie tes emails</h2>
-        <p className="text-muted-foreground text-sm">
-          Un lien de connexion a été envoyé à <strong>{email}</strong>.
+      <div className="space-y-4 text-center">
+        <p className="text-sm">
+          Si <strong>{email}</strong> correspond à un compte, un email avec un lien de
+          réinitialisation vient d&apos;être envoyé.
         </p>
+        <p className="text-muted-foreground text-xs">Pense à vérifier ton dossier spam.</p>
+        <Link href="/login" className="text-xs underline">
+          ← Retour à la connexion
+        </Link>
       </div>
     )
   }
@@ -50,14 +43,14 @@ export function MagicLinkForm() {
       onSubmit={(e) => {
         void handleSubmit(e)
       }}
-      className="w-full max-w-sm space-y-4"
+      className="space-y-4"
     >
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
           type="email"
-          placeholder="toi@exemple.com"
+          autoComplete="email"
           value={email}
           onChange={(e) => {
             setEmail(e.target.value)
@@ -67,8 +60,13 @@ export function MagicLinkForm() {
         />
       </div>
       <Button type="submit" disabled={loading || !email} className="w-full">
-        {loading ? 'Envoi...' : 'Recevoir le lien de connexion'}
+        {loading ? 'Envoi...' : 'Envoyer le lien'}
       </Button>
+      <p className="text-muted-foreground text-center text-xs">
+        <Link href="/login" className="underline">
+          ← Retour à la connexion
+        </Link>
+      </p>
     </form>
   )
 }
