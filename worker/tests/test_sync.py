@@ -34,7 +34,10 @@ def fake_garmin_client() -> MagicMock:
     client.get_sleep_data.return_value = {
         "dailySleepDTO": {"calendarDate": "2026-05-15", "sleepTimeSeconds": 28800},
     }
-    client.get_hrv_data.return_value = {"calendarDate": "2026-05-15", "lastNightAvg": 50.0}
+    client.get_hrv_data.return_value = {
+        "hrvSummary": {"calendarDate": "2026-05-15", "lastNightAvg": 50.0},
+        "hrvReadings": [],
+    }
     client.get_body_composition.return_value = {
         "dateWeightList": [{"calendarDate": "2026-05-15", "weight": 70000}],
         "totalAverage": {},

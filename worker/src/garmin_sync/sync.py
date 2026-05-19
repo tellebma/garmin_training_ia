@@ -147,7 +147,8 @@ def _safe_upsert_sleep(db: Any, user_id: str, client: Garmin, iso_date: str) -> 
 def _safe_upsert_hrv(db: Any, user_id: str, client: Garmin, iso_date: str) -> None:
     try:
         raw = client.get_hrv_data(iso_date)
-        if raw and raw.get("calendarDate"):
+        summary = (raw or {}).get("hrvSummary") or {}
+        if summary.get("calendarDate"):
             db.table("hrv").upsert(
                 transform_hrv(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
             ).execute()
