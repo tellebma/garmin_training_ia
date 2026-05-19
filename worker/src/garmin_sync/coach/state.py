@@ -89,8 +89,6 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
         )
 
     if rows:
-        db.table("daily_banister_state").upsert(
-            rows, on_conflict="user_id,date"
-        ).execute()
+        db.table("daily_banister_state").upsert(rows, on_conflict="user_id,date").execute()
 
     return {"rows_upserted": len(rows)}

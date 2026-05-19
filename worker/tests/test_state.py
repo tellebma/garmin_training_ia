@@ -1,4 +1,5 @@
 """Tests for coach/state.py — Banister state materialization."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -32,13 +33,13 @@ def _mock_supabase_chain(db, *, profile=None, activities=None):
     upsert_chain.execute.return_value = MagicMock(data=[])
 
     def table_fn(name):
-        if name == 'athlete_profiles':
+        if name == "athlete_profiles":
             return profile_chain
-        if name == 'activities':
+        if name == "activities":
             return act_chain
-        if name == 'daily_banister_state':
+        if name == "daily_banister_state":
             return upsert_chain
-        raise AssertionError(f'Unexpected table: {name}')
+        raise AssertionError(f"Unexpected table: {name}")
 
     db.table.side_effect = table_fn
     return upsert_chain
@@ -50,19 +51,19 @@ def test_recompute_cold_start_no_activities(mock_db):
 
     upsert = _mock_supabase_chain(
         mock_db,
-        profile={'hours_per_week': 5, 'ftp_watts': None, 'fc_max_bpm': None},
+        profile={"hours_per_week": 5, "ftp_watts": None, "fc_max_bpm": None},
         activities=[],
     )
 
-    with patch.object(state_module, 'get_admin_client', return_value=mock_db):
-        result = state_module.recompute_daily_state('user-1', days_back=180)
+    with patch.object(state_module, "get_admin_client", return_value=mock_db):
+        result = state_module.recompute_daily_state("user-1", days_back=180)
 
-    assert result['rows_upserted'] == 181
+    assert result["rows_upserted"] == 181
     upsert.upsert.assert_called_once()
     rows = upsert.upsert.call_args[0][0]
     assert len(rows) == 181
-    assert rows[0]['ctl'] == pytest.approx(35.71, abs=1.0)
-    assert rows[-1]['ctl'] < 5.0
+    assert rows[0]["ctl"] == pytest.approx(35.71, abs=1.0)
+    assert rows[-1]["ctl"] < 5.0
 
 
 def test_recompute_converges_with_regular_tss(mock_db):
@@ -75,26 +76,28 @@ def test_recompute_converges_with_regular_tss(mock_db):
         d = today - timedelta(days=offset)
         if d.weekday() >= 5:
             continue
-        activities.append({
-            'start_time': f'{d.isoformat()}T08:00:00Z',
-            'sport': 'bike',
-            'duration_s': 3600,
-            'power_avg': 200,
-            'hr_avg': 140,
-        })
+        activities.append(
+            {
+                "start_time": f"{d.isoformat()}T08:00:00Z",
+                "sport": "bike",
+                "duration_s": 3600,
+                "power_avg": 200,
+                "hr_avg": 140,
+            }
+        )
 
     upsert = _mock_supabase_chain(
         mock_db,
-        profile={'hours_per_week': 5, 'ftp_watts': 250, 'fc_max_bpm': 180},
+        profile={"hours_per_week": 5, "ftp_watts": 250, "fc_max_bpm": 180},
         activities=activities,
     )
 
-    with patch.object(state_module, 'get_admin_client', return_value=mock_db):
-        result = state_module.recompute_daily_state('user-1', days_back=30)
+    with patch.object(state_module, "get_admin_client", return_value=mock_db):
+        result = state_module.recompute_daily_state("user-1", days_back=30)
 
-    assert result['rows_upserted'] == 31
+    assert result["rows_upserted"] == 31
     rows = upsert.upsert.call_args[0][0]
-    last_ctl = rows[-1]['ctl']
+    last_ctl = rows[-1]["ctl"]
     assert 15.0 < last_ctl < 50.0
 
 
@@ -104,24 +107,22 @@ def test_recompute_handles_missing_profile(mock_db):
 
     upsert = _mock_supabase_chain(mock_db, profile=None, activities=[])
 
-    with patch.object(state_module, 'get_admin_client', return_value=mock_db):
-        result = state_module.recompute_daily_state('user-1', days_back=14)
+    with patch.object(state_module, "get_admin_client", return_value=mock_db):
+        result = state_module.recompute_daily_state("user-1", days_back=14)
 
-    assert result['rows_upserted'] == 15
+    assert result["rows_upserted"] == 15
     rows = upsert.upsert.call_args[0][0]
-    assert rows[0]['ctl'] == 0.0
+    assert rows[0]["ctl"] == 0.0
 
 
 def test_recompute_single_day_days_back_zero(mock_db):
     """days_back=0 → 1 row (today), should still call upsert."""
     from garmin_sync.coach import state as state_module
 
-    upsert = _mock_supabase_chain(
-        mock_db, profile={'hours_per_week': None}, activities=[]
-    )
+    upsert = _mock_supabase_chain(mock_db, profile={"hours_per_week": None}, activities=[])
 
-    with patch.object(state_module, 'get_admin_client', return_value=mock_db):
-        result = state_module.recompute_daily_state('user-1', days_back=0)
+    with patch.object(state_module, "get_admin_client", return_value=mock_db):
+        result = state_module.recompute_daily_state("user-1", days_back=0)
 
-    assert result['rows_upserted'] == 1
+    assert result["rows_upserted"] == 1
     upsert.upsert.assert_called_once()

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 LTHR_RATIO = 0.90  # LTHR approx 0.90 * FCmax — coarse but standard heuristic
 FALLBACK_TSS_PER_HOUR = 50  # average endurance load
-CYCLING_SPORTS = {'cycling', 'indoor_cycling', 'mountain_biking'}
+CYCLING_SPORTS = {"cycling", "indoor_cycling", "mountain_biking"}
 
 
 def compute_tss(

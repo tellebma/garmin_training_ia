@@ -23,24 +23,24 @@ def run_weekly_cron() -> dict[str, Any]:
     db = get_admin_client()
     today_iso = date.today().isoformat()
     users_resp = (
-        db.table('race_goals')
-        .select('user_id')
-        .eq('is_primary', True)
-        .gte('race_date', today_iso)
+        db.table("race_goals")
+        .select("user_id")
+        .eq("is_primary", True)
+        .gte("race_date", today_iso)
         .execute()
     )
-    users = cast('list[dict[str, Any]]', users_resp.data or [])
-    user_ids = list({u['user_id'] for u in users})
+    users = cast("list[dict[str, Any]]", users_resp.data or [])
+    user_ids = list({u["user_id"] for u in users})
 
     results: dict[str, dict[str, Any]] = {}
     for uid in user_ids:
         try:
             results[uid] = generate_plan(uid)
         except Exception as e:
-            log.exception('Plan regeneration failed for user=%s', uid)
-            results[uid] = {'status': 'exception', 'type': type(e).__name__}
-    return {'total_users': len(user_ids), 'results': results}
+            log.exception("Plan regeneration failed for user=%s", uid)
+            results[uid] = {"status": "exception", "type": type(e).__name__}
+    return {"total_users": len(user_ids), "results": results}
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(json.dumps(run_weekly_cron(), indent=2))
