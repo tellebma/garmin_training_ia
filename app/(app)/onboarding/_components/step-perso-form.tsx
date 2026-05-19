@@ -21,7 +21,7 @@ function OptionalHint() {
 }
 
 export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
-  const [first_name, setFirstName] = useState(defaultValues?.first_name ?? '')
+  const [firstName, setFirstName] = useState(defaultValues?.first_name ?? '')
   const [dob, setDob] = useState(defaultValues?.dob ?? '')
   const [sex, setSex] = useState<'M' | 'F' | 'X'>(defaultValues?.sex ?? 'M')
   const [city, setCity] = useState(defaultValues?.city ?? '')
@@ -35,7 +35,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
     setLoading(true)
     setErrors({})
     const result = await saveStepPerso({
-      first_name,
+      first_name: firstName,
       dob,
       sex,
       city: city || undefined,
@@ -67,7 +67,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
         <Label htmlFor="first_name">Prénom</Label>
         <Input
           id="first_name"
-          value={first_name}
+          value={firstName}
           onChange={(e) => {
             setFirstName(e.target.value)
           }}

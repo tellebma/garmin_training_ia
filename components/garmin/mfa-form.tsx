@@ -48,7 +48,7 @@ export function MfaForm({ challengeId, onConnected, onCancel }: Readonly<Props>)
   }, [cooldownUntil])
 
   const remainingSec =
-    cooldownUntil !== null ? Math.max(0, Math.ceil((cooldownUntil - now) / 1000)) : 0
+    cooldownUntil === null ? 0 : Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
   const onCooldown = remainingSec > 0
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
