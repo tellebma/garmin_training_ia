@@ -112,11 +112,11 @@ def test_recompute_handles_missing_profile(mock_db):
     assert rows[0]['ctl'] == 0.0
 
 
-def test_recompute_skips_when_no_rows_to_upsert(mock_db):
+def test_recompute_single_day_days_back_zero(mock_db):
     """days_back=0 → 1 row (today), should still call upsert."""
     from garmin_sync.coach import state as state_module
 
-    _mock_supabase_chain(
+    upsert = _mock_supabase_chain(
         mock_db, profile={'hours_per_week': None}, activities=[]
     )
 
@@ -124,3 +124,4 @@ def test_recompute_skips_when_no_rows_to_upsert(mock_db):
         result = state_module.recompute_daily_state('user-1', days_back=0)
 
     assert result['rows_upserted'] == 1
+    upsert.upsert.assert_called_once()

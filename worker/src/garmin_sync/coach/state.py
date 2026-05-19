@@ -54,13 +54,14 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
         )
         if tss is None:
             continue
-        raw_start = str(a["start_time"]).replace("Z", "+00:00")
+        raw_start = a["start_time"].replace("Z", "+00:00")
         d = datetime.fromisoformat(raw_start).date()
         tss_by_date[d] = tss_by_date.get(d, 0.0) + tss
 
+    # < 14 activity days in window → cold-start estimate (matches planner.py)
     if len(tss_by_date) < 14:
         init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
-        init_atl = init_ctl
+        init_atl = init_ctl  # ATL mirrors CTL at cold start
     else:
         init_ctl = 0.0
         init_atl = 0.0
@@ -74,8 +75,8 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
     )
 
     rows: list[dict[str, Any]] = []
-    current = start
-    for s in states:
+    for i, s in enumerate(states):
+        current = start + timedelta(days=i)
         rows.append(
             {
                 "user_id": user_id,
@@ -86,7 +87,6 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
                 "daily_tss": tss_by_date.get(current),
             }
         )
-        current += timedelta(days=1)
 
     if rows:
         db.table("daily_banister_state").upsert(
