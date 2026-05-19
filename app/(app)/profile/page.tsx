@@ -1,13 +1,36 @@
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
 import { SignOutButton } from '@/components/auth/sign-out-button'
 import { Button } from '@/components/ui/button'
+import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import { PersoEditForm } from './_components/perso-edit-form'
+import { RaceEditForm } from './_components/race-edit-form'
+import { PerfEditForm } from './_components/perf-edit-form'
+import { DispoEditForm } from './_components/dispo-edit-form'
+import type { PersonInput, RaceInput, PerfInput, DispoInput } from '@/lib/onboarding/schemas'
 
-interface AthleteProfile {
+interface AthleteProfileRow {
   first_name: string | null
+  dob: string | null
+  sex: string | null
   city: string | null
-  onboarding_completed_at: string | null
+  country: string | null
+  consent_data_processing: boolean | null
+  ftp_watts: number | null
+  vma_kmh: number | null
+  fc_max_bpm: number | null
+  garmin_profile_synced_at: string | null
+  available_days: string[] | null
+  hours_per_week: number | null
+  sports_strengths: { swim: number; bike: number; run: number } | null
+}
+
+interface RaceGoalRow {
+  race_date: string
+  race_distance: string
+  name: string | null
+  location: string | null
+  target_time_seconds: number | null
 }
 
 interface GarminCredentialsRow {
@@ -24,53 +47,80 @@ function formatDateTime(iso: string | null): string {
 }
 
 export default async function ProfilePage() {
+  const userId = await requireOnboarded()
+
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
-
-  const [{ data: profile }, { data: garmin }] = await Promise.all([
+  const [{ data: profile }, { data: race }, { data: garmin }] = await Promise.all([
     supabase
       .from('athlete_profiles')
-      .select('first_name, city, onboarding_completed_at')
-      .eq('user_id', user.id)
-      .single<AthleteProfile>(),
+      .select(
+        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_profile_synced_at, available_days, hours_per_week, sports_strengths'
+      )
+      .eq('user_id', userId)
+      .single<AthleteProfileRow>(),
+    supabase
+      .from('race_goals')
+      .select('race_date, race_distance, name, location, target_time_seconds')
+      .eq('user_id', userId)
+      .eq('is_primary', true)
+      .maybeSingle<RaceGoalRow>(),
     supabase
       .from('garmin_credentials')
       .select(
         'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
       )
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle<GarminCredentialsRow>(),
   ])
 
   const garminConnected = garmin !== null
-  const garminAuthStale = garmin?.token_refresh_failed_at !== null && garmin !== null
+  const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
+
+  // Build typed initial props for edit forms
+  const persoInitial: PersonInput = {
+    first_name: profile?.first_name ?? '',
+    dob: profile?.dob ?? '',
+    sex: (profile?.sex ?? 'M') as 'M' | 'F' | 'X',
+    city: profile?.city ?? undefined,
+    country: profile?.country ?? undefined,
+    consent_data_processing: (profile?.consent_data_processing ?? false) as true,
+  }
+
+  const raceInitial: RaceInput | null = race
+    ? {
+        race_date: race.race_date,
+        race_distance: race.race_distance as RaceInput['race_distance'],
+        name: race.name ?? undefined,
+        location: race.location ?? undefined,
+        target_time_seconds: race.target_time_seconds ?? undefined,
+      }
+    : null
+
+  const perfInitial: PerfInput & { garmin_synced_at: string | null } = {
+    ftp_watts: profile?.ftp_watts ?? undefined,
+    vma_kmh: profile?.vma_kmh ?? undefined,
+    fc_max_bpm: profile?.fc_max_bpm ?? undefined,
+    garmin_synced_at: profile?.garmin_profile_synced_at ?? null,
+  }
+
+  const dispoInitial: DispoInput = {
+    available_days: profile?.available_days as DispoInput['available_days'],
+    hours_per_week: profile?.hours_per_week ?? undefined,
+    sports_strengths: profile?.sports_strengths ?? undefined,
+  }
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold">Profil</h1>
-        <p className="text-muted-foreground text-sm">{user.email}</p>
+        <p className="text-muted-foreground text-sm">{user?.email}</p>
       </header>
-      <section className="space-y-2 rounded-lg border p-6 text-sm">
-        <div>
-          <strong>Prénom :</strong>{' '}
-          {profile?.first_name ?? <em className="text-muted-foreground">non renseigné</em>}
-        </div>
-        <div>
-          <strong>Ville :</strong>{' '}
-          {profile?.city ?? <em className="text-muted-foreground">non renseigné</em>}
-        </div>
-        <div>
-          <strong>Onboarding complété :</strong>{' '}
-          {profile?.onboarding_completed_at ? 'oui' : 'non — sera fait en E3'}
-        </div>
-      </section>
+
+      {/* Garmin Connect section */}
       <section className="space-y-3 rounded-lg border p-6">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Garmin Connect</h2>
@@ -119,6 +169,13 @@ export default async function ProfilePage() {
           </>
         )}
       </section>
+
+      {/* Editable sections */}
+      <PersoEditForm initial={persoInitial} />
+      <RaceEditForm initial={raceInitial} />
+      <PerfEditForm initial={perfInitial} />
+      <DispoEditForm initial={dispoInitial} />
+
       <SignOutButton />
     </div>
   )

@@ -1,6 +1,9 @@
+import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 
 export default async function TodayPage() {
+  await requireOnboarded()
+
   const supabase = await createClient()
   const {
     data: { user },
