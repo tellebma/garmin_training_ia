@@ -116,7 +116,7 @@ export default async function OnboardingPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">Bienvenue {profile?.first_name ?? ''} 👋</h1>
+        <h1 className="text-2xl font-semibold">Bienvenue {profile?.first_name ?? ''}</h1>
         <p className="text-muted-foreground text-sm">
           Quelques infos pour générer ton plan d&apos;entraînement. ~5 minutes.
         </p>

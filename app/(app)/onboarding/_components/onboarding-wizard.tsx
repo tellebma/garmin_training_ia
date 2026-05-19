@@ -62,7 +62,7 @@ export function OnboardingWizard({ initial, initialStep }: Readonly<Props>) {
                 !canNavigate && 'cursor-not-allowed opacity-40'
               )}
             >
-              {completed.has(s) && step !== s ? '✓ ' : `${String(i + 1)}. `}
+              {completed.has(s) && step !== s ? '' : `${String(i + 1)}. `}
               {STEP_LABELS[s]}
             </button>
           )
