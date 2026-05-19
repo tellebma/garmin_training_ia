@@ -35,6 +35,7 @@ Garmin rate-limited the IP and the library returned without raising.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from garminconnect import (
@@ -45,6 +46,7 @@ from garminconnect import (
 )
 
 _RATE_LIMIT_MSG = "rate limited by Garmin"
+logger = logging.getLogger(__name__)
 
 
 class GarminError(Exception):
@@ -155,6 +157,12 @@ def login_with_tokens(serialized_session: str) -> Garmin:
     The library's ``Client.loads`` raises ``GarminConnectAuthenticationError``
     if the JSON is missing tokens. We surface that as ``GarminAuthError`` so
     the cron loop can flag the credential row for refresh.
+
+    ``Client.loads`` only restores tokens — it does NOT fetch the social
+    profile (which the credentials-based ``login()`` does at the end). Without
+    a ``display_name``, every daily-summary endpoint (``get_stats``,
+    ``get_user_summary``, ``get_hrv_data``, …) crashes with
+    ``"Display name is not set"``. So we replicate the profile fetch here.
     """
     client = Garmin()
     try:
@@ -166,4 +174,22 @@ def login_with_tokens(serialized_session: str) -> Garmin:
         # ``loads`` wraps JSON parse errors in this type.
         msg = "Garmin session corrupted"
         raise GarminAuthError(msg) from e
+
+    # Hydrate display_name / full_name from the social profile endpoint so the
+    # subsequent ``get_stats`` / ``get_user_summary`` calls don't fail. Wrap in
+    # try/except : if Garmin returns a malformed profile we degrade gracefully
+    # to "endpoints requiring display_name fail" (caller already handles that).
+    try:
+        prof = client.client.connectapi("/userprofile-service/socialProfile")
+        if isinstance(prof, dict):
+            display_name = prof.get("displayName")
+            if display_name:
+                client.display_name = display_name
+            full_name = prof.get("fullName")
+            if full_name:
+                client.full_name = full_name
+    except Exception as exc:
+        # Fail-open : leave display_name unset; sync.py raises a typed error.
+        logger.warning("Failed to fetch social profile after token restore: %s", exc)
+
     return client
