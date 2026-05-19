@@ -20,6 +20,7 @@ export default defineConfig({
         'app/**/loading.tsx',
         'app/**/error.tsx',
         'app/**/not-found.tsx',
+        'app/**/page.tsx',
         'components/ui/**',
       ],
       thresholds: {
