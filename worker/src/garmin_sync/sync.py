@@ -136,9 +136,14 @@ def _safe_upsert_hrv(db: Any, user_id: str, client: Garmin, iso_date: str) -> No
 
 def _safe_upsert_body(db: Any, user_id: str, client: Garmin, iso_date: str) -> None:
     try:
-        items = client.get_body_composition(iso_date, iso_date)
-        for raw in items or []:
-            if raw.get("calendarDate"):
+        # Garmin returns {"dateWeightList": [...], "totalAverage": {...}} — iterate the inner list.
+        # Accept legacy list shape too (defensive, in case lib version changes).
+        payload = client.get_body_composition(iso_date, iso_date)
+        weigh_ins = (
+            payload.get("dateWeightList", []) if isinstance(payload, dict) else (payload or [])
+        )
+        for raw in weigh_ins:
+            if isinstance(raw, dict) and raw.get("calendarDate"):
                 db.table("body_composition").upsert(
                     transform_body(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
                 ).execute()
