@@ -6,12 +6,18 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveStepPerso } from '../actions'
+import { COMMON_COUNTRIES } from '@/lib/onboarding/countries'
 import type { PersonInput } from '@/lib/onboarding/schemas'
 import type { Step } from '@/lib/onboarding/steps'
 
 interface Props {
   defaultValues: PersonInput | null
   onDone: (nextStep: Step | null) => void
+}
+
+/** Petit label "(optionnel)" en couleur muted — pas de validation = mis en évidence visuel. */
+function OptionalHint() {
+  return <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
 }
 
 export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
@@ -38,8 +44,12 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
     })
     setLoading(false)
     if (!result.success) {
-      if ('errors' in result) setErrors(result.errors as Record<string, string[]>)
-      else toast.error('Erreur de sauvegarde, réessaye')
+      if ('errors' in result) {
+        setErrors(result.errors as Record<string, string[]>)
+        toast.error('Corrige les erreurs avant de continuer.')
+      } else {
+        toast.error('Erreur de sauvegarde, réessaye.')
+      }
       return
     }
     onDone(result.nextStep)
@@ -51,6 +61,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
         void handleSubmit(e)
       }}
       className="space-y-4"
+      noValidate
     >
       <div className="space-y-2">
         <Label htmlFor="first_name">Prénom</Label>
@@ -60,12 +71,13 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
           onChange={(e) => {
             setFirstName(e.target.value)
           }}
-          required
+          aria-invalid={Boolean(errors.first_name?.[0])}
         />
         {errors.first_name?.[0] && (
           <p className="text-destructive text-xs">{errors.first_name[0]}</p>
         )}
       </div>
+
       <div className="space-y-2">
         <Label htmlFor="dob">Date de naissance</Label>
         <Input
@@ -75,10 +87,11 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
           onChange={(e) => {
             setDob(e.target.value)
           }}
-          required
+          aria-invalid={Boolean(errors.dob?.[0])}
         />
         {errors.dob?.[0] && <p className="text-destructive text-xs">{errors.dob[0]}</p>}
       </div>
+
       <div className="space-y-2">
         <Label htmlFor="sex">Sexe</Label>
         <select
@@ -93,10 +106,15 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
           <option value="F">F</option>
           <option value="X">X / Autre</option>
         </select>
+        {errors.sex?.[0] && <p className="text-destructive text-xs">{errors.sex[0]}</p>}
       </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label htmlFor="city">Ville</Label>
+          <Label htmlFor="city">
+            Ville
+            <OptionalHint />
+          </Label>
           <Input
             id="city"
             value={city}
@@ -106,16 +124,27 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="country">Pays</Label>
+          <Label htmlFor="country">
+            Pays
+            <OptionalHint />
+          </Label>
           <Input
             id="country"
+            list="countries-list"
             value={country}
             onChange={(e) => {
               setCountry(e.target.value)
             }}
+            autoComplete="country-name"
           />
+          <datalist id="countries-list">
+            {COMMON_COUNTRIES.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
         </div>
       </div>
+
       <label className="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
@@ -124,7 +153,6 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
             setConsent(e.target.checked)
           }}
           className="mt-0.5"
-          required
         />
         <span>
           J&apos;accepte le traitement de mes données fitness pour générer un plan personnalisé.
@@ -134,6 +162,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
       {errors.consent_data_processing?.[0] && (
         <p className="text-destructive text-xs">{errors.consent_data_processing[0]}</p>
       )}
+
       <Button type="submit" disabled={loading} className="w-full">
         {loading ? 'Sauvegarde...' : 'Suivant'}
       </Button>

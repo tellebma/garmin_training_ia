@@ -49,8 +49,12 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
     })
     if (!result.success) {
       setLoading(false)
-      if ('errors' in result) setErrors(result.errors as Record<string, string[]>)
-      else toast.error('Erreur de sauvegarde, réessaye')
+      if ('errors' in result) {
+        setErrors(result.errors as Record<string, string[]>)
+        toast.error('Corrige les erreurs avant de continuer.')
+      } else {
+        toast.error('Erreur de sauvegarde, réessaye.')
+      }
       return
     }
     // Last step → finalize (redirect to /profile)
@@ -66,9 +70,15 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
         void handleSubmit(e)
       }}
       className="space-y-4"
+      noValidate
     >
       <div className="space-y-2">
-        <Label>Jours dispo (clique pour sélectionner)</Label>
+        <Label>
+          Jours dispo
+          <span className="text-muted-foreground ml-1 text-xs font-normal">
+            (optionnel — vide = Lun-Mar-Mer-Jeu-Sam)
+          </span>
+        </Label>
         <div className="flex flex-wrap gap-2">
           {DAYS.map((d) => (
             <button
@@ -87,11 +97,15 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
             </button>
           ))}
         </div>
-        <p className="text-muted-foreground text-xs">Vide → defaults : Lun-Mar-Mer-Jeu-Sam.</p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="hours">Heures par semaine</Label>
+        <Label htmlFor="hours">
+          Heures par semaine
+          <span className="text-muted-foreground ml-1 text-xs font-normal">
+            (optionnel — vide = 6 h)
+          </span>
+        </Label>
         <Input
           id="hours"
           type="number"

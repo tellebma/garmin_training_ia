@@ -1,0 +1,31 @@
+// Liste des pays courants pour datalist autocomplete. Pas exhaustive — juste
+// les principaux pays francophones + voisins europe + pays anglophones courants.
+// L'user peut taper n'importe quel string (datalist = suggestion, pas validation).
+export const COMMON_COUNTRIES = [
+  'France',
+  'Belgique',
+  'Suisse',
+  'Luxembourg',
+  'Canada',
+  'Allemagne',
+  'Espagne',
+  'Italie',
+  'Portugal',
+  'Pays-Bas',
+  'Royaume-Uni',
+  'Irlande',
+  'Autriche',
+  'Danemark',
+  'Suède',
+  'Norvège',
+  'Finlande',
+  'États-Unis',
+  'Australie',
+  'Nouvelle-Zélande',
+  'Maroc',
+  'Tunisie',
+  'Algérie',
+  'Sénégal',
+  "Côte d'Ivoire",
+  'Japon',
+] as const
