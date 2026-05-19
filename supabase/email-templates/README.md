@@ -13,15 +13,52 @@ pouvoir les éditer dans l'IDE et les redéployer en cas de besoin.
 
 Templates actuellement customisés :
 
-- `magic-link.html` + `magic-link.subject.txt` — connexion par magic link (le seul flow auth utilisé en MVP)
+- `confirm-signup.html` + `confirm-signup.subject.txt` — activation de compte (flow `/register`)
+- `reset-password.html` + `reset-password.subject.txt` — réinitialisation de mot de passe (flow `/forgot-password`)
 
 Templates Supabase **non customisés** (utilisent les defaults EN) :
 
-- `confirm-sign-up` — non utilisé (magic link gère la confirmation)
 - `invite-user` — non utilisé en MVP
 - `change-email-address` — non utilisé en MVP
-- `reset-password` — non utilisé (pas de password en MVP)
 - `reauthentication` — non utilisé en MVP
+
+## Templates auth (E-Auth EPIC)
+
+| Fichier | Déclenché par | Sujet Studio |
+|---|---|---|
+| `confirm-signup.html` + `.subject.txt` | `supabase.auth.signInWithOtp({ shouldCreateUser: true })` (depuis `/register`) | "Active ton compte Garmin Training" |
+| `reset-password.html` + `.subject.txt` | `supabase.auth.resetPasswordForEmail` (depuis `/forgot-password`) | "Réinitialise ton mot de passe Garmin Training" |
+
+### Setup Supabase Studio post-merge
+
+1. Dashboard → Authentication → Email Templates
+2. **Magic Link** (template Supabase pour signInWithOtp) → coller le contenu de `confirm-signup.html` + ajuster le sujet à celui de `confirm-signup.subject.txt`
+3. **Reset Password** (template Supabase pour resetPasswordForEmail) → coller le contenu de `reset-password.html` + ajuster le sujet
+4. **URL Configuration** → Redirect URLs : ajouter
+   - `https://garmin-training-ia.vercel.app/auth/set-password`
+   - `https://garmin-training-ia.vercel.app/auth/reset-password`
+   - `http://localhost:3000/auth/set-password`
+   - `http://localhost:3000/auth/reset-password`
+
+### Phishing-resistance (M3)
+
+Chaque template doit :
+- Afficher l'URL complète sous le bouton (pas seulement un anchor cliquable)
+- Mentionner l'expiration du lien
+- Mentionner "ignore cet email si tu n'as pas demandé"
+
+### Cookies (M2 vérification post-deploy)
+
+Après mise en prod, vérifier dans DevTools (Application → Cookies) que les cookies Supabase ont :
+- `Secure = true`
+- `HttpOnly = true`
+- `SameSite = Lax`
+
+Si ce n'est pas le cas, revoir la config Supabase Auth.
+
+### Admin 2FA (M6)
+
+Activer la 2FA sur le compte Supabase dashboard utilisé pour gérer ce projet — blast radius critical (édition de `allowed_emails`).
 
 ## Variables Supabase disponibles
 
