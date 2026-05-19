@@ -41,9 +41,14 @@ YAGNI (volontairement hors scope E-Auth, à revoir post-MVP) :
 
 - Captcha sur `/register`, `/login`, `/forgot-password` (CLAUDE.md TODO).
 - 2FA / OAuth providers (Google, Apple, etc.).
-- UI admin pour gérer `allowed_emails` (l'owner édite la table directement via Supabase Studio MVP).
 - HIBP (leaked password check) — Pro plan only.
 - Audit log des tentatives de connexion.
+
+### 3.1 Gestion `allowed_emails` (MVP vs post-MVP)
+
+**MVP** : édition manuelle via **Supabase Studio** (Table Editor → `allowed_emails` → "+ Insert row"). L'owner est seul admin, ~30 secondes par invitation, pas besoin de UI dédiée.
+
+**Post-MVP** : page admin `/admin/allowed-emails` quand l'owner aura besoin de déléguer ou que la liste dépasse une vingtaine d'entrées. Cette page nécessitera un système de rôles (`athlete_profiles.is_admin boolean` ou `auth.users.app_metadata.role`) — hors scope E-Auth.
 
 ## 4. Data model
 
@@ -82,6 +87,115 @@ grant execute on function public.is_email_allowed(text) to anon, authenticated;
 
 La fonction `security definer` exécute en tant que propriétaire (postgres) et passe au-dessus de RLS. Elle retourne uniquement un booléen — l'appelant ne voit jamais la liste entière. Pas de fuite d'enum d'emails.
 
+### 4.1ter Rate limit IP-based — table `auth_rate_limits` + RPC
+
+Supabase OTP rate limit natif est par-utilisateur, pas par-IP. Un attaquant qui itère sur 100 emails différents depuis la même IP brûle 100 envois SMTP avant que Supabase intervienne, ce qui peut nous faire ban par le provider SMTP.
+
+**Table** :
+
+```sql
+create table if not exists public.auth_rate_limits (
+  id bigserial primary key,
+  ip text not null,
+  action text not null,            -- 'register' | 'forgot_password' | 'login'
+  created_at timestamptz not null default now()
+);
+
+create index if not exists auth_rate_limits_ip_action_created_idx
+  on public.auth_rate_limits (ip, action, created_at desc);
+
+alter table public.auth_rate_limits enable row level security;
+-- Pas de policies → seul le RPC security definer y accède.
+```
+
+**Fonction RPC `check_and_log_auth_rate_limit`** :
+
+```sql
+create or replace function public.check_and_log_auth_rate_limit(
+  p_ip text,
+  p_action text,
+  p_max_count integer,
+  p_window_seconds integer
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  -- Count recent attempts for this (ip, action) within the window
+  select count(*) into v_count
+  from public.auth_rate_limits
+  where ip = p_ip
+    and action = p_action
+    and created_at > now() - make_interval(secs => p_window_seconds);
+
+  if v_count >= p_max_count then
+    return false;
+  end if;
+
+  -- Log this attempt (atomic with the check via the same connection)
+  insert into public.auth_rate_limits (ip, action) values (p_ip, p_action);
+  return true;
+end
+$$;
+
+grant execute on function public.check_and_log_auth_rate_limit(text, text, integer, integer)
+  to anon, authenticated;
+```
+
+**Cleanup périodique** : pas de `pg_cron` MVP (extension non activée par défaut sur Supabase free tier). À la place, on `delete` les vieux records au début de chaque check :
+
+```sql
+-- À déclencher tous les ~100 inserts via une variante de la RPC, ou via un script cron weekly.
+-- MVP : on accepte la croissance ~ <100 rows/jour, on nettoie manuellement si besoin.
+delete from public.auth_rate_limits where created_at < now() - interval '7 days';
+```
+
+**Limites par action (constantes côté Server Action)** :
+
+| Action | Max | Fenêtre | Justification |
+|---|---|---|---|
+| `register` | 3 | 1 heure | Évite spam SMTP + ban provider |
+| `forgot_password` | 3 | 1 heure | Idem |
+| `login` | 10 | 15 minutes | Tolère brute-force humain (faute de frappe) sans bloquer trop vite |
+
+**Détection IP** côté Server Action :
+
+```ts
+import { headers } from 'next/headers'
+
+async function clientIp(): Promise<string> {
+  const h = await headers()
+  // Vercel forwarde via x-forwarded-for; fallback x-real-ip; sinon 'unknown'
+  const fwd = h.get('x-forwarded-for')
+  if (fwd) return fwd.split(',')[0].trim()
+  return h.get('x-real-ip') ?? 'unknown'
+}
+```
+
+**Intégration Server Action** :
+
+```ts
+const ip = await clientIp()
+const { data: allowed } = await supabase.rpc('check_and_log_auth_rate_limit', {
+  p_ip: ip,
+  p_action: 'register',
+  p_max_count: 3,
+  p_window_seconds: 3600,
+})
+if (!allowed) return { error: 'rate_limited' }
+// ... suite du flow (allowlist check, signInWithOtp, etc.)
+```
+
+**Limitations connues** :
+
+- `x-forwarded-for` est manipulable (l'attaquant peut envoyer l'header lui-même), mais Vercel **écrase** systématiquement cet header avec l'IP réelle au niveau de l'edge. C'est fiable tant qu'on reste derrière Vercel.
+- IPv6 : un attaquant peut basculer sur des IPs voisines du même /64. Acceptable pour MVP — Captcha post-MVP couvrira ce vecteur.
+- Pas de différenciation user authentifié vs anon (volontaire : on protège l'envoi mail, pas la session).
+
 ### 4.2 Alter `athlete_profiles`
 
 ```sql
@@ -104,7 +218,14 @@ L'owner pourra ainsi recréer un compte si besoin, et son flag `password_set` re
 
 ### 4.4 Migration
 
-Un fichier `supabase/migrations/20260519000000_eauth_password_set_allowlist.sql` regroupant les quatre changements ci-dessus (table `allowed_emails`, RPC `is_email_allowed`, alter `athlete_profiles.password_set`, seed owner).
+Un fichier `supabase/migrations/20260519000000_eauth_password_set_allowlist.sql` regroupant les six changements ci-dessus :
+
+1. Table `allowed_emails` + RLS
+2. RPC `is_email_allowed` (4.1bis)
+3. Table `auth_rate_limits` + RLS + index
+4. RPC `check_and_log_auth_rate_limit` (4.1ter)
+5. Alter `athlete_profiles.password_set`
+6. Seed owner dans `allowed_emails`
 
 ## 5. Architecture frontend
 
@@ -274,6 +395,8 @@ export const setPasswordSchema = z
 | `/auth/set-password` | Mdp < 8 OR mdp ≠ confirm | Zod inline |
 | `/auth/reset-password` | Pas de session (lien expiré) | Toast "Lien expiré, redemande un reset" + redirect `/forgot-password` |
 | Supabase rate limit | Toast "Trop de tentatives, réessaie dans quelques minutes" | Supabase OTP rate limit natif (3/h) |
+| Rate limit IP custom (`register` / `forgot_password`) | Toast "Trop de tentatives depuis ton IP, réessaie dans 1 heure" | Notre RPC `check_and_log_auth_rate_limit` retourne `false` |
+| Rate limit IP custom (`login`) | Toast "Trop de tentatives, réessaie dans 15 minutes" | Idem |
 
 **Sécurité — choix explicites** :
 
