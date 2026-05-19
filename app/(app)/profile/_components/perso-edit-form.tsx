@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveStepPerso } from '@/app/(app)/onboarding/actions'
+import { COMMON_COUNTRIES } from '@/lib/onboarding/countries'
 import type { PersonInput } from '@/lib/onboarding/schemas'
 
 interface Props {
@@ -112,7 +113,10 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label htmlFor="perso-city">Ville</Label>
+          <Label htmlFor="perso-city">
+            Ville
+            <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+          </Label>
           <Input
             id="perso-city"
             value={values.city ?? ''}
@@ -122,14 +126,24 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="perso-country">Pays</Label>
+          <Label htmlFor="perso-country">
+            Pays
+            <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+          </Label>
           <Input
             id="perso-country"
+            list="perso-edit-countries"
             value={values.country ?? ''}
             onChange={(e) => {
               setValues((v) => ({ ...v, country: e.target.value || undefined }))
             }}
+            autoComplete="country-name"
           />
+          <datalist id="perso-edit-countries">
+            {COMMON_COUNTRIES.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
         </div>
       </div>
 
