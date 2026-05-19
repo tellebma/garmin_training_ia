@@ -178,6 +178,21 @@ export async function saveStepDispo(input: DispoInput): Promise<StepResult> {
   return { success: true, nextStep: nextStep('dispo') }
 }
 
+async function generatePlanForUser(): Promise<void> {
+  // Fire-and-forget : worker has its own retry/cron, we don't block UX if it fails.
+  try {
+    const supabase = await createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+    await workerPost('/coach/generate-plan', {}, session.access_token)
+  } catch (err) {
+    // Swallow — the weekly cron will regenerate
+    console.error('Plan generation failed at finalize, will retry via cron', err)
+  }
+}
+
 export async function finalizeOnboarding(): Promise<void> {
   const userIdOrErr = await requireUserId()
   if (typeof userIdOrErr !== 'string') redirect('/login')
@@ -222,6 +237,9 @@ export async function finalizeOnboarding(): Promise<void> {
     .from('athlete_profiles')
     .update({ onboarding_completed_at: new Date().toISOString() })
     .eq('user_id', userIdOrErr)
+
+  // Trigger plan generation in fire-and-forget mode — does NOT block redirect
+  await generatePlanForUser()
 
   revalidatePath('/profile')
   redirect('/profile?onboarded=1')
