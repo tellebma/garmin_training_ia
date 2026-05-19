@@ -91,6 +91,12 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
             }
         ).eq("user_id", user_id).execute()
         log.warning("sync aborted user=%s — Garmin profile incomplete (no display_name)", user_id)
+        # Activities + TSS were synced before the display_name failure — recompute
+        # Banister state from whatever was persisted so /today + /stats still work.
+        try:
+            recompute_daily_state(user_id, days_back=180)
+        except Exception:
+            log.exception("recompute_daily_state failed for user=%s", user_id)
         return {"status": "garmin_no_display_name"}
 
     db.table("garmin_credentials").update(
