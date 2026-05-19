@@ -14,8 +14,8 @@ def test_transform_sleep() -> None:
             "awakeSleepSeconds": 1800,
             "sleepStartTimestampGMT": 1715900400000,
             "sleepEndTimestampGMT": 1715929200000,
+            "sleepScores": {"overall": {"value": 82}},
         },
-        "sleepScores": {"overall": {"value": 82}},
     }
     row = transform_sleep(user_id="u1", raw=raw)
     assert row["date"] == "2026-05-15"
