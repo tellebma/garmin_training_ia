@@ -44,9 +44,11 @@ export async function saveStepPerso(input: PersonInput): Promise<StepResult> {
   if (typeof userIdOrErr !== 'string') return userIdOrErr
 
   const supabase = await createClient()
-  const { error } = await supabase.from('athlete_profiles').upsert(
-    {
-      user_id: userIdOrErr,
+  // La row existe forcément via le trigger handle_new_user (créée à la signup).
+  // On fait un UPDATE direct — pas d'upsert qui demanderait aussi la policy INSERT.
+  const { error } = await supabase
+    .from('athlete_profiles')
+    .update({
       first_name: parsed.data.first_name,
       dob: parsed.data.dob,
       sex: parsed.data.sex,
@@ -54,9 +56,8 @@ export async function saveStepPerso(input: PersonInput): Promise<StepResult> {
       country: parsed.data.country ?? null,
       consent_data_processing: parsed.data.consent_data_processing,
       consent_signed_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' }
-  )
+    })
+    .eq('user_id', userIdOrErr)
   if (error) return { success: false, error: 'save_failed' }
 
   revalidatePath(ONBOARDING_PATH)
