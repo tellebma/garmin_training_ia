@@ -5,6 +5,7 @@ import {
   perfSchema,
   dispoSchema,
   DISPO_DEFAULTS,
+  computeTotals,
 } from '@/lib/onboarding/schemas'
 
 describe('personSchema', () => {
@@ -38,26 +39,188 @@ describe('personSchema', () => {
 
 describe('raceSchema', () => {
   const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const valid = { race_date: future, race_distance: 'olympique' as const }
 
-  it('accepts a valid minimal payload', () => {
-    expect(raceSchema.safeParse(valid).success).toBe(true)
+  const triathlonValid = {
+    race_date: future,
+    discipline: 'triathlon' as const,
+    legs: [
+      { order: 1, discipline: 'swim' as const, distance_km: 1.4, elevation_gain_m: 0 },
+      { order: 2, discipline: 'bike' as const, distance_km: 53, elevation_gain_m: 2200 },
+      { order: 3, discipline: 'run' as const, distance_km: 8, elevation_gain_m: 200 },
+    ],
+  }
+
+  it('accepts a valid triathlon with 3 legs in correct order', () => {
+    expect(raceSchema.safeParse(triathlonValid).success).toBe(true)
+  })
+
+  it('rejects triathlon with 2 legs', () => {
+    const bad = { ...triathlonValid, legs: triathlonValid.legs.slice(0, 2) }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects triathlon with wrong leg sequence (bike first)', () => {
+    const bad = {
+      ...triathlonValid,
+      legs: [
+        { order: 1, discipline: 'bike' as const, distance_km: 53, elevation_gain_m: 2200 },
+        { order: 2, discipline: 'swim' as const, distance_km: 1.4, elevation_gain_m: 0 },
+        { order: 3, discipline: 'run' as const, distance_km: 8, elevation_gain_m: 200 },
+      ],
+    }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
   })
 
   it('rejects past race_date', () => {
-    expect(raceSchema.safeParse({ ...valid, race_date: '2000-01-01' }).success).toBe(false)
+    const bad = { ...triathlonValid, race_date: '2000-01-01' }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
   })
 
-  it('rejects unknown distance', () => {
-    expect(raceSchema.safeParse({ ...valid, race_distance: 'mega' }).success).toBe(false)
+  it('accepts run with 1 leg', () => {
+    const ok = {
+      race_date: future,
+      discipline: 'run' as const,
+      legs: [{ order: 1, discipline: 'run' as const, distance_km: 25, elevation_gain_m: 1000 }],
+    }
+    expect(raceSchema.safeParse(ok).success).toBe(true)
   })
 
-  it('rejects target_time below 600s', () => {
-    expect(raceSchema.safeParse({ ...valid, target_time_seconds: 599 }).success).toBe(false)
+  it('rejects run with a bike leg', () => {
+    const bad = {
+      race_date: future,
+      discipline: 'run' as const,
+      legs: [{ order: 1, discipline: 'bike' as const, distance_km: 25, elevation_gain_m: 1000 }],
+    }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
   })
 
-  it('rejects target_time above 86400s', () => {
-    expect(raceSchema.safeParse({ ...valid, target_time_seconds: 90000 }).success).toBe(false)
+  it('accepts duathlon with run/bike/run sequence', () => {
+    const ok = {
+      race_date: future,
+      discipline: 'duathlon' as const,
+      legs: [
+        { order: 1, discipline: 'run' as const, distance_km: 5, elevation_gain_m: 50 },
+        { order: 2, discipline: 'bike' as const, distance_km: 20, elevation_gain_m: 300 },
+        { order: 3, discipline: 'run' as const, distance_km: 2.5, elevation_gain_m: 30 },
+      ],
+    }
+    expect(raceSchema.safeParse(ok).success).toBe(true)
+  })
+
+  it('accepts aquathlon with swim/run sequence', () => {
+    const ok = {
+      race_date: future,
+      discipline: 'aquathlon' as const,
+      legs: [
+        { order: 1, discipline: 'swim' as const, distance_km: 1.5, elevation_gain_m: 0 },
+        { order: 2, discipline: 'run' as const, distance_km: 5, elevation_gain_m: 50 },
+      ],
+    }
+    expect(raceSchema.safeParse(ok).success).toBe(true)
+  })
+
+  it('accepts autre with 4 mixed legs (swimrun style)', () => {
+    const ok = {
+      race_date: future,
+      discipline: 'autre' as const,
+      legs: [
+        { order: 1, discipline: 'swim' as const, distance_km: 0.5, elevation_gain_m: 0 },
+        { order: 2, discipline: 'run' as const, distance_km: 3, elevation_gain_m: 50 },
+        { order: 3, discipline: 'swim' as const, distance_km: 0.8, elevation_gain_m: 0 },
+        { order: 4, discipline: 'run' as const, distance_km: 5, elevation_gain_m: 100 },
+      ],
+    }
+    expect(raceSchema.safeParse(ok).success).toBe(true)
+  })
+
+  it('rejects autre with 11 legs (max 10)', () => {
+    const tooMany = {
+      race_date: future,
+      discipline: 'autre' as const,
+      legs: Array.from({ length: 11 }, (_, i) => ({
+        order: i + 1,
+        discipline: 'run' as const,
+        distance_km: 1,
+        elevation_gain_m: 0,
+      })),
+    }
+    expect(raceSchema.safeParse(tooMany).success).toBe(false)
+  })
+
+  it('rejects non-sequential leg orders', () => {
+    const bad = {
+      race_date: future,
+      discipline: 'autre' as const,
+      legs: [
+        { order: 1, discipline: 'run' as const, distance_km: 5, elevation_gain_m: 50 },
+        { order: 3, discipline: 'run' as const, distance_km: 5, elevation_gain_m: 50 },
+      ],
+    }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects distance <= 0', () => {
+    const bad = {
+      race_date: future,
+      discipline: 'run' as const,
+      legs: [{ order: 1, discipline: 'run' as const, distance_km: 0, elevation_gain_m: 0 }],
+    }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects D+ < 0', () => {
+    const bad = {
+      race_date: future,
+      discipline: 'run' as const,
+      legs: [{ order: 1, discipline: 'run' as const, distance_km: 5, elevation_gain_m: -10 }],
+    }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects D+ > 20000', () => {
+    const bad = {
+      race_date: future,
+      discipline: 'run' as const,
+      legs: [{ order: 1, discipline: 'run' as const, distance_km: 5, elevation_gain_m: 25000 }],
+    }
+    expect(raceSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('computeTotals', () => {
+  it('sums Triathlon Madeleine correctly (62.4 km, 2400 m)', () => {
+    const legs = [
+      { order: 1, discipline: 'swim' as const, distance_km: 1.4, elevation_gain_m: 0 },
+      { order: 2, discipline: 'bike' as const, distance_km: 53, elevation_gain_m: 2200 },
+      { order: 3, discipline: 'run' as const, distance_km: 8, elevation_gain_m: 200 },
+    ]
+    expect(computeTotals(legs)).toEqual({
+      total_distance_km: 62.4,
+      total_elevation_gain_m: 2400,
+    })
+  })
+
+  it('sums a mono-leg trail (25 km / 1000 m)', () => {
+    const legs = [{ order: 1, discipline: 'run' as const, distance_km: 25, elevation_gain_m: 1000 }]
+    expect(computeTotals(legs)).toEqual({
+      total_distance_km: 25,
+      total_elevation_gain_m: 1000,
+    })
+  })
+
+  it('rounds distance to 2 decimals', () => {
+    const legs = [
+      { order: 1, discipline: 'run' as const, distance_km: 1.234, elevation_gain_m: 0 },
+      { order: 2, discipline: 'run' as const, distance_km: 2.567, elevation_gain_m: 0 },
+    ]
+    expect(computeTotals(legs).total_distance_km).toBe(3.8)
+  })
+
+  it('returns 0/0 for empty legs', () => {
+    expect(computeTotals([])).toEqual({
+      total_distance_km: 0,
+      total_elevation_gain_m: 0,
+    })
   })
 })
 
