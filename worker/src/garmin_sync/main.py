@@ -60,9 +60,11 @@ _AuthHeader = Annotated[str | None, Header()]
 def sync_user(
     user_id: str,
     authorization: _AuthHeader = None,
+    initial: bool = False,
 ) -> dict[str, Any]:
+    """Sync a single user. Pass ?initial=true to force a 90-day backfill."""
     _require_shared_token(authorization)
-    return run_sync_for_user(user_id, initial=False)
+    return run_sync_for_user(user_id, initial=initial)
 
 
 class GarminConnectRequest(BaseModel):
