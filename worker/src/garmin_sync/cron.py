@@ -11,6 +11,7 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+from garmin_sync.coach.state import recompute_daily_state
 from garmin_sync.crypto import TokenCipher
 from garmin_sync.garmin_client import GarminAuthError, login_with_tokens
 from garmin_sync.supabase_client import get_admin_client
@@ -84,6 +85,13 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
             else creds["initial_sync_completed_at"],
         }
     ).eq("user_id", user_id).execute()
+
+    # E7 — Materialize Banister state for fast frontend reads.
+    # Wrapped in try/except : a failure here MUST NOT abort the sync.
+    try:
+        recompute_daily_state(user_id, days_back=180)
+    except Exception:
+        log.exception("recompute_daily_state failed for user=%s", user_id)
 
     return {"status": "ok", "days_synced": (today - start).days + 1}
 
