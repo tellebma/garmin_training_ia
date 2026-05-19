@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-Phase = Literal["base", "build", "peak", "taper"]
+Phase = Literal['base', 'build', 'peak', 'taper']
 
 
 def compute_phases(start_date: date, race_date: date) -> list[tuple[int, Phase]]:
@@ -26,7 +26,7 @@ def compute_phases(start_date: date, race_date: date) -> list[tuple[int, Phase]]
     total_weeks = max(1, (race_date - start_date).days // 7)
 
     if total_weeks == 1:
-        return [(0, "taper")]
+        return [(0, 'taper')]
 
     # Targets — backward from race_date
     taper_weeks = 1 if total_weeks < 8 else 2
@@ -37,12 +37,12 @@ def compute_phases(start_date: date, race_date: date) -> list[tuple[int, Phase]]
     phases: list[tuple[int, Phase]] = []
     for w in range(total_weeks):
         if w < base_weeks:
-            phase: Phase = "base"
+            phase: Phase = 'base'
         elif w < base_weeks + build_weeks:
-            phase = "build"
+            phase = 'build'
         elif w < total_weeks - taper_weeks:
-            phase = "peak"
+            phase = 'peak'
         else:
-            phase = "taper"
+            phase = 'taper'
         phases.append((w, phase))
     return phases
