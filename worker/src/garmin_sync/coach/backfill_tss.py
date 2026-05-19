@@ -22,12 +22,12 @@ def backfill_tss() -> dict[str, int]:
     """
     db = get_admin_client()
     activities_resp = (
-        db.table("activities")
-        .select("id, user_id, duration_s, sport, power_avg, hr_avg")
-        .is_("tss", "null")
+        db.table('activities')
+        .select('id, user_id, duration_s, sport, power_avg, hr_avg')
+        .is_('tss', 'null')
         .execute()
     )
-    activities = cast("list[dict[str, Any]]", activities_resp.data or [])
+    activities = cast('list[dict[str, Any]]', activities_resp.data or [])
 
     profile_cache: dict[str, dict[str, Any]] = {}
     updated = 0
@@ -35,38 +35,37 @@ def backfill_tss() -> dict[str, int]:
     errors = 0
     for a in activities:
         try:
-            user_id = a["user_id"]
+            user_id = a['user_id']
             if user_id not in profile_cache:
                 p_resp = (
-                    db.table("athlete_profiles")
-                    .select("ftp_watts, fc_max_bpm")
-                    .eq("user_id", user_id)
+                    db.table('athlete_profiles')
+                    .select('ftp_watts, fc_max_bpm')
+                    .eq('user_id', user_id)
                     .single()
                     .execute()
                 )
-                profile_cache[user_id] = cast("dict[str, Any]", p_resp.data or {})
+                profile_cache[user_id] = cast('dict[str, Any]', p_resp.data or {})
             profile = profile_cache[user_id]
             tss = compute_tss(
-                duration_s=a.get("duration_s", 0),
-                sport=a.get("sport", ""),
-                power_avg=a.get("power_avg"),
-                hr_avg=a.get("hr_avg"),
-                ftp_watts=profile.get("ftp_watts"),
-                fc_max_bpm=profile.get("fc_max_bpm"),
+                duration_s=a.get('duration_s', 0),
+                sport=a.get('sport', ''),
+                power_avg=a.get('power_avg'),
+                hr_avg=a.get('hr_avg'),
+                ftp_watts=profile.get('ftp_watts'),
+                fc_max_bpm=profile.get('fc_max_bpm'),
             )
             if tss is None:
                 skipped += 1
                 continue
-            db.table("activities").update({"tss": tss}).eq("id", a["id"]).execute()
+            db.table('activities').update({'tss': tss}).eq('id', a['id']).execute()
             updated += 1
         except Exception:
-            log.exception("Failed to backfill TSS for activity %s", a.get("id"))
+            log.exception('Failed to backfill TSS for activity %s', a.get('id'))
             errors += 1
-    return {"updated": updated, "skipped": skipped, "errors": errors}
+    return {'updated': updated, 'skipped': skipped, 'errors': errors}
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import json
-
     result = backfill_tss()
     print(json.dumps(result, indent=2))
