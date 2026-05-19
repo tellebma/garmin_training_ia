@@ -19,7 +19,7 @@ interface AthleteProfileRow {
   ftp_watts: number | null
   vma_kmh: number | null
   fc_max_bpm: number | null
-  garmin_profile_synced_at: string | null
+  garmin_synced_at: string | null
   available_days: string[] | null
   hours_per_week: number | null
   sports_strengths: { swim: number; bike: number; run: number } | null
@@ -58,7 +58,7 @@ export default async function ProfilePage() {
     supabase
       .from('athlete_profiles')
       .select(
-        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_profile_synced_at, available_days, hours_per_week, sports_strengths'
+        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_synced_at, available_days, hours_per_week, sports_strengths'
       )
       .eq('user_id', userId)
       .single<AthleteProfileRow>(),
@@ -104,7 +104,7 @@ export default async function ProfilePage() {
     ftp_watts: profile?.ftp_watts ?? undefined,
     vma_kmh: profile?.vma_kmh ?? undefined,
     fc_max_bpm: profile?.fc_max_bpm ?? undefined,
-    garmin_synced_at: profile?.garmin_profile_synced_at ?? null,
+    garmin_synced_at: profile?.garmin_synced_at ?? null,
   }
 
   const dispoInitial: DispoInput = {
