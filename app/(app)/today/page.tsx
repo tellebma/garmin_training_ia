@@ -10,6 +10,7 @@ import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { ChartCard } from '../_components/chart-card'
 import { EmptyState } from '../_components/empty-state'
+import { GarminStatusBanner } from '../_components/garmin-status-banner'
 import { MetricTile } from '../_components/metric-tile'
 import { PhaseBadge } from '../_components/phase-badge'
 import { SessionCard } from '../_components/session-card'
@@ -58,56 +59,69 @@ export default async function TodayPage() {
   const today = isoDate(now)
   const ninetyDaysAgo = isoDate(new Date(now.getTime() - 90 * 86_400_000))
 
-  const [sessionRes, dailyRes, sleepRes, hrvRes, banisterRes, lastActivityRes, raceRes] =
-    await Promise.all([
-      supabase
-        .from('planned_sessions')
-        .select(
-          'id, date, sport, session_type, target_duration_s, target_tss, phase, week_offset, notes'
-        )
-        .eq('user_id', userId)
-        .eq('date', today)
-        .maybeSingle(),
-      supabase
-        .from('daily_metrics')
-        .select('date, body_battery_high, body_battery_low, stress_avg, resting_hr')
-        .eq('user_id', userId)
-        .eq('date', today)
-        .maybeSingle(),
-      supabase
-        .from('sleep')
-        .select('date, score, total_seconds')
-        .eq('user_id', userId)
-        .eq('date', today)
-        .maybeSingle(),
-      supabase
-        .from('hrv')
-        .select('date, last_night_avg, baseline_low, baseline_high')
-        .eq('user_id', userId)
-        .eq('date', today)
-        .maybeSingle(),
-      supabase
-        .from('daily_banister_state')
-        .select('date, ctl, atl, tsb')
-        .eq('user_id', userId)
-        .gte('date', ninetyDaysAgo)
-        .order('date', { ascending: true }),
-      supabase
-        .from('activities')
-        .select(
-          'id, garmin_activity_id, start_time, sport, duration_s, distance_km, elevation_gain_m, tss, hr_avg'
-        )
-        .eq('user_id', userId)
-        .order('start_time', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from('race_goals')
-        .select('race_date, name, discipline')
-        .eq('user_id', userId)
-        .eq('is_primary', true)
-        .maybeSingle(),
-    ])
+  const [
+    sessionRes,
+    dailyRes,
+    sleepRes,
+    hrvRes,
+    banisterRes,
+    lastActivityRes,
+    raceRes,
+    garminCredsRes,
+  ] = await Promise.all([
+    supabase
+      .from('planned_sessions')
+      .select(
+        'id, date, sport, session_type, target_duration_s, target_tss, phase, week_offset, notes'
+      )
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle(),
+    supabase
+      .from('daily_metrics')
+      .select('date, body_battery_high, body_battery_low, stress_avg, resting_hr')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle(),
+    supabase
+      .from('sleep')
+      .select('date, score, total_seconds')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle(),
+    supabase
+      .from('hrv')
+      .select('date, last_night_avg, baseline_low, baseline_high')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle(),
+    supabase
+      .from('daily_banister_state')
+      .select('date, ctl, atl, tsb')
+      .eq('user_id', userId)
+      .gte('date', ninetyDaysAgo)
+      .order('date', { ascending: true }),
+    supabase
+      .from('activities')
+      .select(
+        'id, garmin_activity_id, start_time, sport, duration_s, distance_km, elevation_gain_m, tss, hr_avg'
+      )
+      .eq('user_id', userId)
+      .order('start_time', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('race_goals')
+      .select('race_date, name, discipline')
+      .eq('user_id', userId)
+      .eq('is_primary', true)
+      .maybeSingle(),
+    supabase
+      .from('garmin_credentials')
+      .select('last_sync_status, last_sync_error_message')
+      .eq('user_id', userId)
+      .maybeSingle(),
+  ])
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   const session = sessionRes.data as PlannedSession | null
@@ -119,6 +133,8 @@ export default async function TodayPage() {
   const lastActivity = lastActivityRes.data as ActivityRowDto | null
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   const race = raceRes.data as RaceGoal | null
+  const garminSyncStatus = (garminCredsRes.data?.last_sync_status ?? null) as string | null
+  const garminSyncError = (garminCredsRes.data?.last_sync_error_message ?? null) as string | null
 
   const sleepValue = sleep?.score ? String(sleep.score) : '—'
   const hrvValue = hrv?.last_night_avg
@@ -128,6 +144,7 @@ export default async function TodayPage() {
 
   return (
     <div className="space-y-6">
+      <GarminStatusBanner status={garminSyncStatus} errorMessage={garminSyncError} />
       <header className="flex items-start justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold">Aujourd&rsquo;hui</h1>

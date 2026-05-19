@@ -19,6 +19,7 @@ from typing import Any, cast
 from garminconnect import (
     Garmin,
     GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
     GarminConnectTooManyRequestsError,
 )
 
@@ -31,8 +32,26 @@ from garmin_sync.transformers.sleep import transform_sleep
 
 log = logging.getLogger(__name__)
 
+
+class GarminProfileIncompleteError(Exception):
+    """Raised when the Garmin account is missing required profile data.
+
+    The most common case is a brand-new Garmin account where the user hasn't
+    set a display_name yet — every daily-summary endpoint requires it.
+    """
+
+
 # Errors that mean "stop the whole sync right now" — see module docstring.
-_AbortSyncErrors = (GarminConnectTooManyRequestsError, GarminConnectAuthenticationError)
+_AbortSyncErrors = (
+    GarminConnectTooManyRequestsError,
+    GarminConnectAuthenticationError,
+    GarminProfileIncompleteError,
+)
+
+
+def _is_display_name_error(exc: Exception) -> bool:
+    """Detect the 'Display name is not set' error from python-garminconnect."""
+    return "Display name is not set" in str(exc)
 
 _USER_DATE_CONFLICT = "user_id,date"
 
@@ -104,6 +123,10 @@ def _safe_upsert_daily(db: Any, user_id: str, client: Garmin, iso_date: str) -> 
             ).execute()
     except _AbortSyncErrors:
         raise
+    except GarminConnectConnectionError as exc:
+        if _is_display_name_error(exc):
+            raise GarminProfileIncompleteError(str(exc)) from exc
+        log.exception("daily sync failed user=%s date=%s", user_id, iso_date)
     except Exception:
         log.exception("daily sync failed user=%s date=%s", user_id, iso_date)
 
