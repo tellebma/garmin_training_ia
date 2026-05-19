@@ -22,10 +22,16 @@ interface ProfileRow {
 
 interface RaceRow {
   race_date: string
-  race_distance: 'sprint' | 'olympique' | 'half_ironman' | 'ironman' | 'autre'
+  discipline: 'triathlon' | 'duathlon' | 'aquathlon' | 'run' | 'bike' | 'swim' | 'autre'
   name: string | null
   location: string | null
   target_time_seconds: number | null
+  legs: {
+    order: number
+    discipline: 'swim' | 'bike' | 'run'
+    distance_km: number
+    elevation_gain_m: number
+  }[]
 }
 
 function computeInitialStep(profile: ProfileRow | null, race: RaceRow | null): Step {
@@ -49,7 +55,7 @@ export default async function OnboardingPage() {
     supabase.from('athlete_profiles').select('*').eq('user_id', user.id).single<ProfileRow>(),
     supabase
       .from('race_goals')
-      .select('race_date, race_distance, name, location, target_time_seconds')
+      .select('race_date, discipline, name, location, target_time_seconds, legs')
       .eq('user_id', user.id)
       .eq('is_primary', true)
       .maybeSingle<RaceRow>(),
@@ -74,10 +80,11 @@ export default async function OnboardingPage() {
     race: race
       ? {
           race_date: race.race_date,
-          race_distance: race.race_distance,
-          name: race.name ?? '',
-          location: race.location ?? '',
+          discipline: race.discipline,
+          name: race.name ?? undefined,
+          location: race.location ?? undefined,
           target_time_seconds: race.target_time_seconds ?? undefined,
+          legs: race.legs,
         }
       : null,
     perf: {
