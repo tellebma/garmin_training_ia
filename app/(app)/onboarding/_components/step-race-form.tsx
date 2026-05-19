@@ -49,8 +49,12 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
     })
     setLoading(false)
     if (!result.success) {
-      if ('errors' in result) setErrors(result.errors as Record<string, string[]>)
-      else toast.error('Erreur de sauvegarde, réessaye')
+      if ('errors' in result) {
+        setErrors(result.errors as Record<string, string[]>)
+        toast.error('Corrige les erreurs avant de continuer.')
+      } else {
+        toast.error('Erreur de sauvegarde, réessaye.')
+      }
       return
     }
     onDone(result.nextStep)
@@ -62,6 +66,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
         void handleSubmit(e)
       }}
       className="space-y-4"
+      noValidate
     >
       <div className="space-y-2">
         <Label htmlFor="race_date">Date de la course</Label>
@@ -72,7 +77,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
           onChange={(e) => {
             setRaceDate(e.target.value)
           }}
-          required
+          aria-invalid={Boolean(errors.race_date?.[0])}
         />
         {errors.race_date?.[0] && <p className="text-destructive text-xs">{errors.race_date[0]}</p>}
       </div>
@@ -94,7 +99,10 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
         </select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="name">Nom de la course (optionnel)</Label>
+        <Label htmlFor="name">
+          Nom de la course
+          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+        </Label>
         <Input
           id="name"
           value={name}
@@ -105,7 +113,10 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="location">Lieu (optionnel)</Label>
+        <Label htmlFor="location">
+          Lieu
+          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+        </Label>
         <Input
           id="location"
           value={location}
@@ -116,7 +127,12 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="target_hms">Temps cible (optionnel, format hh:mm:ss)</Label>
+        <Label htmlFor="target_hms">
+          Temps cible
+          <span className="text-muted-foreground ml-1 text-xs font-normal">
+            (optionnel, format hh:mm:ss)
+          </span>
+        </Label>
         <Input
           id="target_hms"
           value={target_hms}

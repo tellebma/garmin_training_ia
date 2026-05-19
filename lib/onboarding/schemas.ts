@@ -12,7 +12,9 @@ export const personSchema = z.object({
   sex: z.enum(['M', 'F', 'X']),
   city: z.string().trim().max(120).optional(),
   country: z.string().trim().max(80).optional(),
-  consent_data_processing: z.literal(true, 'Tu dois accepter le traitement des données'),
+  consent_data_processing: z.literal(true, {
+    error: () => ({ message: 'Tu dois accepter le traitement des données' }),
+  }),
 })
 
 export const RACE_DISTANCES = ['sprint', 'olympique', 'half_ironman', 'ironman', 'autre'] as const

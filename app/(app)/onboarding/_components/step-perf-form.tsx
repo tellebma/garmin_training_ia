@@ -61,8 +61,12 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
     })
     setLoading(false)
     if (!result.success) {
-      if ('errors' in result) setErrors(result.errors as Record<string, string[]>)
-      else toast.error('Erreur de sauvegarde, réessaye')
+      if ('errors' in result) {
+        setErrors(result.errors as Record<string, string[]>)
+        toast.error('Corrige les erreurs avant de continuer.')
+      } else {
+        toast.error('Erreur de sauvegarde, réessaye.')
+      }
       return
     }
     onDone(result.nextStep)
@@ -78,6 +82,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
         void handleSubmit(e)
       }}
       className="space-y-4"
+      noValidate
     >
       {syncing && <p className="text-muted-foreground text-sm">↻ Récupération depuis Garmin...</p>}
       {fmtSynced && !syncing && (
@@ -91,7 +96,10 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
       </p>
 
       <div className="space-y-2">
-        <Label htmlFor="ftp">FTP (watts)</Label>
+        <Label htmlFor="ftp">
+          FTP (watts)
+          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+        </Label>
         <Input
           id="ftp"
           type="number"
@@ -106,7 +114,10 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
         {errors.ftp_watts?.[0] && <p className="text-destructive text-xs">{errors.ftp_watts[0]}</p>}
       </div>
       <div className="space-y-2">
-        <Label htmlFor="vma">VMA (km/h)</Label>
+        <Label htmlFor="vma">
+          VMA (km/h)
+          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+        </Label>
         <Input
           id="vma"
           type="number"
@@ -122,7 +133,10 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
         {errors.vma_kmh?.[0] && <p className="text-destructive text-xs">{errors.vma_kmh[0]}</p>}
       </div>
       <div className="space-y-2">
-        <Label htmlFor="fcmax">FC max (bpm)</Label>
+        <Label htmlFor="fcmax">
+          FC max (bpm)
+          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+        </Label>
         <Input
           id="fcmax"
           type="number"
