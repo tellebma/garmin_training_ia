@@ -310,6 +310,66 @@ def _build_week_sessions(
     return sessions
 
 
+def _compute_tss_by_date(
+    activities: list[dict[str, Any]], profile: dict[str, Any]
+) -> dict[date, float]:
+    """Aggregate per-day TSS from a list of activity rows."""
+    tss_by_date: dict[date, float] = {}
+    ftp = profile.get("ftp_watts")
+    fc_max = profile.get("fc_max_bpm")
+    for a in activities:
+        tss = compute_tss(
+            duration_s=a.get("duration_s", 0),
+            sport=a.get("sport", ""),
+            power_avg=a.get("power_avg"),
+            hr_avg=a.get("hr_avg"),
+            ftp_watts=ftp,
+            fc_max_bpm=fc_max,
+        )
+        if tss is None:
+            continue
+        start_time_raw = a["start_time"].replace("Z", "+00:00")
+        d = datetime.fromisoformat(start_time_raw).date()
+        tss_by_date[d] = tss_by_date.get(d, 0.0) + tss
+    return tss_by_date
+
+
+def _load_today_banister_state(
+    *, db: Any, user_id: str, profile: dict[str, Any], today: date
+) -> tuple[dict[date, float], BanisterState]:
+    """Load last 180 days of activities, derive tss_by_date and today's CTL/ATL/TSB.
+
+    Cold-start (<14 days of activities): skip the 180-day decay simulation and
+    use the profile estimate AS today's state directly. See cold-start regression
+    test for the rationale.
+    """
+    history_start = today - timedelta(days=180)
+    activities = cast(
+        "list[dict[str, Any]]",
+        db.table("activities")
+        .select("start_time, sport, duration_s, power_avg, hr_avg")
+        .eq("user_id", user_id)
+        .gte("start_time", history_start.isoformat())
+        .execute()
+        .data
+        or [],
+    )
+    tss_by_date = _compute_tss_by_date(activities, profile)
+
+    if len(tss_by_date) < 14:
+        init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
+        return tss_by_date, BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0)
+
+    states = compute_banister_history(
+        tss_by_date=tss_by_date,
+        start=history_start,
+        end=today,
+        initial_ctl=0.0,
+        initial_atl=0.0,
+    )
+    return tss_by_date, states[-1]
+
+
 def generate_plan(user_id: str) -> dict[str, Any]:
     """Generate a training plan for the given user.
 
@@ -350,51 +410,9 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     if race_date <= today:
         return {"status": "race_in_past"}
 
-    # Load last 180 days of activities and compute per-day TSS
-    history_start = today - timedelta(days=180)
-    activities = cast(
-        "list[dict[str, Any]]",
-        db.table("activities")
-        .select("start_time, sport, duration_s, power_avg, hr_avg")
-        .eq("user_id", user_id)
-        .gte("start_time", history_start.isoformat())
-        .execute()
-        .data
-        or [],
+    tss_by_date, today_state = _load_today_banister_state(
+        db=db, user_id=user_id, profile=profile, today=today
     )
-
-    tss_by_date: dict[date, float] = {}
-    for a in activities:
-        tss = compute_tss(
-            duration_s=a.get("duration_s", 0),
-            sport=a.get("sport", ""),
-            power_avg=a.get("power_avg"),
-            hr_avg=a.get("hr_avg"),
-            ftp_watts=profile.get("ftp_watts"),
-            fc_max_bpm=profile.get("fc_max_bpm"),
-        )
-        if tss is None:
-            continue
-        start_time_raw = a["start_time"].replace("Z", "+00:00")
-        d = datetime.fromisoformat(start_time_raw).date()
-        tss_by_date[d] = tss_by_date.get(d, 0.0) + tss
-
-    # Cold start if < 14 days of activities : skip 180-day decay simulation,
-    # which would otherwise drag init_ctl back near zero (tau1=42d x no daily
-    # TSS -> CTL x exp(-180/42) ~= 1.4% of starting value). Use the profile
-    # estimate AS today's state directly.
-    if len(tss_by_date) < 14:
-        init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
-        today_state: BanisterState = BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0)
-    else:
-        states = compute_banister_history(
-            tss_by_date=tss_by_date,
-            start=history_start,
-            end=today,
-            initial_ctl=0.0,
-            initial_atl=0.0,
-        )
-        today_state = states[-1]
 
     # Compute phases and per-week sessions
     phases = compute_phases(today, race_date)

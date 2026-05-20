@@ -15,15 +15,24 @@ from garmin_sync.coach.state import recompute_daily_state
 from garmin_sync.crypto import TokenCipher
 from garmin_sync.garmin_client import GarminAuthError, login_with_tokens
 from garmin_sync.supabase_client import get_admin_client
-from garmin_sync.sync import GarminProfileIncompleteError, sync_user_for_date_range
+from garmin_sync.sync import (
+    SYNC_MODE_ACTIVITIES_ONLY,
+    SYNC_MODE_FULL,
+    SYNC_MODE_SLEEP_ONLY,
+    GarminProfileIncompleteError,
+    SyncMode,
+    sync_user_for_date_range,
+)
 
 log = logging.getLogger(__name__)
 
 INITIAL_BACKFILL_DAYS = 90
 
 
-def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
-    """Sync a single user. Used by /sync endpoint and by run_daily_cron."""
+def run_sync_for_user(
+    user_id: str, *, initial: bool = False, mode: SyncMode = SYNC_MODE_FULL
+) -> dict[str, Any]:
+    """Sync a single user. Used by /sync endpoint and by run_*_cron functions."""
     db = get_admin_client()
     creds_resp = (
         db.table("garmin_credentials")
@@ -56,7 +65,7 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
         start = today - timedelta(days=2)
 
     try:
-        sync_user_for_date_range(user_id=user_id, client=client, start=start, end=today)
+        sync_user_for_date_range(user_id=user_id, client=client, start=start, end=today, mode=mode)
     except GarminConnectTooManyRequestsError:
         db.table("garmin_credentials").update(
             {
@@ -121,30 +130,78 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
     return {"status": "ok", "days_synced": (today - start).days + 1}
 
 
-def run_daily_cron() -> dict[str, Any]:
-    """Iterate all users with credentials and sync each."""
-    db = get_admin_client()
+def _iter_active_users(db: Any) -> list[str]:
     users = (
         db.table("garmin_credentials")
         .select("user_id")
         .is_("token_refresh_failed_at", "null")
         .execute()
     )
-
     rows = cast("list[dict[str, Any]]", users.data)
+    return [str(r["user_id"]) for r in rows]
+
+
+def _run_cron(mode: SyncMode, label: str) -> dict[str, Any]:
+    """Iterate all users with credentials and run a sync of the given mode."""
+    db = get_admin_client()
+    user_ids = _iter_active_users(db)
     results: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        uid = str(row["user_id"])
+    for uid in user_ids:
         try:
-            results[uid] = run_sync_for_user(uid, initial=False)
+            results[uid] = run_sync_for_user(uid, initial=False, mode=mode)
         except Exception:
-            log.exception("daily cron failed for user=%s", uid)
+            log.exception("%s cron failed for user=%s", label, uid)
             results[uid] = {"status": "exception"}
-    return {"total_users": len(rows), "results": results}
+    return {"mode": mode, "total_users": len(user_ids), "results": results}
+
+
+def run_daily_cron() -> dict[str, Any]:
+    """Daily FULL sync (kept for backwards compatibility with existing timer)."""
+    return _run_cron(SYNC_MODE_FULL, label="full")
+
+
+def run_sleep_cron() -> dict[str, Any]:
+    """Morning cron: pull last night's sleep + HRV + daily metrics. ~08:00 UTC."""
+    return _run_cron(SYNC_MODE_SLEEP_ONLY, label="sleep")
+
+
+def run_activities_cron() -> dict[str, Any]:
+    """Afternoon/evening cron: pull recent activities + daily metrics. ~13:00/18:00 UTC."""
+    return _run_cron(SYNC_MODE_ACTIVITIES_ONLY, label="activities")
+
+
+def run_profile_sync_cron() -> dict[str, Any]:
+    """Weekly cron: refresh FTP / VMA / FCmax from Garmin user profile."""
+    from garmin_sync.profile_sync import sync_garmin_profile
+
+    db = get_admin_client()
+    user_ids = _iter_active_users(db)
+    results: dict[str, dict[str, Any]] = {}
+    for uid in user_ids:
+        try:
+            results[uid] = sync_garmin_profile(uid)
+        except Exception:
+            log.exception("profile sync failed for user=%s", uid)
+            results[uid] = {"status": "exception"}
+    return {"mode": "profile", "total_users": len(user_ids), "results": results}
+
+
+_MODES = {
+    "full": run_daily_cron,
+    "sleep": run_sleep_cron,
+    "activities": run_activities_cron,
+    "profile": run_profile_sync_cron,
+}
 
 
 if __name__ == "__main__":
     import json
+    import sys
 
-    out = run_daily_cron()
+    mode = sys.argv[1] if len(sys.argv) > 1 else "full"
+    runner = _MODES.get(mode)
+    if not runner:
+        print(f"unknown mode={mode!r}. valid: {sorted(_MODES)}", file=sys.stderr)
+        sys.exit(2)
+    out = runner()
     print(json.dumps(out, indent=2))

@@ -57,23 +57,22 @@ def _is_display_name_error(exc: Exception) -> bool:
 _USER_DATE_CONFLICT = "user_id,date"
 
 
-def sync_user_for_date_range(
-    *,
-    user_id: str,
-    client: Garmin,
-    start: date,
-    end: date,
-) -> None:
-    """Sync all categories for a single user across [start, end] (inclusive).
+SYNC_MODE_FULL = "full"
+SYNC_MODE_SLEEP_ONLY = "sleep_only"
+SYNC_MODE_ACTIVITIES_ONLY = "activities_only"
+SyncMode = str  # one of the above constants
 
-    Raises ``GarminConnectTooManyRequestsError`` or
-    ``GarminConnectAuthenticationError`` if Garmin signals a global stop —
-    callers should treat that as fatal and back off.
-    """
-    db = get_admin_client()
 
-    # Fetch athlete profile once for TSS computation
-    profile_data: dict[str, Any] = {}
+_MODE_FLAGS: dict[str, tuple[bool, bool, bool, bool]] = {
+    # (do_activities, do_sleep, do_hrv, do_body)
+    SYNC_MODE_FULL: (True, True, True, True),
+    SYNC_MODE_SLEEP_ONLY: (False, True, True, False),
+    SYNC_MODE_ACTIVITIES_ONLY: (True, False, False, False),
+}
+
+
+def _load_athlete_profile(db: Any, user_id: str) -> dict[str, Any]:
+    """Fetch athlete profile for TSS computation. Never raises."""
     try:
         profile_resp = (
             db.table("athlete_profiles")
@@ -82,14 +81,18 @@ def sync_user_for_date_range(
             .single()
             .execute()
         )
-        profile_data = cast("dict[str, Any]", profile_resp.data or {})
+        return cast("dict[str, Any]", profile_resp.data or {})
     except Exception:
         log.warning("Could not fetch athlete profile for TSS for user=%s", user_id)
+        return {}
 
-    ftp = profile_data.get("ftp_watts")
-    fcmax = profile_data.get("fc_max_bpm")
 
-    # Activities — one shot for the whole range
+def _sync_activities(
+    db: Any, user_id: str, client: Garmin, start: date, end: date, profile: dict[str, Any]
+) -> None:
+    """One-shot activities pull. Raises on _AbortSyncErrors so caller can back off."""
+    ftp = profile.get("ftp_watts")
+    fcmax = profile.get("fc_max_bpm")
     try:
         activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
         rows = [
@@ -104,14 +107,45 @@ def sync_user_for_date_range(
     except Exception:
         log.exception("activities sync failed for user=%s", user_id)
 
-    # Per-day metrics — daily, sleep, hrv, body
+
+def sync_user_for_date_range(
+    *,
+    user_id: str,
+    client: Garmin,
+    start: date,
+    end: date,
+    mode: SyncMode = SYNC_MODE_FULL,
+) -> None:
+    """Sync the requested categories for a single user across [start, end].
+
+    Modes:
+        - "full"            (default) : activities + daily + sleep + hrv + body
+        - "sleep_only"      : sleep + hrv + daily (HR baseline). For the morning cron.
+        - "activities_only" : activities + daily. For the afternoon/evening cron.
+
+    Raises ``GarminConnectTooManyRequestsError`` or
+    ``GarminConnectAuthenticationError`` if Garmin signals a global stop —
+    callers should treat that as fatal and back off.
+    """
+    db = get_admin_client()
+    profile = _load_athlete_profile(db, user_id)
+
+    do_activities, do_sleep, do_hrv, do_body = _MODE_FLAGS.get(mode, _MODE_FLAGS[SYNC_MODE_FULL])
+
+    if do_activities:
+        _sync_activities(db, user_id, client, start, end, profile)
+
+    # Per-day metrics — daily always (HR baseline), then sleep / hrv / body as requested
     current = start
     while current <= end:
         iso = current.isoformat()
         _safe_upsert_daily(db, user_id, client, iso)
-        _safe_upsert_sleep(db, user_id, client, iso)
-        _safe_upsert_hrv(db, user_id, client, iso)
-        _safe_upsert_body(db, user_id, client, iso)
+        if do_sleep:
+            _safe_upsert_sleep(db, user_id, client, iso)
+        if do_hrv:
+            _safe_upsert_hrv(db, user_id, client, iso)
+        if do_body:
+            _safe_upsert_body(db, user_id, client, iso)
         current += timedelta(days=1)
 
 

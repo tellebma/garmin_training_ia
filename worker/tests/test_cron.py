@@ -282,7 +282,7 @@ def test_run_daily_cron_handles_no_users() -> None:
     ):
         result = run_daily_cron()
 
-    assert result == {"total_users": 0, "results": {}}
+    assert result == {"mode": "full", "total_users": 0, "results": {}}
     run_user_mock.assert_not_called()
 
 
@@ -308,10 +308,93 @@ def test_cron_main_block_prints_json(capsys: object, monkeypatch: object) -> Non
         lambda: fake_db,
     )
 
-    # Drop the cached cron module so runpy re-imports it freshly under __main__
-    sys.modules.pop("garmin_sync.cron", None)
-    runpy.run_module("garmin_sync.cron", run_name="__main__")
+    # Drop the cached cron module so runpy re-imports it freshly under __main__.
+    # The CLI now takes an optional mode arg; default ("full") matches the
+    # legacy daily cron behaviour.
+    original_argv = sys.argv
+    sys.argv = ["garmin_sync.cron"]
+    try:
+        sys.modules.pop("garmin_sync.cron", None)
+        runpy.run_module("garmin_sync.cron", run_name="__main__")
+    finally:
+        sys.argv = original_argv
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     payload = json.loads(captured.out)
-    assert payload == {"total_users": 0, "results": {}}
+    assert payload == {"mode": "full", "total_users": 0, "results": {}}
+
+
+def test_run_sleep_cron_uses_sleep_only_mode() -> None:
+    from garmin_sync.cron import run_sleep_cron
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.is_.return_value.execute.return_value.data = [
+        {"user_id": "u1"}
+    ]
+    with (
+        patch("garmin_sync.cron.get_admin_client", return_value=fake_db),
+        patch("garmin_sync.cron.run_sync_for_user") as run_user_mock,
+    ):
+        run_user_mock.return_value = {"status": "ok"}
+        result = run_sleep_cron()
+
+    assert result["mode"] == "sleep_only"
+    assert result["total_users"] == 1
+    call_kwargs = run_user_mock.call_args.kwargs
+    assert call_kwargs["mode"] == "sleep_only"
+
+
+def test_run_activities_cron_uses_activities_only_mode() -> None:
+    from garmin_sync.cron import run_activities_cron
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.is_.return_value.execute.return_value.data = [
+        {"user_id": "u1"}
+    ]
+    with (
+        patch("garmin_sync.cron.get_admin_client", return_value=fake_db),
+        patch("garmin_sync.cron.run_sync_for_user") as run_user_mock,
+    ):
+        run_user_mock.return_value = {"status": "ok"}
+        result = run_activities_cron()
+
+    assert result["mode"] == "activities_only"
+    call_kwargs = run_user_mock.call_args.kwargs
+    assert call_kwargs["mode"] == "activities_only"
+
+
+def test_run_profile_sync_cron_calls_sync_garmin_profile() -> None:
+    from garmin_sync.cron import run_profile_sync_cron
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.is_.return_value.execute.return_value.data = [
+        {"user_id": "u1"},
+        {"user_id": "u2"},
+    ]
+    with (
+        patch("garmin_sync.cron.get_admin_client", return_value=fake_db),
+        patch("garmin_sync.profile_sync.sync_garmin_profile") as profile_mock,
+    ):
+        profile_mock.return_value = {"status": "ok", "fetched": {}}
+        result = run_profile_sync_cron()
+
+    assert result["mode"] == "profile"
+    assert result["total_users"] == 2
+    assert profile_mock.call_count == 2
+
+
+def test_run_cron_with_unknown_user_returns_exception_status() -> None:
+    """Generic resilience: if run_sync_for_user raises, cron records exception status."""
+    from garmin_sync.cron import run_daily_cron
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.is_.return_value.execute.return_value.data = [
+        {"user_id": "u-broken"}
+    ]
+    with (
+        patch("garmin_sync.cron.get_admin_client", return_value=fake_db),
+        patch("garmin_sync.cron.run_sync_for_user", side_effect=RuntimeError("boom")),
+    ):
+        result = run_daily_cron()
+
+    assert result["results"]["u-broken"] == {"status": "exception"}
