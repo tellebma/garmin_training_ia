@@ -17,15 +17,16 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 CTL_TAU = 42  # days — fitness time constant
-ATL_TAU = 7   # days — fatigue time constant
+ATL_TAU = 7  # days — fatigue time constant
 
 
 @dataclass(frozen=True)
 class BanisterState:
     """Banister state for a single day."""
+
     ctl: float
     atl: float
-    tsb: float   # tsb = ctl - atl
+    tsb: float  # tsb = ctl - atl
 
 
 def compute_banister_history(
