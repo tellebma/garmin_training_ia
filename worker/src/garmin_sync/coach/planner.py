@@ -282,22 +282,22 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         d = datetime.fromisoformat(start_time_raw).date()
         tss_by_date[d] = tss_by_date.get(d, 0.0) + tss
 
-    # Cold start if < 14 days of activities
+    # Cold start if < 14 days of activities : skip 180-day decay simulation,
+    # which would otherwise drag init_ctl back near zero (tau1=42d x no daily
+    # TSS -> CTL x exp(-180/42) ~= 1.4% of starting value). Use the profile
+    # estimate AS today's state directly.
     if len(tss_by_date) < 14:
         init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
-        init_atl = init_ctl
+        today_state: BanisterState = BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0)
     else:
-        init_ctl = 0.0
-        init_atl = 0.0
-
-    states = compute_banister_history(
-        tss_by_date=tss_by_date,
-        start=history_start,
-        end=today,
-        initial_ctl=init_ctl,
-        initial_atl=init_atl,
-    )
-    today_state: BanisterState = states[-1]
+        states = compute_banister_history(
+            tss_by_date=tss_by_date,
+            start=history_start,
+            end=today,
+            initial_ctl=0.0,
+            initial_atl=0.0,
+        )
+        today_state = states[-1]
 
     # Compute phases and per-week sessions
     phases = compute_phases(today, race_date)

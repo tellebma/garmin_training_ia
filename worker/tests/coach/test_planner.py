@@ -141,6 +141,72 @@ def test_generate_plan_happy_path_writes_to_db(monkeypatch) -> None:
     assert result["sessions_count"] > 0
 
 
+def test_generate_plan_cold_start_uses_profile_estimate_directly(monkeypatch) -> None:
+    """Cold start (no activities) must NOT decay init_ctl over 180 days.
+
+    Regression for the bug where ctl_initial dropped to ~10 for an 8h/wk athlete
+    because compute_banister_history simulated 180 days of zero TSS starting
+    from init_ctl=57, ending at ~57*exp(-180/42) ≈ 0.79.
+    """
+    from garmin_sync.coach import planner as p_mod
+
+    profile = {
+        "user_id": "u-cold",
+        "hours_per_week": 8,
+        "ftp_watts": None,
+        "fc_max_bpm": 185,
+        "sports_strengths": {"swim": 2, "bike": 3, "run": 1},
+        "available_days": ["tue", "wed", "thu", "sat", "fri", "sun"],
+    }
+    race = {
+        "id": "rg-cold",
+        "race_date": (date.today() + timedelta(weeks=13)).isoformat(),
+        "discipline": "triathlon",
+        "legs": [
+            {"order": 1, "discipline": "swim", "distance_km": 1.4, "elevation_gain_m": 0},
+            {"order": 2, "discipline": "bike", "distance_km": 53, "elevation_gain_m": 2200},
+            {"order": 3, "discipline": "run", "distance_km": 8, "elevation_gain_m": 200},
+        ],
+    }
+    inserted_plan: dict[str, object] = {}
+
+    def _capture_insert(payload):
+        inserted_plan.update(payload)
+        m = MagicMock()
+        m.execute.return_value.data = [{"id": "plan-cold"}]
+        return m
+
+    def _table_router(table_name: str):
+        m = MagicMock()
+        if table_name == "athlete_profiles":
+            chain = m.select.return_value.eq.return_value.single.return_value.execute.return_value
+            chain.data = profile
+        elif table_name == "race_goals":
+            chain = m.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value  # noqa: E501
+            chain.data = race
+        elif table_name == "activities":
+            # 0 activities → cold start
+            m.select.return_value.eq.return_value.gte.return_value.execute.return_value.data = []
+        elif table_name == "training_plans":
+            m.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+            m.insert.side_effect = _capture_insert
+        elif table_name == "planned_sessions":
+            m.insert.return_value.execute.return_value.data = []
+        return m
+
+    fake_db = MagicMock()
+    fake_db.table.side_effect = _table_router
+    monkeypatch.setattr(p_mod, "get_admin_client", lambda: fake_db)
+
+    result = generate_plan("u-cold")
+    assert result["status"] == "ok"
+    # 8h/wk x 50 TSS/h / 7 = 57.14 -- anything < 30 means decay happened (bug)
+    assert inserted_plan["ctl_initial"] >= 50, (
+        f"cold-start CTL dropped to {inserted_plan['ctl_initial']} (expected ~57)"
+    )
+    assert inserted_plan["params"]["cold_start"] is True
+
+
 def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
     """Re-generating archives the existing active plan via UPDATE before INSERT."""
     from garmin_sync.coach import planner as p_mod
