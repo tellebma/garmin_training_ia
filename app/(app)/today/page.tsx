@@ -6,12 +6,14 @@ import {
   HeartPulse,
   Moon,
 } from 'lucide-react'
+import { getDailyBriefing } from '@/app/actions/briefing'
 import { ensureGeneratedSessions } from '@/app/actions/sessions'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { workoutToMarkdown } from '@/lib/coach/session-templates'
 import type { Sport as CoachSport } from '@/lib/coach/session-templates'
 import type { Workout } from '@/lib/coach/workout-types'
+import { BriefingCard } from '../_components/briefing-card'
 import { ChartCard } from '../_components/chart-card'
 import { EmptyState } from '../_components/empty-state'
 import { GarminStatusBanner } from '../_components/garmin-status-banner'
@@ -86,6 +88,11 @@ export default async function TodayPage() {
   // Fire-and-forget — don't block the render. If the worker is down,
   // we still display whatever workout already exists.
   void ensureGeneratedSessions(7).catch(() => undefined)
+
+  // Daily briefing : awaited because it gates the session view; falls back
+  // to null on any error so the page still renders.
+  const briefingResult = await getDailyBriefing().catch(() => null)
+  const briefing = briefingResult?.success ? briefingResult.briefing : null
 
   const supabase = await createClient()
   const now = new Date()
@@ -201,6 +208,8 @@ export default async function TodayPage() {
           </div>
         )}
       </header>
+
+      {briefing && <BriefingCard briefing={briefing} />}
 
       <section>
         <div className="mb-2 flex items-center justify-between">

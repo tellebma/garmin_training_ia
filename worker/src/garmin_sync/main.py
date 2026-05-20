@@ -195,6 +195,31 @@ def coach_ensure_sessions(
         }
 
 
+@app.post("/coach/daily-briefing")
+def coach_daily_briefing(
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Compute the readiness briefing for today and return adjusted session if needed."""
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.coach.briefing import compute_briefing
+        from garmin_sync.coach.rate_limit import DAILY_BRIEFING, RateLimited, check_or_raise
+
+        try:
+            check_or_raise(user_id=user_id, limit=DAILY_BRIEFING)
+        except RateLimited:
+            return {"status": "rate_limited", "retry_after_seconds": 60}
+        return compute_briefing(user_id=user_id).to_dict()
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception("[%s] coach_daily_briefing crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
+
+
 @app.post("/coach/regenerate-session/{session_id}")
 def coach_regenerate_session(
     session_id: str,

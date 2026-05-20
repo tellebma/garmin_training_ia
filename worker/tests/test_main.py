@@ -233,6 +233,49 @@ def test_regenerate_session_not_found(mock_jwt, mock_regen, mock_rl):
 
 
 @patch("garmin_sync.coach.rate_limit.check_or_raise")
+@patch("garmin_sync.coach.briefing.compute_briefing")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute, mock_rl):
+    from garmin_sync.coach.briefing import (
+        DailyBriefing,
+        ReadinessFactor,
+        SuggestedSession,
+    )
+
+    mock_jwt.return_value = "user-1"
+    mock_compute.return_value = DailyBriefing(
+        date="2026-05-20",
+        readiness_score=55,
+        status="caution",
+        explanation_md="Quelques signes de fatigue.",
+        factors=[ReadinessFactor("hrv_low", -10, "HRV bas")],
+        planned_session={"sport": "run", "session_type": "intervals"},
+        suggested_session=SuggestedSession(sport="run", session_type="threshold", note="ok"),
+    )
+    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["readiness_score"] == 55
+    assert body["status"] == "caution"
+    assert body["suggested_session"]["session_type"] == "threshold"
+    mock_rl.assert_called_once()
+
+
+@patch("garmin_sync.coach.rate_limit.check_or_raise")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_daily_briefing_returns_rate_limited(mock_jwt, mock_rl):
+    from garmin_sync.coach.rate_limit import RateLimited
+
+    mock_jwt.return_value = "user-1"
+    mock_rl.side_effect = RateLimited("too many")
+    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "rate_limited"
+
+
+@patch("garmin_sync.coach.rate_limit.check_or_raise")
 @patch("garmin_sync.main.verify_supabase_jwt")
 def test_regenerate_session_returns_rate_limited_status(mock_jwt, mock_rl):
     from garmin_sync.coach.rate_limit import RateLimited

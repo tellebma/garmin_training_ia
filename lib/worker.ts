@@ -82,3 +82,7 @@ export async function workerRegenerateSession(
 ): Promise<RegenerateSessionResult> {
   return workerPost<RegenerateSessionResult>(`/coach/regenerate-session/${sessionId}`, {}, jwt)
 }
+
+export async function workerDailyBriefing(jwt: string): Promise<unknown> {
+  return workerPost<unknown>('/coach/daily-briefing', {}, jwt)
+}
