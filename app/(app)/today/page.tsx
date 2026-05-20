@@ -108,7 +108,7 @@ export default async function TodayPage() {
     supabase
       .from('planned_sessions')
       .select(
-        'id, date, sport, session_type, target_duration_s, target_tss, phase, week_offset, notes, workout, workout_generated_at'
+        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes, workout, workout_generated_at'
       )
       .eq('user_id', userId)
       .eq('date', today)

@@ -89,6 +89,7 @@ def _race_day_session(*, day: date, race_sport: str, week_offset: int) -> dict[s
         "session_type": "race",
         "target_duration_s": None,
         "target_tss": None,
+        "target_elevation_gain_m": None,
         "phase": "race",
         "week_offset": week_offset,
     }
@@ -101,6 +102,7 @@ def _rest_day_session(*, day: date, phase: Phase, week_offset: int) -> dict[str,
         "session_type": "rest",
         "target_duration_s": 0,
         "target_tss": 0,
+        "target_elevation_gain_m": None,
         "phase": phase,
         "week_offset": week_offset,
     }
@@ -177,6 +179,42 @@ def _tss_per_hour(sport: str, stype: str) -> float:
     return _TSS_PER_HOUR.get((sport, stype), _TSS_PER_HOUR_DEFAULT)
 
 
+# Minimum per-sport race elevation gain (m) below which we don't bother training
+# hills. A 50m run race or a 200m bike race is flat enough that "spécificité
+# terrain" doesn't justify dedicated hill sessions.
+_ELEVATION_THRESHOLD_M: dict[str, int] = {
+    "bike": 300,
+    "run": 100,
+    "swim": 1_000_000,  # never
+    "brick": 200,
+}
+
+# Per-session weight for distributing the weekly elevation target. Long absorbs
+# most of the D+, intervals/recovery zero (intervals are typically track-based).
+_ELEVATION_SESSION_WEIGHT: dict[str, float] = {
+    "long": 2.0,
+    "endurance": 1.0,
+    "threshold": 0.3,
+    "intervals": 0.0,
+    "recovery": 0.0,
+    "race": 1.0,
+    "rest": 0.0,
+}
+
+
+def compute_elevation_per_sport(legs: list[dict[str, Any]]) -> dict[str, int]:
+    """Sum the race's total D+ per sport from its legs.
+
+    Returns a {sport: meters} map. Sports missing from legs default to 0.
+    """
+    by_sport: dict[str, int] = {}
+    for leg in legs:
+        sport = leg.get("discipline", "unknown")
+        gain = int(leg.get("elevation_gain_m") or 0)
+        by_sport[sport] = by_sport.get(sport, 0) + gain
+    return by_sport
+
+
 def _training_day_session(
     *,
     day: date,
@@ -188,12 +226,19 @@ def _training_day_session(
     tss_by_sport: dict[str, float],
     used_types: list[str],
     sport_weight_total: dict[str, float],
+    weekly_elevation_by_sport: dict[str, int],
+    sport_elevation_weight_total: dict[str, float],
 ) -> dict[str, Any]:
     """Build one training day's session.
 
     Per-day TSS = sport_tss * (this_session_weight / sum_of_session_weights_for_this_sport).
     This keeps the weekly TSS budget intact while letting "long" sessions get more
     volume than e.g. "recovery".
+
+    target_elevation_gain_m is populated only when the sport has a meaningful
+    weekly D+ target (set by the caller via weekly_elevation_by_sport). Same
+    redistribution scheme as TSS, but with a separate weight table (long heavy,
+    intervals zero — intervals are typically track-based).
     """
     stype = _pick_session_type(
         day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
@@ -205,12 +250,22 @@ def _training_day_session(
     total_weight = max(0.5, sport_weight_total.get(sport, 1.0))
     per_day_tss = sport_tss * weight / total_weight
     duration_s = int(per_day_tss * 3600 / _tss_per_hour(sport, stype))
+
+    target_elevation: int | None = None
+    weekly_dplus = weekly_elevation_by_sport.get(sport, 0)
+    if weekly_dplus > 0:
+        elev_weight = _ELEVATION_SESSION_WEIGHT.get(stype, 0.0)
+        elev_total = max(0.5, sport_elevation_weight_total.get(sport, 1.0))
+        if elev_weight > 0:
+            target_elevation = round(weekly_dplus * elev_weight / elev_total)
+
     return {
         "date": day.isoformat(),
         "sport": sport,
         "session_type": stype,
         "target_duration_s": duration_s,
         "target_tss": round(per_day_tss, 2),
+        "target_elevation_gain_m": target_elevation,
         "phase": phase,
         "week_offset": week_offset,
     }
@@ -248,6 +303,56 @@ def _precompute_sport_weights(
     return sport_weight
 
 
+def _precompute_elevation_weights(
+    *,
+    week_start: date,
+    available_idx: set[int],
+    sports_in_race: list[str],
+    types_for_phase: list[str],
+    is_last_week: bool,
+    race_date: date,
+) -> dict[str, float]:
+    """Tally elevation-weight per sport for the week, using _ELEVATION_SESSION_WEIGHT."""
+    sport_weight: dict[str, float] = dict.fromkeys(sports_in_race, 0.0)
+    used_types: list[str] = []
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_idx = day.weekday()
+        if is_last_week and day == race_date:
+            continue
+        if day_idx not in available_idx:
+            continue
+        stype = _pick_session_type(
+            day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
+        )
+        used_types.append(stype)
+        sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
+        sport_weight[sport] = sport_weight.get(sport, 0.0) + _ELEVATION_SESSION_WEIGHT.get(
+            stype, 0.0
+        )
+    return sport_weight
+
+
+def compute_weekly_elevation_targets(
+    *, race_dplus_by_sport: dict[str, int], weeks_count: int
+) -> dict[str, int]:
+    """Spread the race's total D+ across the plan, gated by per-sport thresholds.
+
+    Sports whose race D+ is below _ELEVATION_THRESHOLD_M get a 0 weekly target
+    (no hill training needed). Above the threshold, distribute total / weeks.
+    """
+    if weeks_count <= 0:
+        return {}
+    out: dict[str, int] = {}
+    for sport, total in race_dplus_by_sport.items():
+        threshold = _ELEVATION_THRESHOLD_M.get(sport, 200)
+        if total >= threshold:
+            out[sport] = total // weeks_count
+        else:
+            out[sport] = 0
+    return out
+
+
 def _build_week_sessions(
     *,
     week_offset: int,
@@ -260,8 +365,10 @@ def _build_week_sessions(
     is_last_week: bool,
     race_date: date,
     race_sport: str,
+    weekly_elevation_by_sport: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions."""
+    weekly_elevation_by_sport = weekly_elevation_by_sport or {}
     sessions: list[dict[str, Any]] = []
     types_for_phase = pick_session_types_for_phase(phase)
     tss_by_sport = distribute_weekly_tss_by_sport(
@@ -272,6 +379,15 @@ def _build_week_sessions(
     # First pass: tally total session-type weight per sport so the second pass
     # can divide each sport's TSS budget proportionally (long > endurance > recovery).
     sport_weight_total = _precompute_sport_weights(
+        week_start=week_start,
+        available_idx=available_idx,
+        sports_in_race=sports_in_race,
+        types_for_phase=types_for_phase,
+        is_last_week=is_last_week,
+        race_date=race_date,
+    )
+    # Same idea for elevation, but a different per-type weight table.
+    sport_elev_weight_total = _precompute_elevation_weights(
         week_start=week_start,
         available_idx=available_idx,
         sports_in_race=sports_in_race,
@@ -305,6 +421,8 @@ def _build_week_sessions(
                 tss_by_sport=tss_by_sport,
                 used_types=used_types,
                 sport_weight_total=sport_weight_total,
+                weekly_elevation_by_sport=weekly_elevation_by_sport,
+                sport_elevation_weight_total=sport_elev_weight_total,
             )
         )
     return sessions
@@ -422,6 +540,12 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     sports_strengths = profile.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
     available_days = profile.get("available_days") or ["mon", "wed", "fri"]
 
+    # Per-sport race D+ -> per-week target D+, gated by the sport's threshold.
+    race_dplus_by_sport = compute_elevation_per_sport(race.get("legs") or [])
+    weekly_elevation_by_sport = compute_weekly_elevation_targets(
+        race_dplus_by_sport=race_dplus_by_sport, weeks_count=weeks_count
+    )
+
     week_start = today - timedelta(days=today.weekday())
 
     all_sessions: list[dict[str, Any]] = []
@@ -440,6 +564,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
             is_last_week=is_last,
             race_date=race_date,
             race_sport=race_sport,
+            weekly_elevation_by_sport=weekly_elevation_by_sport,
         )
         all_sessions.extend(sessions)
 

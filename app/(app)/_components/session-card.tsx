@@ -1,5 +1,5 @@
 // app/(app)/_components/session-card.tsx
-import { Clock, Zap } from 'lucide-react'
+import { Clock, Mountain, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SportIcon, SPORT_LABEL, SESSION_TYPE_LABEL } from './sport-icon'
 import { formatDuration, formatTSS } from '@/lib/dashboard/format'
@@ -35,7 +35,7 @@ export function SessionCard({
           <p className="text-foreground truncate text-sm font-medium">
             {SPORT_LABEL[session.sport]} — {SESSION_TYPE_LABEL[session.session_type]}
           </p>
-          <div className="text-muted-foreground mt-0.5 flex items-center gap-3 text-xs">
+          <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-3 text-xs">
             <span className="flex items-center gap-1">
               <Clock size={12} />
               {formatDuration(session.target_duration_s)}
@@ -44,6 +44,12 @@ export function SessionCard({
               <Zap size={12} />
               {formatTSS(session.target_tss)}
             </span>
+            {session.target_elevation_gain_m && session.target_elevation_gain_m > 0 ? (
+              <span className="flex items-center gap-1" title="Dénivelé cible">
+                <Mountain size={12} />
+                {String(session.target_elevation_gain_m)}m D+
+              </span>
+            ) : null}
           </div>
         </div>
       </article>
