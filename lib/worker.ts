@@ -25,7 +25,12 @@ export type ProfileSyncResult =
   | { status: 'garmin_error'; type: string }
   | { status: 'unexpected_error'; error_id: string; type: string }
 
-export async function workerPost<T>(path: string, body: unknown, userJwt: string): Promise<T> {
+export async function workerPost<T>(
+  path: string,
+  body: unknown,
+  userJwt: string,
+  timeoutMs = 60_000
+): Promise<T> {
   const { WORKER_URL } = getServerEnv()
   const res = await fetch(`${WORKER_URL}${path}`, {
     method: 'POST',
@@ -35,6 +40,7 @@ export async function workerPost<T>(path: string, body: unknown, userJwt: string
     },
     body: JSON.stringify(body),
     cache: 'no-store',
+    signal: AbortSignal.timeout(timeoutMs),
   })
 
   // 401 is auth failure — still throw so Server Action knows
@@ -52,10 +58,27 @@ export async function workerPost<T>(path: string, body: unknown, userJwt: string
   }
 }
 
-export async function workerEnsureSessions(jwt: string, days: number): Promise<unknown> {
-  return workerPost<unknown>('/coach/ensure-sessions', { days }, jwt)
+export type EnsureSessionsResult =
+  | { generated_count: number; failed_count: number; skipped_count: number }
+  | { status: 'rate_limited'; retry_after_seconds: number }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
+export type RegenerateSessionResult =
+  | { status: 'ok'; workout: unknown }
+  | { status: 'session_not_found' }
+  | { status: 'rate_limited'; retry_after_seconds: number }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
+export async function workerEnsureSessions(
+  jwt: string,
+  days: number
+): Promise<EnsureSessionsResult> {
+  return workerPost<EnsureSessionsResult>('/coach/ensure-sessions', { days }, jwt)
 }
 
-export async function workerRegenerateSession(jwt: string, sessionId: string): Promise<unknown> {
-  return workerPost<unknown>(`/coach/regenerate-session/${sessionId}`, {}, jwt)
+export async function workerRegenerateSession(
+  jwt: string,
+  sessionId: string
+): Promise<RegenerateSessionResult> {
+  return workerPost<RegenerateSessionResult>(`/coach/regenerate-session/${sessionId}`, {}, jwt)
 }

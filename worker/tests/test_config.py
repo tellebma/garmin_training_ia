@@ -34,7 +34,7 @@ def test_settings_loads_openai_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_TIMEOUT_S", "30")
     get_settings.cache_clear()
     s = get_settings()
-    assert s.openai_api_key == "sk-test"
+    assert s.openai_api_key.get_secret_value() == "sk-test"
     assert s.openai_model == "gpt-4o-mini"
     assert s.openai_timeout_s == 30
 

@@ -69,4 +69,31 @@ describe('sessions Server Actions', () => {
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error).toBe('boom')
   })
+
+  it('ensureGeneratedSessions surfaces rate_limited status as failure', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
+    workerEnsure.mockResolvedValueOnce({ status: 'rate_limited', retry_after_seconds: 60 })
+    const { ensureGeneratedSessions } = await import('@/app/actions/sessions')
+    const result = await ensureGeneratedSessions(7)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toBe('rate_limited')
+  })
+
+  it('regenerateSession surfaces rate_limited status as failure', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
+    workerRegen.mockResolvedValueOnce({ status: 'rate_limited', retry_after_seconds: 600 })
+    const { regenerateSession } = await import('@/app/actions/sessions')
+    const result = await regenerateSession('sess-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toBe('rate_limited')
+  })
+
+  it('regenerateSession surfaces session_not_found status as failure', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
+    workerRegen.mockResolvedValueOnce({ status: 'session_not_found' })
+    const { regenerateSession } = await import('@/app/actions/sessions')
+    const result = await regenerateSession('sess-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toBe('session_not_found')
+  })
 })
