@@ -9,15 +9,17 @@ avant course **août-septembre 2026**.
 | EPIC | État |
 |---|---|
 | **E1 — Foundations & Auth** | ✅ Livré (magic link, RLS, PWA, Vercel) |
-| **E2 — Garmin Sync Worker** | ✅ Livré côté code, 🟡 bug Garmin API en hot fix |
-| **E3 — Profile & Onboarding** | ⏳ Next |
-| E4 — Engine planning (algo Banister) | À planifier |
-| E5 — Génération séances (LLM) | À planifier |
+| **E2 — Garmin Sync Worker** | ✅ Livré (sync activities/sleep/HRV/body, profile pull) |
+| **E3 — Profile & Onboarding** | ✅ Livré (4-step wizard + profile edit forms) |
+| **E-Auth refactor** | ✅ Livré (magic-link → email/password + allowlist) |
+| **Race profile v2** | ✅ Livré (multi-leg + dénivelé par segment) |
+| **E4 — Engine planning (algo Banister)** | ✅ Livré (TSS, CTL/ATL/TSB, phases, endpoint, cron) |
+| **E5 — Génération séances (LLM)** | ✅ Livré (OpenAI GPT-4o-mini, JSONB workout, FR markdown) |
 | E6 — Briefing quotidien + ajustement | À planifier |
-| E7 — Dashboard frontend | À planifier |
+| **E7 — Dashboard frontend** | ✅ Livré (5 pages + Banister chart + history/stats) |
 | E8 — Parcours géolocalisés | À planifier |
 | E9 — Beta privée (invits + monitoring) | À planifier |
-| **E-Q — SonarQube Quality Gate** | 🟡 En cours (Phase 1 mergeable) |
+| **E-Q — SonarQube Quality Gate** | ✅ Livré (97% coverage, gate enforced) |
 
 ## Stack
 
