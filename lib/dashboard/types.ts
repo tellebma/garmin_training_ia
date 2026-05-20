@@ -28,6 +28,8 @@ export interface PlannedSession {
   phase: Phase
   week_offset: number
   notes: string | null
+  workout?: unknown
+  workout_generated_at?: string | null
 }
 
 export interface ActivityRowDto {

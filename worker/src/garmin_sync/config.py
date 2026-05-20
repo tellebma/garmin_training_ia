@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, HttpUrl, SecretStr, field_validator
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     worker_shared_token: SecretStr
     env: Literal["dev", "test", "staging", "prod"] = Field(default="dev")
     sentry_dsn: SecretStr | None = Field(default=None)
+    openai_api_key: str = Field(default="")
+    openai_model: str = Field(default="gpt-4o-mini")
+    openai_timeout_s: int = Field(default=30)
 
     @field_validator("fernet_key")
     @classmethod
@@ -36,6 +40,7 @@ class Settings(BaseSettings):
         return v
 
 
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Convenience accessor — Pydantic re-reads env on construction."""
     return Settings()

@@ -160,3 +160,59 @@ def coach_generate_plan(
             "error_id": error_id,
             "type": type(e).__name__,
         }
+
+
+class EnsureSessionsRequest(BaseModel):
+    days: int = 7
+
+
+@app.post("/coach/ensure-sessions")
+def coach_ensure_sessions(
+    body: EnsureSessionsRequest,
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Generate workout structures for planned_sessions where workout IS NULL.
+
+    Covers period [today, today+days].
+    """
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.coach.sessions import ensure_sessions
+
+        return ensure_sessions(user_id=user_id, days=body.days)
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception("[%s] coach_ensure_sessions crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
+
+
+@app.post("/coach/regenerate-session/{session_id}")
+def coach_regenerate_session(
+    session_id: str,
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Force regenerate a workout for one session (user-triggered)."""
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.coach.sessions import SessionNotFound, regenerate_session
+
+        return regenerate_session(user_id=user_id, session_id=session_id)
+    except SessionNotFound:
+        return {"status": "session_not_found"}
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception(
+            "[%s] coach_regenerate_session crashed for user=%s session=%s",
+            error_id,
+            user_id,
+            session_id,
+        )
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
