@@ -76,12 +76,14 @@ jobs:
       - name: Install deps
         run: uv sync --all-groups --frozen
       - name: Pytest with coverage
-        run: uv run pytest --cov=garmin_sync --cov-report=lcov:coverage/lcov.info
+        run: uv run pytest --cov=garmin_sync --cov-report=xml:coverage/coverage.xml --cov-report=lcov:coverage/lcov.info
       - name: Upload worker coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: worker-coverage-lcov
-          path: worker/coverage/lcov.info
+          name: worker-coverage
+          path: |
+            worker/coverage/coverage.xml
+            worker/coverage/lcov.info
           retention-days: 1
 
   build:
@@ -138,7 +140,7 @@ jobs:
       - name: Download worker coverage
         uses: actions/download-artifact@v4
         with:
-          name: worker-coverage-lcov
+          name: worker-coverage
           path: worker/coverage/
       - name: SonarQube scan
         uses: SonarSource/sonarqube-scan-action@v4
