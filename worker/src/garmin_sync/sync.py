@@ -34,6 +34,8 @@ log = logging.getLogger(__name__)
 # Errors that mean "stop the whole sync right now" — see module docstring.
 _AbortSyncErrors = (GarminConnectTooManyRequestsError, GarminConnectAuthenticationError)
 
+_USER_DATE_CONFLICT = "user_id,date"
+
 
 def sync_user_for_date_range(
     *,
@@ -78,7 +80,7 @@ def _safe_upsert_daily(db: Any, user_id: str, client: Garmin, iso_date: str) -> 
         raw = client.get_stats(iso_date)
         if raw and raw.get("calendarDate"):
             db.table("daily_metrics").upsert(
-                transform_daily(user_id=user_id, raw=raw), on_conflict="user_id,date"
+                transform_daily(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
             ).execute()
     except _AbortSyncErrors:
         raise
@@ -91,7 +93,7 @@ def _safe_upsert_sleep(db: Any, user_id: str, client: Garmin, iso_date: str) -> 
         raw = client.get_sleep_data(iso_date)
         if raw and (raw.get("dailySleepDTO") or {}).get("calendarDate"):
             db.table("sleep").upsert(
-                transform_sleep(user_id=user_id, raw=raw), on_conflict="user_id,date"
+                transform_sleep(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
             ).execute()
     except _AbortSyncErrors:
         raise
@@ -104,7 +106,7 @@ def _safe_upsert_hrv(db: Any, user_id: str, client: Garmin, iso_date: str) -> No
         raw = client.get_hrv_data(iso_date)
         if raw and raw.get("calendarDate"):
             db.table("hrv").upsert(
-                transform_hrv(user_id=user_id, raw=raw), on_conflict="user_id,date"
+                transform_hrv(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
             ).execute()
     except _AbortSyncErrors:
         raise
@@ -118,7 +120,7 @@ def _safe_upsert_body(db: Any, user_id: str, client: Garmin, iso_date: str) -> N
         for raw in items or []:
             if raw.get("calendarDate"):
                 db.table("body_composition").upsert(
-                    transform_body(user_id=user_id, raw=raw), on_conflict="user_id,date"
+                    transform_body(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
                 ).execute()
     except _AbortSyncErrors:
         raise

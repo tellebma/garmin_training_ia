@@ -114,7 +114,7 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label htmlFor="perso-city">
-            Ville
+            Ville{' '}
             <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
           </Label>
           <Input
@@ -127,8 +127,7 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="perso-country">
-            Pays
-            <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+            Pays <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
           </Label>
           <Input
             id="perso-country"

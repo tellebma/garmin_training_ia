@@ -74,7 +74,7 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
     >
       <div className="space-y-2">
         <Label>
-          Jours dispo
+          Jours dispo{' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">
             (optionnel — vide = Lun-Mar-Mer-Jeu-Sam)
           </span>
@@ -101,7 +101,7 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="hours">
-          Heures par semaine
+          Heures par semaine{' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">
             (optionnel — vide = 6 h)
           </span>

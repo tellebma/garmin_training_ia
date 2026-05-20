@@ -29,3 +29,18 @@ def test_transform_daily_missing_fields() -> None:
     assert row["date"] == "2026-05-15"
     assert row["resting_hr"] is None
     assert row["steps"] is None
+
+
+def test_transform_daily_coerces_non_numeric_to_none() -> None:
+    """A field arriving as a non-coercible string must produce None instead
+    of crashing the row.
+
+    Covers daily.py lines 29-30 (the TypeError/ValueError catch in _to_int)."""
+    raw = {
+        "calendarDate": "2026-05-15",
+        "restingHeartRate": "n/a",
+        "totalSteps": "n/a",
+    }
+    row = transform_daily(user_id="u1", raw=raw)
+    assert row["resting_hr"] is None
+    assert row["steps"] is None

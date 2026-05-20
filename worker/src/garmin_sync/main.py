@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, status
 from pydantic import BaseModel
@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from garmin_sync.auth import AuthError, verify_shared_token, verify_supabase_jwt
 from garmin_sync.config import get_settings
 from garmin_sync.cron import run_sync_for_user
+
+_BEARER_PREFIX = "Bearer "
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,17 +32,17 @@ def health() -> dict[str, str]:
 
 
 def _require_shared_token(authorization: str | None) -> None:
-    if not authorization or not authorization.startswith("Bearer "):
+    if not authorization or not authorization.startswith(_BEARER_PREFIX):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
-    token = authorization.removeprefix("Bearer ")
+    token = authorization.removeprefix(_BEARER_PREFIX)
     if not verify_shared_token(token):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
 
 
 def _require_user_jwt(authorization: str | None) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
+    if not authorization or not authorization.startswith(_BEARER_PREFIX):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
-    token = authorization.removeprefix("Bearer ")
+    token = authorization.removeprefix(_BEARER_PREFIX)
     try:
         return verify_supabase_jwt(token)
     except AuthError as e:
@@ -51,10 +53,13 @@ def _new_error_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
+_AuthHeader = Annotated[str | None, Header()]
+
+
 @app.post("/sync/{user_id}")
 def sync_user(
     user_id: str,
-    authorization: str | None = Header(default=None),
+    authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     _require_shared_token(authorization)
     return run_sync_for_user(user_id, initial=False)
@@ -73,7 +78,7 @@ class GarminMFARequest(BaseModel):
 @app.post("/garmin/connect")
 def garmin_connect(
     body: GarminConnectRequest,
-    authorization: str | None = Header(default=None),
+    authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     """Initiate Garmin login. Called by Next.js Server Action on behalf of user."""
     user_id = _require_user_jwt(authorization)
@@ -94,7 +99,7 @@ def garmin_connect(
 @app.post("/garmin/mfa")
 def garmin_mfa(
     body: GarminMFARequest,
-    authorization: str | None = Header(default=None),
+    authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     user_id = _require_user_jwt(authorization)
     try:
@@ -113,7 +118,7 @@ def garmin_mfa(
 
 @app.post("/garmin/profile-sync")
 def garmin_profile_sync(
-    authorization: str | None = Header(default=None),
+    authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     """Pull FTP/VMA/FCmax from Garmin and upsert into athlete_profiles.
 

@@ -17,4 +17,11 @@ regexes = [
   '''your-(anon-key|project)''',
   '''Mk7-aBcDEfGhIjKlMnOpQrStUvWxYz0123456789abc=''',
   '''(?i)(fake|test|sample|dummy|placeholder)[-_]?(key|token|secret)''',
+  # `curl -u "${SONAR_TOKEN}:"` in CI uses an Actions secret reference,
+  # not a literal credential — gitleaks' curl-auth-user rule cannot
+  # distinguish `${VAR}` interpolation from a hardcoded token.
+  '''curl[^"]*"\$\{SONAR_TOKEN\}:"''',
+]
+stopwords = [
+  '''SONAR_TOKEN''',
 ]

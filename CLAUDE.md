@@ -17,6 +17,7 @@ avant course **août-septembre 2026**.
 | E7 — Dashboard frontend | À planifier |
 | E8 — Parcours géolocalisés | À planifier |
 | E9 — Beta privée (invits + monitoring) | À planifier |
+| **E-Q — SonarQube Quality Gate** | 🟡 En cours (Phase 1 mergeable) |
 
 ## Stack
 

@@ -97,7 +97,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="ftp">
-          FTP (watts)
+          FTP (watts){' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input
@@ -115,7 +115,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="vma">
-          VMA (km/h)
+          VMA (km/h){' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input
@@ -134,7 +134,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="fcmax">
-          FC max (bpm)
+          FC max (bpm){' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input

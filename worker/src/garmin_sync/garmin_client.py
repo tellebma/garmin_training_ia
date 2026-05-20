@@ -44,6 +44,8 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+_RATE_LIMIT_MSG = "rate limited by Garmin"
+
 
 class GarminError(Exception):
     """Generic Garmin error."""
@@ -105,15 +107,13 @@ def login_with_credentials(email: str, password: str) -> str:
         msg = "invalid Garmin credentials"
         raise GarminAuthError(msg) from e
     except GarminConnectTooManyRequestsError as e:
-        msg = "rate limited by Garmin"
-        raise GarminRateLimitError(msg) from e
+        raise GarminRateLimitError(_RATE_LIMIT_MSG) from e
     except GarminConnectConnectionError as e:
         # Many real-world 429 cases surface here when only some strategies
         # 429'd and others raised other transport errors. Detect them by
         # string match so the caller gets a useful status.
         if "429" in str(e):
-            msg = "rate limited by Garmin"
-            raise GarminRateLimitError(msg) from e
+            raise GarminRateLimitError(_RATE_LIMIT_MSG) from e
         msg = "connection error reaching Garmin"
         raise GarminError(msg) from e
 
@@ -140,12 +140,10 @@ def submit_mfa_code(challenge: Any, code: str) -> str:
         msg = "MFA code invalid"
         raise GarminAuthError(msg) from e
     except GarminConnectTooManyRequestsError as e:
-        msg = "rate limited by Garmin"
-        raise GarminRateLimitError(msg) from e
+        raise GarminRateLimitError(_RATE_LIMIT_MSG) from e
     except GarminConnectConnectionError as e:
         if "429" in str(e):
-            msg = "rate limited by Garmin"
-            raise GarminRateLimitError(msg) from e
+            raise GarminRateLimitError(_RATE_LIMIT_MSG) from e
         msg = "connection error reaching Garmin"
         raise GarminError(msg) from e
     return _serialize_session(challenge)

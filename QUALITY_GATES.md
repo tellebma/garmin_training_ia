@@ -74,6 +74,42 @@ Workflow `.github/workflows/ci.yml` déclenché sur :
 | **lighthouse** | LHCI sur `/login` + `/today` | PWA ≥ 90, A11y ≥ 90, Perf ≥ 80 |
 | **db-migrations** | `supabase db reset` sur DB éphémère | succès |
 | **quality-gate** | Coverage diff Codecov + SonarJS rules ESLint | **Coverage nouveau code ≥ 95%** |
+| **sonarqube** | SonarQube scan + quality gate (bloquant) | Gate Sonar = PASSED + coverage globale ≥ 90 % |
+
+### SonarQube quality gate (E-Q EPIC)
+
+**URL** : https://sonarqube.tellebma.fr/dashboard?id=garmin_training_ia
+**Profile** : Sonar way (defaults, projet non-admin)
+
+**Conditions bloquantes sur new code (PR/push)** :
+
+| Condition | Threshold |
+|-----------|-----------|
+| Coverage on new code | ≥ 80 % |
+| Duplicated lines on new code | < 3 % |
+| Maintainability rating | A |
+| Reliability rating | A |
+| Security rating | A |
+| Security hotspots reviewed | 100 % |
+| New violations | 0 |
+
+**Conditions bloquantes globales (objectif owner)** :
+
+| Condition | Threshold |
+|-----------|-----------|
+| Coverage globale | ≥ 90 % |
+
+**Comment ça s'enforce** : job `sonarqube` dans `.github/workflows/ci.yml` :
+1. `SonarSource/sonarqube-scan-action@v4` pousse le scan
+2. `SonarSource/sonarqube-quality-gate-action@v1.2.0` polle l'API et fait
+   échouer le step si la gate est ERROR (timeout 10 min)
+3. Un step custom appelle `api/measures/component` et vérifie
+   `coverage ≥ 90 %`. Activé via repo variable `ENFORCE_90_COVERAGE=true`
+   (à activer une fois Phase 3 E-Q terminée).
+
+**Coverage merge** : le job télécharge deux artefacts (frontend Vitest +
+worker pytest, tous deux en LCOV) que `sonar-project.properties` consomme
+via `sonar.javascript.lcov.reportPaths` et `sonar.python.coverage.reportPaths`.
 
 ### Quality Gate "coverage 95% sur nouveau code"
 

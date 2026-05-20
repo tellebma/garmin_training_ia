@@ -102,7 +102,7 @@ function RaceSummary({ race }: Readonly<{ race: RaceInput }>) {
 
 export function RaceEditForm({ initial }: Readonly<Props>) {
   const [edit, setEdit] = useState(false)
-  const [race_date, setRaceDate] = useState(initial?.race_date ?? '')
+  const [raceDate, setRaceDate] = useState(initial?.race_date ?? '')
   const [discipline, setDiscipline] = useState<(typeof PARENT_DISCIPLINES)[number]>(
     initial?.discipline ?? 'triathlon'
   )
@@ -144,7 +144,7 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
     setLoading(true)
     const target_time_seconds = targetHms ? hmsToSeconds(targetHms) : undefined
     const r = await saveStepRace({
-      race_date,
+      race_date: raceDate,
       discipline,
       name: name || undefined,
       location: location || undefined,
@@ -199,7 +199,7 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
         <Input
           id="re-race_date"
           type="date"
-          value={race_date}
+          value={raceDate}
           onChange={(e) => {
             setRaceDate(e.target.value)
           }}
@@ -231,8 +231,7 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="re-name">
-          Nom
-          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+          Nom <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input
           id="re-name"
@@ -245,8 +244,7 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="re-location">
-          Lieu
-          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+          Lieu <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input
           id="re-location"
@@ -259,7 +257,7 @@ export function RaceEditForm({ initial }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="re-target">
-          Temps cible
+          Temps cible{' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">
             (optionnel, hh:mm:ss)
           </span>

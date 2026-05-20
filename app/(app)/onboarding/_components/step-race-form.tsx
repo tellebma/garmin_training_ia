@@ -73,7 +73,7 @@ function secondsToHms(total: number): string {
 }
 
 export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
-  const [race_date, setRaceDate] = useState(defaultValues?.race_date ?? '')
+  const [raceDate, setRaceDate] = useState(defaultValues?.race_date ?? '')
   const [discipline, setDiscipline] = useState<(typeof PARENT_DISCIPLINES)[number]>(
     defaultValues?.discipline ?? 'triathlon'
   )
@@ -121,7 +121,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
     setErrors({})
     const target_time_seconds = targetHms ? hmsToSeconds(targetHms) : undefined
     const result = await saveStepRace({
-      race_date,
+      race_date: raceDate,
       discipline,
       name: name || undefined,
       location: location || undefined,
@@ -154,7 +154,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
         <Input
           id="race_date"
           type="date"
-          value={race_date}
+          value={raceDate}
           onChange={(e) => {
             setRaceDate(e.target.value)
           }}
@@ -185,7 +185,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="name">
-          Nom de la course
+          Nom de la course{' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input
@@ -200,8 +200,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="location">
-          Lieu
-          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+          Lieu <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
         </Label>
         <Input
           id="location"
@@ -215,7 +214,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
 
       <div className="space-y-2">
         <Label htmlFor="target_hms">
-          Temps cible total
+          Temps cible total{' '}
           <span className="text-muted-foreground ml-1 text-xs font-normal">
             (optionnel, hh:mm:ss)
           </span>
