@@ -44,4 +44,29 @@ describe('sessions Server Actions', () => {
     expect(workerRegen).toHaveBeenCalledWith('jwt-1', 'sess-1')
     expect(result.success).toBe(true)
   })
+
+  it('regenerateSession returns error when unauthenticated', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: null } })
+    const { regenerateSession } = await import('@/app/actions/sessions')
+    const result = await regenerateSession('sess-1')
+    expect(result.success).toBe(false)
+  })
+
+  it('ensureGeneratedSessions returns error when worker throws', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
+    workerEnsure.mockRejectedValueOnce(new Error('worker down'))
+    const { ensureGeneratedSessions } = await import('@/app/actions/sessions')
+    const result = await ensureGeneratedSessions(7)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toBe('worker down')
+  })
+
+  it('regenerateSession returns error when worker throws', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
+    workerRegen.mockRejectedValueOnce(new Error('boom'))
+    const { regenerateSession } = await import('@/app/actions/sessions')
+    const result = await regenerateSession('sess-1')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toBe('boom')
+  })
 })

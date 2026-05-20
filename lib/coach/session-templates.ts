@@ -72,28 +72,25 @@ function renderSet(s: IntervalSet, sport: Sport): string {
 }
 
 export function workoutToMarkdown(w: Workout, sport: Sport, type: SessionType): string {
-  const lines: string[] = []
-  lines.push(`## ${SPORT_LABEL[sport]} — ${TYPE_LABEL[type]}`)
-  lines.push('')
-  lines.push('### Échauffement')
-  lines.push(renderBlock(w.warmup, sport))
-  lines.push('')
-  lines.push('### Corps de séance')
-  for (const block of w.main) {
-    if (isIntervalSet(block)) {
-      lines.push(renderSet(block, sport))
-    } else {
-      lines.push(renderBlock(block, sport))
-    }
-  }
-  lines.push('')
-  lines.push('### Retour calme')
-  lines.push(renderBlock(w.cooldown, sport))
-  lines.push('')
-  lines.push(`*${w.summary_md}*`)
+  const mainLines = w.main.map((block) =>
+    isIntervalSet(block) ? renderSet(block, sport) : renderBlock(block, sport)
+  )
+  const lines: string[] = [
+    `## ${SPORT_LABEL[sport]} — ${TYPE_LABEL[type]}`,
+    '',
+    '### Échauffement',
+    renderBlock(w.warmup, sport),
+    '',
+    '### Corps de séance',
+    ...mainLines,
+    '',
+    '### Retour calme',
+    renderBlock(w.cooldown, sport),
+    '',
+    `*${w.summary_md}*`,
+  ]
   if (w.technical_focus) {
-    lines.push('')
-    lines.push(`> Focus technique : ${w.technical_focus}`)
+    lines.push('', `> Focus technique : ${w.technical_focus}`)
   }
   return lines.join('\n')
 }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
@@ -72,7 +72,7 @@ def _generate_and_persist(
     db.table("planned_sessions").update(
         {
             "workout": workout.model_dump(),
-            "workout_generated_at": datetime.utcnow().isoformat(),
+            "workout_generated_at": datetime.now(UTC).isoformat(),
         }
     ).eq("id", session["id"]).execute()
     return True
@@ -133,7 +133,7 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
     db.table("planned_sessions").update(
         {
             "workout": workout.model_dump(),
-            "workout_generated_at": datetime.utcnow().isoformat(),
+            "workout_generated_at": datetime.now(UTC).isoformat(),
         }
     ).eq("id", session_id).execute()
     return {"status": "ok", "workout": workout.model_dump()}
