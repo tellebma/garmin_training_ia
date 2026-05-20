@@ -29,8 +29,10 @@ class RateLimit:
 # while letting normal usage proceed without hiccups.
 #   - ensure_sessions: called on every /today open. 60/hour = a tab refresh every minute.
 #   - regenerate_session: explicit user click. 10/hour is plenty for sanity-checks.
+#   - daily_briefing: called on every /today open. Same cadence as ensure_sessions.
 ENSURE_SESSIONS = RateLimit(action="ensure_sessions", max_count=60, window_seconds=3600)
 REGENERATE_SESSION = RateLimit(action="regenerate_session", max_count=10, window_seconds=3600)
+DAILY_BRIEFING = RateLimit(action="daily_briefing", max_count=60, window_seconds=3600)
 
 
 def check_or_raise(*, user_id: str, limit: RateLimit) -> None:
