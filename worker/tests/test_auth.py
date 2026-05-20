@@ -111,3 +111,49 @@ def test_verify_shared_token_accepts_match() -> None:
 
 def test_verify_shared_token_rejects_mismatch() -> None:
     assert verify_shared_token("nope") is False
+
+
+def test_verify_supabase_jwt_wraps_jwks_fetch_error_as_auth_error() -> None:
+    """If the JWKS endpoint is unreachable or returns a key we can't load, we
+    must convert the underlying exception into our AuthError so callers only
+    have to catch one error type.
+
+    Covers auth.py lines 63-66 (the generic Exception handler)."""
+    from garmin_sync import auth as auth_module
+
+    auth_module._jwks_client.cache_clear()
+
+    with (
+        patch(
+            "garmin_sync.auth.PyJWKClient.get_signing_key_from_jwt",
+            side_effect=RuntimeError("network blew up"),
+        ),
+        pytest.raises(AuthError, match="jwt verification failed"),
+    ):
+        verify_supabase_jwt("any-token-value")
+
+
+def test_verify_supabase_jwt_rejects_token_missing_sub_claim(
+    jwks_setup: tuple[ec.EllipticCurvePrivateKey, dict[str, Any]],
+) -> None:
+    """A JWT signed with the right key but where `sub` is empty/missing
+    must be rejected — the verifier returns the `sub` so we can't tolerate
+    None there.
+
+    Covers auth.py lines 68-71 (the `not isinstance(sub, str) or not sub` branch)."""
+    private_key, _ = jwks_setup
+    # Encode a token where sub is explicitly empty
+    token = _make_jwt(private_key, sub="")
+    with pytest.raises(AuthError, match="missing 'sub'"):
+        verify_supabase_jwt(token)
+
+
+def test_verify_supabase_jwt_rejects_malformed_token(
+    jwks_setup: tuple[ec.EllipticCurvePrivateKey, dict[str, Any]],
+) -> None:
+    """A token that doesn't even decode as JWT must raise AuthError
+    via the InvalidTokenError branch.
+
+    Covers auth.py lines 58-60."""
+    with pytest.raises(AuthError):
+        verify_supabase_jwt("not.a.jwt")

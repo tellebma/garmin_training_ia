@@ -80,3 +80,53 @@ def test_transform_handles_null_fields_gracefully() -> None:
     assert row["distance_m"] is None
     assert row["hr_avg"] is None
     assert row["duration_s"] == 0
+
+
+def test_transform_skips_start_time_when_missing() -> None:
+    """If startTimeGMT is missing/None, the row's start_time must be None
+    rather than crashing.
+
+    Covers activities.py line 11 (the early-return in _parse_dt)."""
+    raw = {
+        "activityId": 42,
+        "activityType": {"typeKey": "running"},
+        "duration": 60.0,
+        "distance": 200.0,
+    }
+    row = transform_activity(user_id="u1", raw=raw)
+    assert row["start_time"] is None
+    assert row["garmin_activity_id"] == 42
+
+
+def test_transform_coerces_unparseable_numeric_to_none() -> None:
+    """If a numeric field comes in as a non-numeric string, _to_int must
+    return None instead of crashing the whole transform.
+
+    Covers activities.py lines 54-55 (the TypeError/ValueError catch)."""
+    raw = {
+        "activityId": 1,
+        "startTimeGMT": "2026-05-10 08:00:00",
+        "activityType": {"typeKey": "running"},
+        "duration": 60.0,
+        "averageHR": "n/a",  # Garmin sometimes sends weird strings on incomplete data
+        "calories": "lots",
+    }
+    row = transform_activity(user_id="u1", raw=raw)
+    assert row["hr_avg"] is None
+    assert row["calories"] is None
+
+
+def test_transform_handles_zero_speed() -> None:
+    """Zero (or negative) speed must produce a None pace, not crash on a
+    division by zero.
+
+    Covers _pace_s_per_km guard."""
+    raw = {
+        "activityId": 1,
+        "startTimeGMT": "2026-05-10 08:00:00",
+        "activityType": {"typeKey": "running"},
+        "duration": 60.0,
+        "averageSpeed": 0.0,
+    }
+    row = transform_activity(user_id="u1", raw=raw)
+    assert row["pace_avg_s_per_km"] is None

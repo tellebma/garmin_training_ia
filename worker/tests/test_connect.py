@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -189,3 +189,165 @@ def test_resume_connect_flow_challenge_expired() -> None:
 
     result = resume_connect_flow(user_id="u1", challenge_id="missing", code="123456")
     assert result == {"status": "challenge_expired"}
+
+
+def test_start_connect_flow_returns_mfa_required_when_garmin_demands_it() -> None:
+    """If Garmin demands an MFA code, start_connect_flow must:
+    1. Store the (challenge_id, user_id, challenge) tuple in _pending_mfa
+    2. Return ``status: mfa_required`` + challenge_id to the caller
+
+    Covers connect.py lines 91-93."""
+    from garmin_sync.connect import _pending_mfa, start_connect_flow
+    from garmin_sync.garmin_client import GarminMFARequired
+
+    sentinel_challenge = object()
+    with patch("garmin_sync.connect.login_with_credentials") as fake_login:
+        fake_login.side_effect = GarminMFARequired(challenge=sentinel_challenge)
+        result = start_connect_flow(user_id="u1", email="a@b.c", password="p")
+
+    assert result["status"] == "mfa_required"
+    challenge_id = result["challenge_id"]
+    assert challenge_id in _pending_mfa
+    _ts, owner, stored = _pending_mfa[challenge_id]
+    assert owner == "u1"
+    assert stored is sentinel_challenge
+
+
+def test_resume_connect_flow_returns_connected_and_persists_tokens() -> None:
+    """Happy path: a previously stored challenge resolves successfully with a
+    valid MFA code; the worker decrypts/persists fresh tokens.
+
+    Covers connect.py lines 153-155 + the _persist_tokens helper (167-170)."""
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+
+    challenge = object()
+    _pending_mfa["cid_ok"] = (9999999999.0, "u1", challenge)
+
+    with (
+        patch("garmin_sync.connect.submit_mfa_code", return_value='{"oauth": "fresh"}'),
+        patch("garmin_sync.connect._persist_tokens") as persist_mock,
+    ):
+        result = resume_connect_flow(user_id="u1", challenge_id="cid_ok", code="123456")
+
+    assert result == {"status": "connected"}
+    persist_mock.assert_called_once_with(user_id="u1", tokens_json='{"oauth": "fresh"}')
+    assert "cid_ok" not in _pending_mfa
+
+
+def test_resume_connect_flow_returns_invalid_code() -> None:
+    """A bad MFA code → GarminAuthError → invalid_code response + cooldown.
+
+    Covers connect.py lines 139-140."""
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+    from garmin_sync.garmin_client import GarminAuthError
+
+    challenge = object()
+    _pending_mfa["cid_bad"] = (9999999999.0, "u1", challenge)
+
+    with patch("garmin_sync.connect.submit_mfa_code", side_effect=GarminAuthError("nope")):
+        result = resume_connect_flow(user_id="u1", challenge_id="cid_bad", code="000000")
+
+    assert result["status"] == "invalid_code"
+    assert isinstance(result["retry_after_seconds"], int)
+    assert result["retry_after_seconds"] > 0
+
+
+def test_resume_connect_flow_returns_rate_limited() -> None:
+    """If submit_mfa_code hits a 429, surface rate_limited + cooldown.
+
+    Covers connect.py lines 142-143."""
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+    from garmin_sync.garmin_client import GarminRateLimitError
+
+    challenge = object()
+    _pending_mfa["cid_rl"] = (9999999999.0, "u1", challenge)
+
+    with patch("garmin_sync.connect.submit_mfa_code", side_effect=GarminRateLimitError("429")):
+        result = resume_connect_flow(user_id="u1", challenge_id="cid_rl", code="123456")
+
+    assert result["status"] == "rate_limited"
+    assert isinstance(result["retry_after_seconds"], int)
+    assert result["retry_after_seconds"] > 0
+
+
+def test_resume_connect_flow_returns_challenge_user_mismatch() -> None:
+    """If user B tries to redeem user A's challenge, reject without leaking
+    that the challenge exists.
+
+    Covers connect.py line 134."""
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+
+    challenge = object()
+    _pending_mfa["cid_x"] = (9999999999.0, "userA", challenge)
+
+    result = resume_connect_flow(user_id="userB", challenge_id="cid_x", code="123456")
+    assert result == {"status": "challenge_user_mismatch"}
+
+
+def test_resume_connect_flow_blocked_by_cooldown() -> None:
+    """A cooldown on user1 must block any resume attempts as well — not just
+    the initial connect.
+
+    Covers connect.py line 126 (the _check_cooldown early return in resume)."""
+    import time
+
+    from garmin_sync.connect import _cooldowns, resume_connect_flow
+
+    # Set an active cooldown
+    _cooldowns["u1"] = (time.time() + 300, "rate_limited")
+
+    result = resume_connect_flow(user_id="u1", challenge_id="anything", code="123456")
+    assert result["status"] == "rate_limited"
+    assert isinstance(result["retry_after_seconds"], int)
+
+
+def test_check_cooldown_returns_none_for_expired_entry() -> None:
+    """When a cooldown row exists but is in the past, _check_cooldown must
+    pop it and return None so the user is unblocked.
+
+    Covers connect.py lines 67-69 (the `remaining <= 0` branch)."""
+    import time
+
+    from garmin_sync.connect import _check_cooldown, _cooldowns
+
+    _cooldowns["uX"] = (time.time() - 1, "invalid_credentials")
+    assert _check_cooldown("uX") is None
+    assert "uX" not in _cooldowns
+
+
+def test_purge_expired_removes_old_mfa_challenges() -> None:
+    """An MFA challenge older than _MFA_EXPIRY_S must be evicted on the next
+    call to start/resume_connect_flow.
+
+    Covers connect.py line 54 (the actual ``pop`` inside _purge_expired)."""
+    from garmin_sync.connect import _MFA_EXPIRY_S, _pending_mfa, _purge_expired
+
+    # Insert an MFA entry with a timestamp older than the expiry window
+    _pending_mfa["old_cid"] = (1.0, "u1", object())  # ts way in the past
+    _purge_expired()
+    assert "old_cid" not in _pending_mfa
+    # Sanity: the expiry threshold is the value advertised by the module
+    assert _MFA_EXPIRY_S > 0
+
+
+def test_persist_tokens_upserts_encrypted_payload() -> None:
+    """Smoke-test _persist_tokens: it should encrypt, base64-encode and call
+    upsert on the garmin_credentials table with the expected shape.
+
+    Covers connect.py lines 167-179."""
+    from garmin_sync.connect import _persist_tokens
+
+    fake_db = MagicMock()
+    with patch("garmin_sync.connect.get_admin_client", return_value=fake_db):
+        _persist_tokens(user_id="u1", tokens_json='{"oauth": "ok"}')
+
+    fake_db.table.assert_called_with("garmin_credentials")
+    upsert_call = fake_db.table.return_value.upsert.call_args
+    payload = upsert_call.args[0]
+    assert payload["user_id"] == "u1"
+    assert payload["token_refresh_failed_at"] is None
+    assert payload["last_sync_status"] is None
+    # encrypted payload is a str (ASCII base64 from Fernet)
+    assert isinstance(payload["oauth_tokens_encrypted"], str)
+    assert payload["oauth_tokens_encrypted"]  # non-empty
+    assert upsert_call.kwargs.get("on_conflict") == "user_id"
