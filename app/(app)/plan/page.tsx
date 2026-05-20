@@ -43,7 +43,7 @@ export default async function PlanPage({ searchParams }: Readonly<PlanPageProps>
     supabase
       .from('planned_sessions')
       .select(
-        'id, date, sport, session_type, target_duration_s, target_tss, phase, week_offset, notes'
+        'id, date, sport, session_type, target_duration_s, target_tss, phase, week_offset, notes, workout, workout_generated_at'
       )
       .eq('user_id', userId)
       .gte('date', start)
@@ -123,7 +123,7 @@ export default async function PlanPage({ searchParams }: Readonly<PlanPageProps>
               </span>
               <div className="flex-1">
                 {s ? (
-                  <SessionCard session={s} compact />
+                  <SessionCard session={s} compact showWorkout />
                 ) : (
                   <div className="text-muted-foreground bg-muted/30 rounded-lg border border-dashed py-3 text-center text-xs">
                     Aucune séance
