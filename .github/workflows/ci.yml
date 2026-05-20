@@ -164,6 +164,6 @@ jobs:
           sleep 5
           COVERAGE=$(curl -sS -u "${SONAR_TOKEN}:" \
             "${SONAR_HOST_URL}/api/measures/component?component=garmin_training_ia&metricKeys=coverage" \
-            | jq -r '.component.measures[0].value // "0"')
+            | jq -r '.component.measures[0].value // "0"') # gitleaks:allow
           echo "Global coverage: ${COVERAGE}%"
           awk -v c="$COVERAGE" 'BEGIN { exit (c+0 < 90) ? 1 : 0 }'
