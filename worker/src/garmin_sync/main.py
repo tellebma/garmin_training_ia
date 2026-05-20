@@ -142,7 +142,7 @@ def garmin_profile_sync(
 
 @app.post("/coach/generate-plan")
 def coach_generate_plan(
-    authorization: str | None = Header(default=None),
+    authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     """Generate or regenerate a Banister training plan for the calling user."""
     user_id = _require_user_jwt(authorization)

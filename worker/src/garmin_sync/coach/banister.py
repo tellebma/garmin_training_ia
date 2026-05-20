@@ -26,7 +26,8 @@ class BanisterState:
 
     ctl: float
     atl: float
-    tsb: float  # tsb = ctl - atl
+    tsb: float
+    """Training stress balance, computed as ``ctl - atl``."""
 
 
 def compute_banister_history(
