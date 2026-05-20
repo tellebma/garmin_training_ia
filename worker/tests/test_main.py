@@ -126,3 +126,62 @@ def test_coach_generate_plan_catches_unexpected(
     body = r.json()
     assert body["status"] == "unexpected_error"
     assert body["type"] == "RuntimeError"
+
+
+@patch("garmin_sync.coach.sessions.ensure_sessions")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_ensure_sessions_endpoint_ok(mock_jwt, mock_ensure):
+    mock_jwt.return_value = "user-1"
+    mock_ensure.return_value = {"generated_count": 3, "failed_count": 0, "skipped_count": 0}
+    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post(
+        "/coach/ensure-sessions",
+        json={"days": 7},
+        headers={"Authorization": "Bearer fake.jwt"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["generated_count"] == 3
+    mock_ensure.assert_called_once_with(user_id="user-1", days=7)
+
+
+@patch("garmin_sync.coach.sessions.ensure_sessions")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_ensure_sessions_default_days(mock_jwt, mock_ensure):
+    mock_jwt.return_value = "user-1"
+    mock_ensure.return_value = {"generated_count": 0, "failed_count": 0, "skipped_count": 0}
+    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post("/coach/ensure-sessions", json={}, headers={"Authorization": "Bearer fake.jwt"})
+    assert r.status_code == 200
+    mock_ensure.assert_called_once_with(user_id="user-1", days=7)
+
+
+@patch("garmin_sync.coach.sessions.regenerate_session")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_regenerate_session_endpoint_ok(mock_jwt, mock_regen):
+    mock_jwt.return_value = "user-1"
+    mock_regen.return_value = {"status": "ok", "workout": {"summary_md": "x"}}
+    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post(
+        "/coach/regenerate-session/sess-1",
+        headers={"Authorization": "Bearer fake.jwt"},
+    )
+    assert r.status_code == 200
+    mock_regen.assert_called_once_with(user_id="user-1", session_id="sess-1")
+
+
+@patch("garmin_sync.coach.sessions.regenerate_session")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_regenerate_session_not_found(mock_jwt, mock_regen):
+    from garmin_sync.coach.sessions import SessionNotFound
+
+    mock_jwt.return_value = "user-1"
+    mock_regen.side_effect = SessionNotFound("nope")
+    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post(
+        "/coach/regenerate-session/sess-1",
+        headers={"Authorization": "Bearer fake.jwt"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "session_not_found"
