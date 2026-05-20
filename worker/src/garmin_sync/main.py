@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import sys
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, status
@@ -23,7 +25,21 @@ logging.basicConfig(
 )
 
 log = logging.getLogger(__name__)
-app = FastAPI(title="garmin-sync", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Start the in-container scheduler on app startup, stop it on shutdown."""
+    from garmin_sync.scheduler import init_scheduler, shutdown_scheduler
+
+    init_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
+
+
+app = FastAPI(title="garmin-sync", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")

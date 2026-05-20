@@ -42,23 +42,35 @@ on the operator's server behind Nginx Proxy Manager at
    - SSL tab: Request Let's Encrypt cert, Force SSL, HTTP/2
    - Save
 
-6. Install the systemd cron timer:
+6. **No systemd setup needed.** The worker now schedules its own jobs
+   in-container via APScheduler. As soon as the container is up, the
+   following cron schedule is active:
+
+   | Job                  | Schedule (UTC)       |
+   |----------------------|----------------------|
+   | sleep + HRV + daily  | daily 08:00          |
+   | activities + daily   | daily 13:00          |
+   | activities + daily   | daily 18:00          |
+   | profile refresh      | Mon 06:00            |
+   | plan regeneration    | Sun 22:00            |
+
+   To change the schedule, edit `worker/src/garmin_sync/scheduler.py`,
+   push, let the Docker image rebuild, then on the host:
    ```bash
-   sudo cp worker/deploy/garmin-sync-cron.service /etc/systemd/system/
-   sudo cp worker/deploy/garmin-sync-cron.timer /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now garmin-sync-cron.timer
+   docker compose pull garmin-sync && docker compose up -d garmin-sync
    ```
 
-   Verify:
+   Verify running jobs:
    ```bash
-   sudo systemctl list-timers garmin-sync-cron.timer
+   docker logs garmin-sync 2>&1 | grep scheduler
    ```
 
-   Manual test:
+   Trigger a job manually for testing:
    ```bash
-   sudo systemctl start garmin-sync-cron.service
-   sudo journalctl -u garmin-sync-cron.service -n 50 --no-pager
+   docker exec garmin-sync python -m garmin_sync.cron sleep
+   docker exec garmin-sync python -m garmin_sync.cron activities
+   docker exec garmin-sync python -m garmin_sync.cron profile
+   docker exec garmin-sync python -m garmin_sync.coach.cron
    ```
 
 ## Auto-update (optional, recommended)
@@ -92,8 +104,7 @@ docker compose up -d
 ## Logs
 
 - Worker logs (live): `docker compose logs -f garmin-sync`
-- Cron run history: `journalctl -u garmin-sync-cron.service -n 100 --no-pager`
-- Cron schedule: `systemctl list-timers garmin-sync-cron.timer`
+- Scheduled job runs: `docker logs garmin-sync 2>&1 | grep scheduler`
 
 ## Manual sync trigger
 
@@ -105,57 +116,7 @@ curl -X POST https://garmin-sync.tellebma.fr/sync/<user-uuid> \
   -H "Authorization: Bearer $WORKER_SHARED_TOKEN"
 ```
 
-## Coach weekly cron — Banister plan regeneration (E4)
-
-Second systemd timer that regenerates training plans every Sunday at
-22:00 UTC (one hour before the Garmin sync timer at 23:00 UTC, so data
-is fresh for next-week planning).
-
-### Timer file `/etc/systemd/system/garmin-coach.timer`
-
-```ini
-[Unit]
-Description=Garmin Training Coach — weekly plan regen
-
-[Timer]
-OnCalendar=Sun *-*-* 22:00:00 UTC
-Persistent=true
-Unit=garmin-coach.service
-
-[Install]
-WantedBy=timers.target
-```
-
-### Service file `/etc/systemd/system/garmin-coach.service`
-
-```ini
-[Unit]
-Description=Garmin Training Coach — weekly plan regen
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/docker exec garmin-sync python -m garmin_sync.coach.cron
-```
-
-### Installation
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable garmin-coach.timer
-sudo systemctl start garmin-coach.timer
-systemctl list-timers garmin-coach.timer    # verify next trigger
-```
-
-### Logs
-
-```bash
-sudo journalctl -u garmin-coach.service --since "7 days ago"
-docker logs garmin-sync | grep coach
-```
-
-### One-shot TSS backfill (à exécuter une fois après le déploiement E4)
+## One-shot TSS backfill (à exécuter une fois après le déploiement E4)
 
 Calcule TSS sur toutes les activities historiques importées par E2
 (qui avaient `tss = NULL` car le calcul TSS est désormais inline dans
