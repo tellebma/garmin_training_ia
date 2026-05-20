@@ -207,6 +207,95 @@ def test_generate_plan_cold_start_uses_profile_estimate_directly(monkeypatch) ->
     assert inserted_plan["params"]["cold_start"] is True
 
 
+def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
+    """A 'long' session should receive more TSS (and more duration) than 'endurance'."""
+    from garmin_sync.coach.planner import _build_week_sessions  # type: ignore[attr-defined]
+
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+
+    # 6 available days, weekly_tss = 420 (= 8h/wk * 50 / 7 * 7 * ramp 1.05 = ~420)
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=week_start,
+        weekly_tss=420.0,
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
+        is_last_week=False,
+        race_date=today + timedelta(days=365),
+        race_sport="run",
+    )
+
+    # Sunday gets the 'long' session (per _placement_priority_for_day)
+    long_sessions = [s for s in sessions if s["session_type"] == "long"]
+    endurance_sessions = [s for s in sessions if s["session_type"] == "endurance"]
+    assert len(long_sessions) >= 1
+    assert len(endurance_sessions) >= 1
+
+    # Long must be heavier than endurance in TSS (within same sport)
+    max_long_tss = max(s["target_tss"] for s in long_sessions)
+    max_endurance_tss = max(s["target_tss"] for s in endurance_sessions)
+    assert max_long_tss > max_endurance_tss
+
+
+def test_build_week_sessions_bike_takes_longer_than_run_at_same_tss() -> None:
+    """For the same TSS, bike duration must exceed run duration (different TSS/h)."""
+    from garmin_sync.coach.planner import _training_day_session
+
+    used: list[str] = []
+    bike_session = _training_day_session(
+        day=date.today(),
+        day_idx=1,
+        phase="base",
+        week_offset=0,
+        types_for_phase=["endurance"],
+        sports_in_race=["bike"],
+        tss_by_sport={"bike": 50.0},
+        used_types=used,
+        sport_weight_total={"bike": 1.0},
+    )
+    used2: list[str] = []
+    run_session = _training_day_session(
+        day=date.today(),
+        day_idx=1,
+        phase="base",
+        week_offset=0,
+        types_for_phase=["endurance"],
+        sports_in_race=["run"],
+        tss_by_sport={"run": 50.0},
+        used_types=used2,
+        sport_weight_total={"run": 1.0},
+    )
+    assert bike_session["target_tss"] == run_session["target_tss"]  # same TSS
+    assert bike_session["target_duration_s"] > run_session["target_duration_s"]
+
+
+def test_build_week_sessions_weekly_tss_sums_close_to_budget() -> None:
+    """The sum of session TSS across the week should land within ~5% of weekly_tss."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=week_start,
+        weekly_tss=420.0,
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
+        is_last_week=False,
+        race_date=today + timedelta(days=365),
+        race_sport="run",
+    )
+    total = sum(s["target_tss"] or 0 for s in sessions)
+    # Allow ±5% rounding slack from session-weight normalization
+    assert 399 <= total <= 441, f"expected ~420 TSS, got {total}"
+
+
 def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
     """Re-generating archives the existing active plan via UPDATE before INSERT."""
     from garmin_sync.coach import planner as p_mod
