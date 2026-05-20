@@ -11,10 +11,11 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+from garmin_sync.coach.state import recompute_daily_state
 from garmin_sync.crypto import TokenCipher
 from garmin_sync.garmin_client import GarminAuthError, login_with_tokens
 from garmin_sync.supabase_client import get_admin_client
-from garmin_sync.sync import sync_user_for_date_range
+from garmin_sync.sync import GarminProfileIncompleteError, sync_user_for_date_range
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +62,10 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
             {
                 "last_sync_at": datetime.now(UTC).isoformat(),
                 "last_sync_status": "rate_limited",
+                "last_sync_status_at": datetime.now(UTC).isoformat(),
+                "last_sync_error_message": (
+                    "Garmin a temporairement bloqué les requêtes (rate limit)."
+                ),
             }
         ).eq("user_id", user_id).execute()
         log.warning("sync rate-limited for user=%s — aborted", user_id)
@@ -70,20 +75,48 @@ def run_sync_for_user(user_id: str, *, initial: bool = False) -> dict[str, Any]:
             {
                 "token_refresh_failed_at": datetime.now(UTC).isoformat(),
                 "last_sync_status": "auth_failed",
+                "last_sync_status_at": datetime.now(UTC).isoformat(),
+                "last_sync_error_message": "Ton token Garmin est expiré. Reconnecte-toi.",
             }
         ).eq("user_id", user_id).execute()
         log.warning("sync auth-failed for user=%s — token marked stale", user_id)
         return {"status": "auth_failed"}
+    except GarminProfileIncompleteError as exc:
+        db.table("garmin_credentials").update(
+            {
+                "last_sync_at": datetime.now(UTC).isoformat(),
+                "last_sync_status": "garmin_no_display_name",
+                "last_sync_status_at": datetime.now(UTC).isoformat(),
+                "last_sync_error_message": str(exc),
+            }
+        ).eq("user_id", user_id).execute()
+        log.warning("sync aborted user=%s — Garmin profile incomplete (no display_name)", user_id)
+        # Activities + TSS were synced before the display_name failure — recompute
+        # Banister state from whatever was persisted so /today + /stats still work.
+        try:
+            recompute_daily_state(user_id, days_back=180)
+        except Exception:
+            log.exception("recompute_daily_state failed for user=%s", user_id)
+        return {"status": "garmin_no_display_name"}
 
     db.table("garmin_credentials").update(
         {
             "last_sync_at": datetime.now(UTC).isoformat(),
             "last_sync_status": "ok",
+            "last_sync_status_at": datetime.now(UTC).isoformat(),
+            "last_sync_error_message": None,
             "initial_sync_completed_at": datetime.now(UTC).isoformat()
             if not creds.get("initial_sync_completed_at")
             else creds["initial_sync_completed_at"],
         }
     ).eq("user_id", user_id).execute()
+
+    # E7 — Materialize Banister state for fast frontend reads.
+    # Wrapped in try/except : a failure here MUST NOT abort the sync.
+    try:
+        recompute_daily_state(user_id, days_back=180)
+    except Exception:
+        log.exception("recompute_daily_state failed for user=%s", user_id)
 
     return {"status": "ok", "days_synced": (today - start).days + 1}
 

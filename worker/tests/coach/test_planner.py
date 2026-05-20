@@ -74,8 +74,7 @@ def test_generate_plan_no_race_goal_returns_error(monkeypatch) -> None:
     from garmin_sync.coach import planner as p_mod
 
     fake_db = MagicMock()
-    profile_select = fake_db.table.return_value.select.return_value.eq.return_value
-    profile_chain = profile_select.single.return_value.execute.return_value
+    profile_chain = fake_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value  # noqa: E501
     profile_chain.data = {
         "user_id": "u1",
         "hours_per_week": 6,
@@ -84,8 +83,7 @@ def test_generate_plan_no_race_goal_returns_error(monkeypatch) -> None:
         "sports_strengths": {"swim": 3, "bike": 3, "run": 3},
         "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
     }
-    race_select = fake_db.table.return_value.select.return_value.eq.return_value.eq.return_value
-    race_chain = race_select.maybe_single.return_value.execute.return_value
+    race_chain = fake_db.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value  # noqa: E501
     race_chain.data = None
 
     monkeypatch.setattr(p_mod, "get_admin_client", lambda: fake_db)
@@ -122,8 +120,7 @@ def test_generate_plan_happy_path_writes_to_db(monkeypatch) -> None:
             chain = m.select.return_value.eq.return_value.single.return_value.execute.return_value
             chain.data = profile
         elif table_name == "race_goals":
-            race_select = m.select.return_value.eq.return_value.eq.return_value
-            chain = race_select.maybe_single.return_value.execute.return_value
+            chain = m.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value  # noqa: E501
             chain.data = race
         elif table_name == "activities":
             m.select.return_value.eq.return_value.gte.return_value.execute.return_value.data = []
@@ -174,8 +171,7 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
             chain = m.select.return_value.eq.return_value.single.return_value.execute.return_value
             chain.data = profile
         elif table_name == "race_goals":
-            race_select = m.select.return_value.eq.return_value.eq.return_value
-            chain = race_select.maybe_single.return_value.execute.return_value
+            chain = m.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value  # noqa: E501
             chain.data = race
         elif table_name == "activities":
             m.select.return_value.eq.return_value.gte.return_value.execute.return_value.data = []

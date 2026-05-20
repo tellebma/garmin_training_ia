@@ -14,7 +14,10 @@ def _ms_to_iso(ms: int | None) -> str | None:
 
 def transform_sleep(*, user_id: str, raw: dict[str, Any]) -> dict[str, Any]:
     dto = raw.get("dailySleepDTO") or {}
-    scores = raw.get("sleepScores") or {}
+    # Garmin nests scores INSIDE dailySleepDTO :
+    #   raw.dailySleepDTO.sleepScores.overall.value
+    # (We previously looked at raw.sleepScores which is always null.)
+    scores = dto.get("sleepScores") or {}
     return {
         "user_id": user_id,
         "date": dto.get("calendarDate"),

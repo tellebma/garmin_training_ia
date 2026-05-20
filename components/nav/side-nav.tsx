@@ -2,13 +2,22 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Activity, CalendarDays, History, LineChart, User } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const items = [
-  { href: '/today', label: 'Aujourd’hui' },
-  { href: '/plan', label: 'Plan' },
-  { href: '/stats', label: 'Stats' },
-  { href: '/profile', label: 'Profil' },
+interface NavItem {
+  href: string
+  label: string
+  icon: LucideIcon
+}
+
+const items: NavItem[] = [
+  { href: '/today', label: "Aujourd'hui", icon: Activity },
+  { href: '/plan', label: 'Plan', icon: CalendarDays },
+  { href: '/stats', label: 'Stats', icon: LineChart },
+  { href: '/history', label: 'Historique', icon: History },
+  { href: '/profile', label: 'Profil', icon: User },
 ]
 
 export function SideNav() {
@@ -22,17 +31,19 @@ export function SideNav() {
         <ul className="space-y-1">
           {items.map((item) => {
             const active = pathname === item.href
+            const Icon = item.icon
             return (
               <li key={item.href}>
                 <Link
                   href={item.href}
                   className={cn(
-                    'block rounded-md px-3 py-2 text-sm',
+                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
                     active
                       ? 'bg-accent text-accent-foreground'
                       : 'text-muted-foreground hover:bg-accent/50'
                   )}
                 >
+                  <Icon size={16} aria-hidden="true" />
                   {item.label}
                 </Link>
               </li>

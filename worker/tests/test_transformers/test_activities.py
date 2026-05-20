@@ -24,7 +24,7 @@ def test_transform_basic_running_activity() -> None:
 
     assert row["user_id"] == user_id
     assert row["garmin_activity_id"] == 12345
-    assert row["sport"] == "running"
+    assert row["sport"] == "run"
     assert row["duration_s"] == 3600
     assert row["distance_m"] == 10000.0
     assert row["hr_avg"] == 145
@@ -48,7 +48,7 @@ def test_transform_cycling_with_power() -> None:
         "averageHR": 150,
     }
     row = transform_activity(user_id="u1", raw=raw)
-    assert row["sport"] == "cycling"
+    assert row["sport"] == "bike"
     assert row["power_avg"] == 220
     assert row["power_max"] == 450
 
@@ -62,7 +62,7 @@ def test_transform_swim_no_distance_pace() -> None:
         "distance": 2000.0,
     }
     row = transform_activity(user_id="u1", raw=raw)
-    assert row["sport"] == "lap_swimming"
+    assert row["sport"] == "swim"
     assert row["distance_m"] == 2000.0
     assert row["pace_avg_s_per_km"] is None
 

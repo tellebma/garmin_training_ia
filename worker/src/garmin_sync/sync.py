@@ -19,6 +19,7 @@ from typing import Any, cast
 from garminconnect import (
     Garmin,
     GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
     GarminConnectTooManyRequestsError,
 )
 
@@ -31,8 +32,27 @@ from garmin_sync.transformers.sleep import transform_sleep
 
 log = logging.getLogger(__name__)
 
+
+class GarminProfileIncompleteError(Exception):
+    """Raised when the Garmin account is missing required profile data.
+
+    The most common case is a brand-new Garmin account where the user hasn't
+    set a display_name yet — every daily-summary endpoint requires it.
+    """
+
+
 # Errors that mean "stop the whole sync right now" — see module docstring.
-_AbortSyncErrors = (GarminConnectTooManyRequestsError, GarminConnectAuthenticationError)
+_AbortSyncErrors = (
+    GarminConnectTooManyRequestsError,
+    GarminConnectAuthenticationError,
+    GarminProfileIncompleteError,
+)
+
+
+def _is_display_name_error(exc: Exception) -> bool:
+    """Detect the 'Display name is not set' error from python-garminconnect."""
+    return "Display name is not set" in str(exc)
+
 
 _USER_DATE_CONFLICT = "user_id,date"
 
@@ -104,6 +124,10 @@ def _safe_upsert_daily(db: Any, user_id: str, client: Garmin, iso_date: str) -> 
             ).execute()
     except _AbortSyncErrors:
         raise
+    except GarminConnectConnectionError as exc:
+        if _is_display_name_error(exc):
+            raise GarminProfileIncompleteError(str(exc)) from exc
+        log.exception("daily sync failed user=%s date=%s", user_id, iso_date)
     except Exception:
         log.exception("daily sync failed user=%s date=%s", user_id, iso_date)
 
@@ -124,7 +148,8 @@ def _safe_upsert_sleep(db: Any, user_id: str, client: Garmin, iso_date: str) -> 
 def _safe_upsert_hrv(db: Any, user_id: str, client: Garmin, iso_date: str) -> None:
     try:
         raw = client.get_hrv_data(iso_date)
-        if raw and raw.get("calendarDate"):
+        summary = (raw or {}).get("hrvSummary") or {}
+        if summary.get("calendarDate"):
             db.table("hrv").upsert(
                 transform_hrv(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
             ).execute()
@@ -136,9 +161,14 @@ def _safe_upsert_hrv(db: Any, user_id: str, client: Garmin, iso_date: str) -> No
 
 def _safe_upsert_body(db: Any, user_id: str, client: Garmin, iso_date: str) -> None:
     try:
-        items = client.get_body_composition(iso_date, iso_date)
-        for raw in items or []:
-            if raw.get("calendarDate"):
+        # Garmin returns {"dateWeightList": [...], "totalAverage": {...}} — iterate the inner list.
+        # Accept legacy list shape too (defensive, in case lib version changes).
+        payload = client.get_body_composition(iso_date, iso_date)
+        weigh_ins = (
+            payload.get("dateWeightList", []) if isinstance(payload, dict) else (payload or [])
+        )
+        for raw in weigh_ins:
+            if isinstance(raw, dict) and raw.get("calendarDate"):
                 db.table("body_composition").upsert(
                     transform_body(user_id=user_id, raw=raw), on_conflict=_USER_DATE_CONFLICT
                 ).execute()

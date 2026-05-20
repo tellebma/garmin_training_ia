@@ -133,12 +133,12 @@ export default async function ProfilePage() {
           <h2 className="text-lg font-semibold">Garmin Connect</h2>
           {garminConnected && !garminAuthStale && (
             <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-              ✓ Connecté
+              Connecté
             </span>
           )}
           {garminAuthStale && (
             <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-              ⚠ Token expiré
+              Token expiré
             </span>
           )}
         </div>

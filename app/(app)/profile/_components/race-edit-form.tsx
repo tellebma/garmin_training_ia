@@ -32,9 +32,9 @@ const PARENT_LABEL: Record<(typeof PARENT_DISCIPLINES)[number], string> = {
 type LegDiscipline = 'swim' | 'bike' | 'run'
 
 const LEG_ICON: Record<LegDiscipline, string> = {
-  swim: '🏊',
-  bike: '🚴',
-  run: '🏃',
+  swim: 'Nat.',
+  bike: 'Vélo',
+  run: 'Run',
 }
 
 const LEG_NAME: Record<LegDiscipline, string> = {
