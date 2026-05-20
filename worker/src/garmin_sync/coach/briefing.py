@@ -15,7 +15,7 @@ from garmin_sync.supabase_client import get_admin_client
 Status = Literal["ready", "caution", "rest_advised"]
 
 # Reused by the per-table loaders below to type-narrow the Supabase response.
-_ROW_T = "dict[str, Any] | None"
+type _RowT = dict[str, Any] | None
 
 # Score thresholds
 READY_MIN = 70
@@ -245,7 +245,7 @@ def _load_planned_session(db: Any, user_id: str, today: date) -> dict[str, Any] 
         .maybe_single()
         .execute()
     )
-    return cast(_ROW_T, resp.data if resp else None)
+    return cast(_RowT, resp.data if resp else None)
 
 
 def _load_today_hrv(db: Any, user_id: str, today: date) -> dict[str, Any] | None:
@@ -257,7 +257,7 @@ def _load_today_hrv(db: Any, user_id: str, today: date) -> dict[str, Any] | None
         .maybe_single()
         .execute()
     )
-    return cast(_ROW_T, resp.data if resp else None)
+    return cast(_RowT, resp.data if resp else None)
 
 
 def _load_recent_sleep(db: Any, user_id: str, today: date) -> dict[str, Any] | None:
@@ -270,7 +270,7 @@ def _load_recent_sleep(db: Any, user_id: str, today: date) -> dict[str, Any] | N
         .maybe_single()
         .execute()
     )
-    return cast(_ROW_T, resp.data if resp else None)
+    return cast(_RowT, resp.data if resp else None)
 
 
 def _load_daily_metrics(db: Any, user_id: str, today: date) -> dict[str, Any] | None:
@@ -283,7 +283,7 @@ def _load_daily_metrics(db: Any, user_id: str, today: date) -> dict[str, Any] | 
         .maybe_single()
         .execute()
     )
-    return cast(_ROW_T, resp.data if resp else None)
+    return cast(_RowT, resp.data if resp else None)
 
 
 def _load_resting_hr_baseline(db: Any, user_id: str, today: date) -> float | None:
@@ -313,7 +313,7 @@ def _load_tsb(db: Any, user_id: str, today: date) -> float | None:
         .maybe_single()
         .execute()
     )
-    row = cast(_ROW_T, resp.data if resp else None)
+    row = cast(_RowT, resp.data if resp else None)
     if not row:
         return None
     val = row.get("tsb")
