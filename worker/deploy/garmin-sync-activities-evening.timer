@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Garmin activities sync at 18:00 UTC (20:00 Paris été)
+Requires=garmin-sync-activities-evening.service
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 UTC
+Persistent=true
+Unit=garmin-sync-activities-evening.service
+
+[Install]
+WantedBy=timers.target

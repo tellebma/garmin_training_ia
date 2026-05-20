@@ -35,11 +35,21 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
     const r = await syncGarminProfile()
     setSyncing(false)
     if (r.status === 'ok') {
+      const fetchedAny =
+        r.fetched.ftp_watts !== undefined ||
+        r.fetched.vma_kmh !== undefined ||
+        r.fetched.fc_max_bpm !== undefined
       if (r.fetched.ftp_watts) setFtp(r.fetched.ftp_watts.toString())
       if (r.fetched.vma_kmh) setVma(r.fetched.vma_kmh.toString())
       if (r.fetched.fc_max_bpm) setFcmax(r.fetched.fc_max_bpm.toString())
       setSyncedAt(new Date().toISOString())
-      toast.success('Données Garmin synchronisées')
+      if (fetchedAny) {
+        toast.success('Données Garmin synchronisées')
+      } else {
+        toast.warning(
+          'Garmin n’a renvoyé aucune valeur (FTP / VMA / FCmax). Renseigne-les manuellement ou configure-les dans Garmin Connect.'
+        )
+      }
     } else if (r.status === 'rate_limited') {
       toast.warning('Garmin a temporisé — retente plus tard.')
     } else if (r.status === 'auth_failed') {

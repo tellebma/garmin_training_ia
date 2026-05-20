@@ -57,14 +57,26 @@ def _is_display_name_error(exc: Exception) -> bool:
 _USER_DATE_CONFLICT = "user_id,date"
 
 
+SYNC_MODE_FULL = "full"
+SYNC_MODE_SLEEP_ONLY = "sleep_only"
+SYNC_MODE_ACTIVITIES_ONLY = "activities_only"
+SyncMode = str  # one of the above constants
+
+
 def sync_user_for_date_range(
     *,
     user_id: str,
     client: Garmin,
     start: date,
     end: date,
+    mode: SyncMode = SYNC_MODE_FULL,
 ) -> None:
-    """Sync all categories for a single user across [start, end] (inclusive).
+    """Sync the requested categories for a single user across [start, end].
+
+    Modes:
+        - "full"            (default) : activities + daily + sleep + hrv + body
+        - "sleep_only"      : sleep + hrv + daily (HR baseline). For the morning cron.
+        - "activities_only" : activities + daily. For the afternoon/evening cron.
 
     Raises ``GarminConnectTooManyRequestsError`` or
     ``GarminConnectAuthenticationError`` if Garmin signals a global stop —
@@ -89,29 +101,40 @@ def sync_user_for_date_range(
     ftp = profile_data.get("ftp_watts")
     fcmax = profile_data.get("fc_max_bpm")
 
-    # Activities — one shot for the whole range
-    try:
-        activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
-        rows = [
-            transform_activity(user_id=user_id, raw=a, ftp_watts=ftp, fc_max_bpm=fcmax)
-            for a in activities
-        ]
-        if rows:
-            db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
-    except _AbortSyncErrors:
-        log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
-        raise
-    except Exception:
-        log.exception("activities sync failed for user=%s", user_id)
+    do_activities = mode in (SYNC_MODE_FULL, SYNC_MODE_ACTIVITIES_ONLY)
+    do_sleep = mode in (SYNC_MODE_FULL, SYNC_MODE_SLEEP_ONLY)
+    do_hrv = mode in (SYNC_MODE_FULL, SYNC_MODE_SLEEP_ONLY)
+    do_body = mode == SYNC_MODE_FULL
 
-    # Per-day metrics — daily, sleep, hrv, body
+    # Activities — one shot for the whole range
+    if do_activities:
+        try:
+            activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
+            rows = [
+                transform_activity(user_id=user_id, raw=a, ftp_watts=ftp, fc_max_bpm=fcmax)
+                for a in activities
+            ]
+            if rows:
+                db.table("activities").upsert(
+                    rows, on_conflict="user_id,garmin_activity_id"
+                ).execute()
+        except _AbortSyncErrors:
+            log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
+            raise
+        except Exception:
+            log.exception("activities sync failed for user=%s", user_id)
+
+    # Per-day metrics — daily always (HR baseline), then sleep / hrv / body as requested
     current = start
     while current <= end:
         iso = current.isoformat()
         _safe_upsert_daily(db, user_id, client, iso)
-        _safe_upsert_sleep(db, user_id, client, iso)
-        _safe_upsert_hrv(db, user_id, client, iso)
-        _safe_upsert_body(db, user_id, client, iso)
+        if do_sleep:
+            _safe_upsert_sleep(db, user_id, client, iso)
+        if do_hrv:
+            _safe_upsert_hrv(db, user_id, client, iso)
+        if do_body:
+            _safe_upsert_body(db, user_id, client, iso)
         current += timedelta(days=1)
 
 

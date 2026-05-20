@@ -223,7 +223,7 @@ describe('PerfEditForm', () => {
     expect(screen.getByText(/Synchronisé de Garmin le/)).toBeTruthy()
   })
 
-  it('Sync Garmin ok with empty fetched object keeps current inputs', async () => {
+  it('Sync Garmin ok with empty fetched object shows warning + keeps inputs', async () => {
     syncGarminProfile.mockResolvedValueOnce({ status: 'ok', fetched: {} })
     const { PerfEditForm } = await import('@/app/(app)/profile/_components/perf-edit-form')
     render(<PerfEditForm initial={baseInitial} />)
@@ -232,9 +232,11 @@ describe('PerfEditForm', () => {
     await waitFor(() => {
       expect(syncGarminProfile).toHaveBeenCalled()
     })
+    // Garmin returned no value -> dedicated warning rather than misleading success
     await waitFor(() => {
-      expect(toastSuccess).toHaveBeenCalled()
+      expect(toastWarning).toHaveBeenCalled()
     })
+    expect(toastSuccess).not.toHaveBeenCalled()
     // Inputs remain unchanged from initial
     expect(screen.getByLabelText<HTMLInputElement>(/FTP/).value).toBe('245')
     expect(screen.getByLabelText<HTMLInputElement>(/VMA/).value).toBe('16.5')

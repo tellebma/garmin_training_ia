@@ -282,7 +282,7 @@ def test_run_daily_cron_handles_no_users() -> None:
     ):
         result = run_daily_cron()
 
-    assert result == {"total_users": 0, "results": {}}
+    assert result == {"mode": "full", "total_users": 0, "results": {}}
     run_user_mock.assert_not_called()
 
 
@@ -308,10 +308,17 @@ def test_cron_main_block_prints_json(capsys: object, monkeypatch: object) -> Non
         lambda: fake_db,
     )
 
-    # Drop the cached cron module so runpy re-imports it freshly under __main__
-    sys.modules.pop("garmin_sync.cron", None)
-    runpy.run_module("garmin_sync.cron", run_name="__main__")
+    # Drop the cached cron module so runpy re-imports it freshly under __main__.
+    # The CLI now takes an optional mode arg; default ("full") matches the
+    # legacy daily cron behaviour.
+    original_argv = sys.argv
+    sys.argv = ["garmin_sync.cron"]
+    try:
+        sys.modules.pop("garmin_sync.cron", None)
+        runpy.run_module("garmin_sync.cron", run_name="__main__")
+    finally:
+        sys.argv = original_argv
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     payload = json.loads(captured.out)
-    assert payload == {"total_users": 0, "results": {}}
+    assert payload == {"mode": "full", "total_users": 0, "results": {}}

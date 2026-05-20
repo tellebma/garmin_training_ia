@@ -90,6 +90,9 @@ export default async function TodayPage() {
   const supabase = await createClient()
   const now = new Date()
   const today = isoDate(now)
+  // Note: pour sleep/hrv/daily_metrics, on lit la DERNIERE entrée (order by date)
+  // plutôt que today exactement, parce que Garmin date typiquement la nuit J-1
+  // -> on aurait toujours "—" en consultant /today le lendemain matin.
   const ninetyDaysAgo = isoDate(new Date(now.getTime() - 90 * 86_400_000))
 
   const [
@@ -114,19 +117,22 @@ export default async function TodayPage() {
       .from('daily_metrics')
       .select('date, body_battery_high, body_battery_low, stress_avg, resting_hr')
       .eq('user_id', userId)
-      .eq('date', today)
+      .order('date', { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from('sleep')
       .select('date, sleep_score, sleep_duration_s')
       .eq('user_id', userId)
-      .eq('date', today)
+      .order('date', { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from('hrv')
       .select('date, hrv_rmssd, hrv_status, hrv_weekly_avg')
       .eq('user_id', userId)
-      .eq('date', today)
+      .order('date', { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from('daily_banister_state')

@@ -1,0 +1,10 @@
+[Unit]
+Description=Garmin Sync — morning sleep + HRV + daily metrics
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec garmin-sync python -m garmin_sync.cron sleep
+StandardOutput=journal
+StandardError=journal

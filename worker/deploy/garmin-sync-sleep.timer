@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Garmin sleep+HRV sync at 08:00 UTC (10:00 Paris été)
+Requires=garmin-sync-sleep.service
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+Persistent=true
+Unit=garmin-sync-sleep.service
+
+[Install]
+WantedBy=timers.target
