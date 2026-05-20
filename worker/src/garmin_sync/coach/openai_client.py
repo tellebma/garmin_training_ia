@@ -56,9 +56,13 @@ def _build_user_prompt(
     ftp = athlete.get("ftp_watts")
     vma = athlete.get("vma_kmh")
 
+    target_dplus = session.get("target_elevation_gain_m")
+    elevation_line = (
+        f", dénivelé cible {target_dplus}m D+" if target_dplus and int(target_dplus) > 0 else ""
+    )
     lines = [
         f"Session : {session['sport']} {session['session_type']} en phase {session['phase']}, "
-        f"durée cible {minutes}min, TSS {session['target_tss']}.",
+        f"durée cible {minutes}min, TSS {session['target_tss']}{elevation_line}.",
         "",
         "Athlète :",
         f"- FC max : {fc} bpm" if fc else "- FC max : non connue",

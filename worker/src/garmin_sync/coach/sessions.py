@@ -86,7 +86,10 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
 
     pending_resp = (
         db.table("planned_sessions")
-        .select("id, sport, session_type, target_duration_s, target_tss, phase, date")
+        .select(
+            "id, sport, session_type, target_duration_s, target_tss, "
+            "target_elevation_gain_m, phase, date"
+        )
         .eq("user_id", user_id)
         .is_("workout", "null")
         .gte("date", today.isoformat())
@@ -116,7 +119,10 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
     db = get_admin_client()
     session_resp = (
         db.table("planned_sessions")
-        .select("id, sport, session_type, target_duration_s, target_tss, phase, date")
+        .select(
+            "id, sport, session_type, target_duration_s, target_tss, "
+            "target_elevation_gain_m, phase, date"
+        )
         .eq("id", session_id)
         .eq("user_id", user_id)
         .single()

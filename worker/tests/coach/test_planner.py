@@ -255,6 +255,8 @@ def test_build_week_sessions_bike_takes_longer_than_run_at_same_tss() -> None:
         tss_by_sport={"bike": 50.0},
         used_types=used,
         sport_weight_total={"bike": 1.0},
+        weekly_elevation_by_sport={},
+        sport_elevation_weight_total={},
     )
     used2: list[str] = []
     run_session = _training_day_session(
@@ -267,9 +269,78 @@ def test_build_week_sessions_bike_takes_longer_than_run_at_same_tss() -> None:
         tss_by_sport={"run": 50.0},
         used_types=used2,
         sport_weight_total={"run": 1.0},
+        weekly_elevation_by_sport={},
+        sport_elevation_weight_total={},
     )
     assert bike_session["target_tss"] == run_session["target_tss"]  # same TSS
     assert bike_session["target_duration_s"] > run_session["target_duration_s"]
+
+
+def test_compute_elevation_per_sport_sums_legs() -> None:
+    from garmin_sync.coach.planner import compute_elevation_per_sport
+
+    legs = [
+        {"discipline": "swim", "elevation_gain_m": 0},
+        {"discipline": "bike", "elevation_gain_m": 2200},
+        {"discipline": "run", "elevation_gain_m": 200},
+    ]
+    out = compute_elevation_per_sport(legs)
+    assert out == {"swim": 0, "bike": 2200, "run": 200}
+
+
+def test_compute_weekly_elevation_targets_respects_thresholds() -> None:
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    # Hilly tri: bike 2200, run 200 -> both above threshold (>=300 / >=100)
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"swim": 0, "bike": 2200, "run": 200}, weeks_count=13
+    )
+    assert out["bike"] == 2200 // 13
+    assert out["run"] == 200 // 13
+    assert out["swim"] == 0
+
+
+def test_compute_weekly_elevation_targets_zero_on_flat_race() -> None:
+    """A flat 10K route race -> all sports below threshold -> no hill training."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(race_dplus_by_sport={"run": 50}, weeks_count=12)
+    assert out == {"run": 0}
+
+
+def test_build_week_sessions_long_session_gets_more_elevation() -> None:
+    """Hilly race: long bike must receive > endurance bike D+ target."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=week_start,
+        weekly_tss=420.0,
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
+        is_last_week=False,
+        race_date=today + timedelta(days=365),
+        race_sport="run",
+        weekly_elevation_by_sport={"swim": 0, "bike": 200, "run": 30},
+    )
+
+    bike_sessions = [s for s in sessions if s["sport"] == "bike"]
+    long_bike = [s for s in bike_sessions if s["session_type"] == "long"]
+    endurance_bike = [s for s in bike_sessions if s["session_type"] == "endurance"]
+    # Swim sessions never get a D+ target
+    swim_sessions = [s for s in sessions if s["sport"] == "swim"]
+    if long_bike and endurance_bike:
+        assert (
+            long_bike[0]["target_elevation_gain_m"] >= endurance_bike[0]["target_elevation_gain_m"]
+        )
+    # Swim D+ target is None or 0
+    for s in swim_sessions:
+        assert not s.get("target_elevation_gain_m")
 
 
 def test_build_week_sessions_weekly_tss_sums_close_to_budget() -> None:

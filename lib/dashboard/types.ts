@@ -25,6 +25,7 @@ export interface PlannedSession {
   session_type: SessionType
   target_duration_s: number | null
   target_tss: number | null
+  target_elevation_gain_m?: number | null
   phase: Phase
   week_offset: number
   notes: string | null
