@@ -36,9 +36,10 @@ Règles :
 @lru_cache(maxsize=1)
 def _get_client() -> OpenAI:
     s = get_settings()
-    if not s.openai_api_key:
+    api_key = s.openai_api_key.get_secret_value()
+    if not api_key:
         raise OpenAIError("OPENAI_API_KEY not configured")
-    return OpenAI(api_key=s.openai_api_key, timeout=s.openai_timeout_s)
+    return OpenAI(api_key=api_key, timeout=s.openai_timeout_s)
 
 
 def _build_user_prompt(
