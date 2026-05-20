@@ -40,7 +40,8 @@ vi.mock('@/lib/worker', () => ({
 // Helper: chainable query builder used by Supabase JS
 function mkUpdateChain(error: unknown = null) {
   const eq = vi.fn().mockResolvedValue({ error })
-  return { update: vi.fn(() => ({ eq })), _eq: eq }
+  const update = vi.fn<(...args: unknown[]) => { eq: typeof eq }>(() => ({ eq }))
+  return { update, _eq: eq }
 }
 
 function mkInsertChain(error: unknown = null) {
