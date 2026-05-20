@@ -59,4 +59,14 @@ describe('getDailyBriefing', () => {
     const r = await getDailyBriefing()
     expect(r.success).toBe(false)
   })
+
+  it('returns unknown_response when worker returns unexpected shape', async () => {
+    supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
+    // No "status" field and not a briefing -> fallthrough branch
+    workerBriefing.mockResolvedValueOnce({ random: 'thing' })
+    const { getDailyBriefing } = await import('@/app/actions/briefing')
+    const r = await getDailyBriefing()
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error).toBe('unknown_response')
+  })
 })
