@@ -132,6 +132,51 @@ def _pick_session_type(
     return candidates[len(used_types) % len(candidates)]
 
 
+# Relative TSS weights by session type. "long" gets ~50% more, "recovery"
+# half, etc. — keeps the weekly TSS budget but redistributes within each sport.
+_SESSION_TYPE_WEIGHT: dict[str, float] = {
+    "long": 1.5,
+    "threshold": 1.2,
+    "intervals": 1.2,
+    "endurance": 1.0,
+    "recovery": 0.5,
+}
+
+
+# Average TSS/hour per (sport, session_type). Drives the TSS -> duration mapping.
+# Same TSS budget produces different durations across sports because the
+# physiological load per unit time differs (bike low cadence Z2 vs run Z2).
+# Reference points (sport scientists, TR/TP heuristics):
+#   - Bike Z2 endurance: IF ~0.65-0.70 -> TSS/h ~ 42-49
+#   - Run Z2 endurance:  rTSS ~50-60
+#   - Swim Z2:           sTSS ~55-65 (skill-limited)
+#   - Intervals/threshold: IF 0.85-0.95+ -> 75-95 TSS/h
+_TSS_PER_HOUR: dict[tuple[str, str], float] = {
+    ("bike", "endurance"): 45.0,
+    ("bike", "long"): 50.0,
+    ("bike", "threshold"): 75.0,
+    ("bike", "intervals"): 85.0,
+    ("bike", "recovery"): 25.0,
+    ("run", "endurance"): 55.0,
+    ("run", "long"): 60.0,
+    ("run", "threshold"): 80.0,
+    ("run", "intervals"): 95.0,
+    ("run", "recovery"): 35.0,
+    ("swim", "endurance"): 60.0,
+    ("swim", "long"): 65.0,
+    ("swim", "threshold"): 80.0,
+    ("swim", "intervals"): 90.0,
+    ("swim", "recovery"): 40.0,
+    ("brick", "endurance"): 65.0,
+    ("brick", "long"): 65.0,
+}
+_TSS_PER_HOUR_DEFAULT = 50.0
+
+
+def _tss_per_hour(sport: str, stype: str) -> float:
+    return _TSS_PER_HOUR.get((sport, stype), _TSS_PER_HOUR_DEFAULT)
+
+
 def _training_day_session(
     *,
     day: date,
@@ -142,15 +187,24 @@ def _training_day_session(
     sports_in_race: list[str],
     tss_by_sport: dict[str, float],
     used_types: list[str],
-    available_idx: set[int],
+    sport_weight_total: dict[str, float],
 ) -> dict[str, Any]:
+    """Build one training day's session.
+
+    Per-day TSS = sport_tss * (this_session_weight / sum_of_session_weights_for_this_sport).
+    This keeps the weekly TSS budget intact while letting "long" sessions get more
+    volume than e.g. "recovery".
+    """
     stype = _pick_session_type(
         day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
     )
     used_types.append(stype)
     sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
-    per_day_tss = tss_by_sport.get(sport, 0) / max(1, len(available_idx))
-    duration_s = int(per_day_tss * 3600 / 50)
+    sport_tss = tss_by_sport.get(sport, 0)
+    weight = _SESSION_TYPE_WEIGHT.get(stype, 1.0)
+    total_weight = max(0.5, sport_weight_total.get(sport, 1.0))
+    per_day_tss = sport_tss * weight / total_weight
+    duration_s = int(per_day_tss * 3600 / _tss_per_hour(sport, stype))
     return {
         "date": day.isoformat(),
         "sport": sport,
@@ -160,6 +214,38 @@ def _training_day_session(
         "phase": phase,
         "week_offset": week_offset,
     }
+
+
+def _precompute_sport_weights(
+    *,
+    week_start: date,
+    available_idx: set[int],
+    sports_in_race: list[str],
+    types_for_phase: list[str],
+    is_last_week: bool,
+    race_date: date,
+) -> dict[str, float]:
+    """Walk the upcoming 7 days once to tally each sport's total session weight.
+
+    Mirrors the assignment logic in _build_week_sessions / _pick_session_type
+    so the TSS distribution in _training_day_session sums back to sport_tss.
+    """
+    sport_weight: dict[str, float] = dict.fromkeys(sports_in_race, 0.0)
+    used_types: list[str] = []
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_idx = day.weekday()
+        if is_last_week and day == race_date:
+            continue
+        if day_idx not in available_idx:
+            continue
+        stype = _pick_session_type(
+            day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
+        )
+        used_types.append(stype)
+        sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
+        sport_weight[sport] = sport_weight.get(sport, 0.0) + _SESSION_TYPE_WEIGHT.get(stype, 1.0)
+    return sport_weight
 
 
 def _build_week_sessions(
@@ -182,6 +268,17 @@ def _build_week_sessions(
         weekly_tss=weekly_tss, sports_in_race=sports_in_race, sports_strengths=sports_strengths
     )
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
+
+    # First pass: tally total session-type weight per sport so the second pass
+    # can divide each sport's TSS budget proportionally (long > endurance > recovery).
+    sport_weight_total = _precompute_sport_weights(
+        week_start=week_start,
+        available_idx=available_idx,
+        sports_in_race=sports_in_race,
+        types_for_phase=types_for_phase,
+        is_last_week=is_last_week,
+        race_date=race_date,
+    )
     used_types: list[str] = []
 
     for offset in range(7):
@@ -207,7 +304,7 @@ def _build_week_sessions(
                 sports_in_race=sports_in_race,
                 tss_by_sport=tss_by_sport,
                 used_types=used_types,
-                available_idx=available_idx,
+                sport_weight_total=sport_weight_total,
             )
         )
     return sessions
