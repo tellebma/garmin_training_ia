@@ -53,6 +53,7 @@ def _is_display_name_error(exc: Exception) -> bool:
     """Detect the 'Display name is not set' error from python-garminconnect."""
     return "Display name is not set" in str(exc)
 
+
 _USER_DATE_CONFLICT = "user_id,date"
 
 

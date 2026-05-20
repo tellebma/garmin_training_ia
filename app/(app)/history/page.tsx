@@ -54,7 +54,9 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
 
   if (period !== 'all') {
     const days = Number.parseInt(period, 10)
-    const cutoff = new Date(new Date().getTime() - days * 86_400_000).toISOString()
+    // Server component runs once per request — Date.now() is deterministic here.
+    // eslint-disable-next-line react-hooks/purity
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString()
     query = query.gte('start_time', cutoff)
   }
 

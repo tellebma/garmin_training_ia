@@ -17,9 +17,12 @@ export default async function StatsPage() {
   const userId = await requireOnboarded()
   const supabase = await createClient()
 
-  const ninetyDaysAgo = new Date(new Date().getTime() - 90 * 86_400_000).toISOString().slice(0, 10)
-  const twelveWeeksAgo = new Date(new Date().getTime() - 84 * 86_400_000).toISOString().slice(0, 10)
-  const thirtyDaysAgo = new Date(new Date().getTime() - 30 * 86_400_000).toISOString().slice(0, 10)
+  // Server component runs once per request — Date.now() is deterministic here.
+  /* eslint-disable react-hooks/purity */
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+  const twelveWeeksAgo = new Date(Date.now() - 84 * 86_400_000).toISOString().slice(0, 10)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+  /* eslint-enable react-hooks/purity */
 
   const [banisterRes, activitiesRes, hrvRes, sleepRes] = await Promise.all([
     supabase

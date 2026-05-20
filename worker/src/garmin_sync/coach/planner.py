@@ -82,6 +82,86 @@ def _placement_priority_for_day(day_idx: int) -> int:
     return 1
 
 
+def _race_day_session(*, day: date, race_sport: str, week_offset: int) -> dict[str, Any]:
+    return {
+        "date": day.isoformat(),
+        "sport": race_sport,
+        "session_type": "race",
+        "target_duration_s": None,
+        "target_tss": None,
+        "phase": "race",
+        "week_offset": week_offset,
+    }
+
+
+def _rest_day_session(*, day: date, phase: Phase, week_offset: int) -> dict[str, Any]:
+    return {
+        "date": day.isoformat(),
+        "sport": "rest",
+        "session_type": "rest",
+        "target_duration_s": 0,
+        "target_tss": 0,
+        "phase": phase,
+        "week_offset": week_offset,
+    }
+
+
+_HARD_SESSION_TYPES = {"threshold", "intervals"}
+_LONG_RECOVERY_TYPES = {"long", "recovery"}
+
+
+def _pick_session_type(
+    *,
+    day_idx: int,
+    types_for_phase: list[str],
+    used_types: list[str],
+) -> str:
+    """Pick a session type respecting priority slots and avoiding back-to-back hard sessions."""
+    priority = _placement_priority_for_day(day_idx)
+    if priority == 0 and "long" in types_for_phase:
+        return "long"
+    if priority == 2 and "recovery" in types_for_phase:
+        return "recovery"
+
+    candidates = [t for t in types_for_phase if t not in _LONG_RECOVERY_TYPES]
+    last = used_types[-1] if used_types else None
+    if last in _HARD_SESSION_TYPES:
+        candidates = [t for t in candidates if t not in _HARD_SESSION_TYPES]
+    if not candidates:
+        return "endurance"
+    return candidates[len(used_types) % len(candidates)]
+
+
+def _training_day_session(
+    *,
+    day: date,
+    day_idx: int,
+    phase: Phase,
+    week_offset: int,
+    types_for_phase: list[str],
+    sports_in_race: list[str],
+    tss_by_sport: dict[str, float],
+    used_types: list[str],
+    available_idx: set[int],
+) -> dict[str, Any]:
+    stype = _pick_session_type(
+        day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
+    )
+    used_types.append(stype)
+    sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
+    per_day_tss = tss_by_sport.get(sport, 0) / max(1, len(available_idx))
+    duration_s = int(per_day_tss * 3600 / 50)
+    return {
+        "date": day.isoformat(),
+        "sport": sport,
+        "session_type": stype,
+        "target_duration_s": duration_s,
+        "target_tss": round(per_day_tss, 2),
+        "phase": phase,
+        "week_offset": week_offset,
+    }
+
+
 def _build_week_sessions(
     *,
     week_offset: int,
@@ -108,68 +188,27 @@ def _build_week_sessions(
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
 
-        # Race day override (only on the race date, not any day in the last week)
         if is_last_week and day == race_date:
             sessions.append(
-                {
-                    "date": day.isoformat(),
-                    "sport": race_sport,
-                    "session_type": "race",
-                    "target_duration_s": None,
-                    "target_tss": None,
-                    "phase": "race",
-                    "week_offset": week_offset,
-                }
+                _race_day_session(day=day, race_sport=race_sport, week_offset=week_offset)
             )
             continue
-
         if day_idx not in available_idx:
-            sessions.append(
-                {
-                    "date": day.isoformat(),
-                    "sport": "rest",
-                    "session_type": "rest",
-                    "target_duration_s": 0,
-                    "target_tss": 0,
-                    "phase": phase,
-                    "week_offset": week_offset,
-                }
-            )
+            sessions.append(_rest_day_session(day=day, phase=phase, week_offset=week_offset))
             continue
-
-        # Pick a session type for the day
-        priority = _placement_priority_for_day(day_idx)
-        if priority == 0 and "long" in types_for_phase:
-            stype = "long"
-        elif priority == 2 and "recovery" in types_for_phase:
-            stype = "recovery"
-        else:
-            hard = {"threshold", "intervals"}
-            candidates = [t for t in types_for_phase if t not in {"long", "recovery"}]
-            last = used_types[-1] if used_types else None
-            if last in hard:
-                candidates = [t for t in candidates if t not in hard]
-            stype = (
-                candidates[len(used_types) % max(1, len(candidates))] if candidates else "endurance"
-            )
-
-        used_types.append(stype)
-
-        # Rotate sport per day (round-robin between disciplines)
-        sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
-        per_day_tss = tss_by_sport.get(sport, 0) / max(1, len(available_idx))
-        duration_s = int(per_day_tss * 3600 / 50)
 
         sessions.append(
-            {
-                "date": day.isoformat(),
-                "sport": sport,
-                "session_type": stype,
-                "target_duration_s": duration_s,
-                "target_tss": round(per_day_tss, 2),
-                "phase": phase,
-                "week_offset": week_offset,
-            }
+            _training_day_session(
+                day=day,
+                day_idx=day_idx,
+                phase=phase,
+                week_offset=week_offset,
+                types_for_phase=types_for_phase,
+                sports_in_race=sports_in_race,
+                tss_by_sport=tss_by_sport,
+                used_types=used_types,
+                available_idx=available_idx,
+            )
         )
     return sessions
 
