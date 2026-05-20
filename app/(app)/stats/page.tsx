@@ -11,7 +11,9 @@ import { WeeklyVolumeChart } from '../_components/charts/weekly-volume-chart'
 import { computeWeeklyVolume } from '@/lib/dashboard/weekly-volume'
 import type { ActivityRowDto, BanisterPoint, HrvDto, SleepDto } from '@/lib/dashboard/types'
 
-export const revalidate = 300
+// Stats sont dérivées des syncs Garmin (cron daily 5h UTC). Cache 1h
+// pour éviter de re-frapper Supabase à chaque ouverture / navigation.
+export const revalidate = 3600
 
 export default async function StatsPage() {
   const userId = await requireOnboarded()
