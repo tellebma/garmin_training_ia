@@ -51,3 +51,11 @@ export async function workerPost<T>(path: string, body: unknown, userJwt: string
     throw new Error(`Worker returned ${String(res.status)} with non-JSON body: ${text}`)
   }
 }
+
+export async function workerEnsureSessions(jwt: string, days: number): Promise<unknown> {
+  return workerPost<unknown>('/coach/ensure-sessions', { days }, jwt)
+}
+
+export async function workerRegenerateSession(jwt: string, sessionId: string): Promise<unknown> {
+  return workerPost<unknown>(`/coach/regenerate-session/${sessionId}`, {}, jwt)
+}
