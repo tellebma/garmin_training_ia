@@ -65,9 +65,7 @@ def run_sync_for_user(
         start = today - timedelta(days=2)
 
     try:
-        sync_user_for_date_range(
-            user_id=user_id, client=client, start=start, end=today, mode=mode
-        )
+        sync_user_for_date_range(user_id=user_id, client=client, start=start, end=today, mode=mode)
     except GarminConnectTooManyRequestsError:
         db.table("garmin_credentials").update(
             {
