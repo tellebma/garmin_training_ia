@@ -188,9 +188,7 @@ def test_run_sync_for_user_handles_auth_error_during_sync() -> None:
 
     assert result == {"status": "auth_failed"}
     update_calls = fake_db.table.return_value.update.call_args_list
-    found = any(
-        c.args and c.args[0].get("last_sync_status") == "auth_failed" for c in update_calls
-    )
+    found = any(c.args and c.args[0].get("last_sync_status") == "auth_failed" for c in update_calls)
     assert found
 
 
@@ -288,9 +286,7 @@ def test_run_daily_cron_handles_no_users() -> None:
     run_user_mock.assert_not_called()
 
 
-def test_cron_main_block_prints_json(
-    capsys: object, monkeypatch: object
-) -> None:
+def test_cron_main_block_prints_json(capsys: object, monkeypatch: object) -> None:
     """Smoke-test the ``if __name__ == '__main__'`` block by executing the
     cron module as a script via runpy with run_daily_cron and get_admin_client
     mocked.

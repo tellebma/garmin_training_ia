@@ -136,9 +136,7 @@ def test_sync_aborts_when_activities_endpoint_rate_limits(
     we do not proceed to the per-day loop.
 
     Covers sync.py lines 61-65 (the abort branch of the activities try/except)."""
-    fake_garmin_client.get_activities_by_date.side_effect = GarminConnectTooManyRequestsError(
-        "429"
-    )
+    fake_garmin_client.get_activities_by_date.side_effect = GarminConnectTooManyRequestsError("429")
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),

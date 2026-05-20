@@ -189,9 +189,7 @@ def test_submit_mfa_code_429_buried_in_connection_error(fake_garmin: MagicMock) 
     from garminconnect import GarminConnectConnectionError
 
     challenge = MagicMock()
-    challenge.resume_login.side_effect = GarminConnectConnectionError(
-        "Mobile login returned 429"
-    )
+    challenge.resume_login.side_effect = GarminConnectConnectionError("Mobile login returned 429")
 
     with pytest.raises(GarminRateLimitError):
         submit_mfa_code(challenge, "123456")
