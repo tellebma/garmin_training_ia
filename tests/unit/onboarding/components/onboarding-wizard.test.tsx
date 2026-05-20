@@ -138,10 +138,15 @@ describe('OnboardingWizard', () => {
         initialStep="perso"
       />
     )
-    // All non-current steps with completion should show the check mark prefix.
+    // Completed non-current steps render without the "N." number prefix
+    // (only their label); non-completed steps render "N. Label".
     const buttons = screen.getAllByRole('button')
-    const checkButtons = buttons.filter((b) => b.textContent.startsWith('✓'))
-    expect(checkButtons.length).toBeGreaterThan(0)
+    const completedButtons = buttons.filter(
+      (b) =>
+        !/^\d+\.\s/.test(b.textContent) &&
+        /Course cible|Performance|Disponibilité/.test(b.textContent)
+    )
+    expect(completedButtons.length).toBeGreaterThan(0)
   })
 
   it('allows navigation back to a completed step via the stepper', async () => {
