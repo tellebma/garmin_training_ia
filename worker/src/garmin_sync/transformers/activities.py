@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from garmin_sync.coach.tss import compute_tss
+
 
 def _parse_dt(value: str | None) -> datetime | None:
     if not value:
@@ -19,25 +21,40 @@ def _pace_s_per_km(avg_speed_m_s: float | None) -> float | None:
     return round(1000.0 / avg_speed_m_s, 2)
 
 
-def transform_activity(*, user_id: str, raw: dict[str, Any]) -> dict[str, Any]:
-    """Convert a Garmin activity dict into our `activities` table row.
-
-    Pure function — no I/O. The caller decides whether to insert/upsert.
-    """
+def transform_activity(
+    *,
+    user_id: str,
+    raw: dict[str, Any],
+    ftp_watts: int | None = None,
+    fc_max_bpm: int | None = None,
+) -> dict[str, Any]:
+    """Convert a Garmin activity dict into our `activities` table row."""
     start = _parse_dt(raw.get("startTimeGMT"))
     activity_type = raw.get("activityType") or {}
+    sport = activity_type.get("typeKey", "unknown")
+    duration_s = int(raw.get("duration") or 0)
+    power_avg = _to_int(raw.get("averagePower"))
+    hr_avg = _to_int(raw.get("averageHR"))
+    tss = compute_tss(
+        duration_s=duration_s,
+        sport=sport,
+        power_avg=power_avg,
+        hr_avg=hr_avg,
+        ftp_watts=ftp_watts,
+        fc_max_bpm=fc_max_bpm,
+    )
     return {
         "user_id": user_id,
         "garmin_activity_id": int(raw["activityId"]),
         "start_time": start.isoformat() if start else None,
-        "sport": activity_type.get("typeKey", "unknown"),
+        "sport": sport,
         "sub_sport": activity_type.get("parentTypeId"),
-        "duration_s": int(raw.get("duration") or 0),
+        "duration_s": duration_s,
         "distance_m": float(raw["distance"]) if raw.get("distance") is not None else None,
-        "tss": None,  # Garmin doesn't expose TSS directly; computed in E4
-        "hr_avg": _to_int(raw.get("averageHR")),
+        "tss": tss,
+        "hr_avg": hr_avg,
         "hr_max": _to_int(raw.get("maxHR")),
-        "power_avg": _to_int(raw.get("averagePower")),
+        "power_avg": power_avg,
         "power_max": _to_int(raw.get("maxPower")),
         "pace_avg_s_per_km": _pace_s_per_km(raw.get("averageSpeed")),
         "elevation_gain_m": _to_int(raw.get("elevationGain")),

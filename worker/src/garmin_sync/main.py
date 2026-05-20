@@ -138,3 +138,23 @@ def garmin_profile_sync(
             "error_id": error_id,
             "type": type(e).__name__,
         }
+
+
+@app.post("/coach/generate-plan")
+def coach_generate_plan(
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Generate or regenerate a Banister training plan for the calling user."""
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.coach.planner import generate_plan
+
+        return generate_plan(user_id)
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception("[%s] coach_generate_plan crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }

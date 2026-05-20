@@ -104,3 +104,66 @@ the shared token):
 curl -X POST https://garmin-sync.tellebma.fr/sync/<user-uuid> \
   -H "Authorization: Bearer $WORKER_SHARED_TOKEN"
 ```
+
+## Coach weekly cron — Banister plan regeneration (E4)
+
+Second systemd timer that regenerates training plans every Sunday at
+22:00 UTC (one hour before the Garmin sync timer at 23:00 UTC, so data
+is fresh for next-week planning).
+
+### Timer file `/etc/systemd/system/garmin-coach.timer`
+
+```ini
+[Unit]
+Description=Garmin Training Coach — weekly plan regen
+
+[Timer]
+OnCalendar=Sun *-*-* 22:00:00 UTC
+Persistent=true
+Unit=garmin-coach.service
+
+[Install]
+WantedBy=timers.target
+```
+
+### Service file `/etc/systemd/system/garmin-coach.service`
+
+```ini
+[Unit]
+Description=Garmin Training Coach — weekly plan regen
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec garmin-sync python -m garmin_sync.coach.cron
+```
+
+### Installation
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable garmin-coach.timer
+sudo systemctl start garmin-coach.timer
+systemctl list-timers garmin-coach.timer    # verify next trigger
+```
+
+### Logs
+
+```bash
+sudo journalctl -u garmin-coach.service --since "7 days ago"
+docker logs garmin-sync | grep coach
+```
+
+### One-shot TSS backfill (à exécuter une fois après le déploiement E4)
+
+Calcule TSS sur toutes les activities historiques importées par E2
+(qui avaient `tss = NULL` car le calcul TSS est désormais inline dans
+le transformer) :
+
+```bash
+docker exec garmin-sync python -m garmin_sync.coach.backfill_tss
+```
+
+Idempotent. Skip les activities avec `tss IS NOT NULL`. Sortie JSON :
+`{"updated": N, "skipped": M, "errors": P}`.

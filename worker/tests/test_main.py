@@ -86,3 +86,43 @@ def test_garmin_profile_sync_catches_unexpected(
     assert "error_id" in body
     assert "detail" not in body
     assert "traceback" not in body
+
+
+def test_coach_generate_plan_requires_jwt(client: TestClient) -> None:
+    r = client.post("/coach/generate-plan")
+    assert r.status_code == 401
+
+
+def test_coach_generate_plan_returns_status_dict(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+
+    def fake(user_id: str) -> dict:
+        return {"status": "ok", "plan_id": "p1", "weeks_count": 8, "sessions_count": 56}
+
+    monkeypatch.setattr("garmin_sync.coach.planner.generate_plan", fake)
+    r = client.post("/coach/generate-plan", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["sessions_count"] == 56
+
+
+def test_coach_generate_plan_catches_unexpected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+
+    monkeypatch.setattr(
+        "garmin_sync.coach.planner.generate_plan",
+        lambda _u: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    r = client.post("/coach/generate-plan", headers={"Authorization": "Bearer x"})
+    body = r.json()
+    assert body["status"] == "unexpected_error"
+    assert body["type"] == "RuntimeError"

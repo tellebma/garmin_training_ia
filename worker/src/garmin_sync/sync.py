@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, cast
 
 from garminconnect import (
     Garmin,
@@ -52,10 +52,30 @@ def sync_user_for_date_range(
     """
     db = get_admin_client()
 
+    # Fetch athlete profile once for TSS computation
+    profile_data: dict[str, Any] = {}
+    try:
+        profile_resp = (
+            db.table("athlete_profiles")
+            .select("ftp_watts, fc_max_bpm")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        profile_data = cast("dict[str, Any]", profile_resp.data or {})
+    except Exception:
+        log.warning("Could not fetch athlete profile for TSS for user=%s", user_id)
+
+    ftp = profile_data.get("ftp_watts")
+    fcmax = profile_data.get("fc_max_bpm")
+
     # Activities — one shot for the whole range
     try:
         activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
-        rows = [transform_activity(user_id=user_id, raw=a) for a in activities]
+        rows = [
+            transform_activity(user_id=user_id, raw=a, ftp_watts=ftp, fc_max_bpm=fcmax)
+            for a in activities
+        ]
         if rows:
             db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
     except _AbortSyncErrors:
