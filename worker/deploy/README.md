@@ -42,23 +42,31 @@ on the operator's server behind Nginx Proxy Manager at
    - SSL tab: Request Let's Encrypt cert, Force SSL, HTTP/2
    - Save
 
-6. Install the systemd cron timer:
+6. Install the new targeted systemd timers (sleep 08:00 UTC, activities
+   13:00+18:00 UTC, profile Mon 06:00 UTC) using the install script
+   embedded in the image. **Run only once after the first deploy that
+   contains the script** — re-running is safe (idempotent), but only needed
+   when the unit files themselves change.
+
    ```bash
-   sudo cp worker/deploy/garmin-sync-cron.service /etc/systemd/system/
-   sudo cp worker/deploy/garmin-sync-cron.timer /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now garmin-sync-cron.timer
+   # Extract the deploy/ folder from the running container
+   docker cp garmin-sync:/app/deploy/. /tmp/garmin-deploy/
+   sudo bash /tmp/garmin-deploy/install-timers.sh
    ```
+
+   The script copies the units to `/etc/systemd/system/`, runs `daemon-reload`,
+   enables the 4 new timers, and disables the legacy `garmin-sync-cron.timer`
+   if it exists.
 
    Verify:
    ```bash
-   sudo systemctl list-timers garmin-sync-cron.timer
+   systemctl list-timers --no-pager | grep garmin-sync
    ```
 
-   Manual test:
+   Manual test of a specific timer's underlying service:
    ```bash
-   sudo systemctl start garmin-sync-cron.service
-   sudo journalctl -u garmin-sync-cron.service -n 50 --no-pager
+   sudo systemctl start garmin-sync-sleep.service
+   sudo journalctl -u garmin-sync-sleep.service -n 50 --no-pager
    ```
 
 ## Auto-update (optional, recommended)

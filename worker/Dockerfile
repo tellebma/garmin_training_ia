@@ -13,6 +13,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src ./src
+# Embed systemd units + install script so the host can extract them via
+# `docker cp garmin-sync:/app/deploy/. /tmp/garmin-deploy/` without cloning the repo.
+COPY deploy ./deploy
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
