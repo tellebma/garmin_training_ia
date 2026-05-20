@@ -63,6 +63,51 @@ SYNC_MODE_ACTIVITIES_ONLY = "activities_only"
 SyncMode = str  # one of the above constants
 
 
+_MODE_FLAGS: dict[str, tuple[bool, bool, bool, bool]] = {
+    # (do_activities, do_sleep, do_hrv, do_body)
+    SYNC_MODE_FULL: (True, True, True, True),
+    SYNC_MODE_SLEEP_ONLY: (False, True, True, False),
+    SYNC_MODE_ACTIVITIES_ONLY: (True, False, False, False),
+}
+
+
+def _load_athlete_profile(db: Any, user_id: str) -> dict[str, Any]:
+    """Fetch athlete profile for TSS computation. Never raises."""
+    try:
+        profile_resp = (
+            db.table("athlete_profiles")
+            .select("ftp_watts, fc_max_bpm")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        return cast("dict[str, Any]", profile_resp.data or {})
+    except Exception:
+        log.warning("Could not fetch athlete profile for TSS for user=%s", user_id)
+        return {}
+
+
+def _sync_activities(
+    db: Any, user_id: str, client: Garmin, start: date, end: date, profile: dict[str, Any]
+) -> None:
+    """One-shot activities pull. Raises on _AbortSyncErrors so caller can back off."""
+    ftp = profile.get("ftp_watts")
+    fcmax = profile.get("fc_max_bpm")
+    try:
+        activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
+        rows = [
+            transform_activity(user_id=user_id, raw=a, ftp_watts=ftp, fc_max_bpm=fcmax)
+            for a in activities
+        ]
+        if rows:
+            db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
+    except _AbortSyncErrors:
+        log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
+        raise
+    except Exception:
+        log.exception("activities sync failed for user=%s", user_id)
+
+
 def sync_user_for_date_range(
     *,
     user_id: str,
@@ -83,46 +128,12 @@ def sync_user_for_date_range(
     callers should treat that as fatal and back off.
     """
     db = get_admin_client()
+    profile = _load_athlete_profile(db, user_id)
 
-    # Fetch athlete profile once for TSS computation
-    profile_data: dict[str, Any] = {}
-    try:
-        profile_resp = (
-            db.table("athlete_profiles")
-            .select("ftp_watts, fc_max_bpm")
-            .eq("user_id", user_id)
-            .single()
-            .execute()
-        )
-        profile_data = cast("dict[str, Any]", profile_resp.data or {})
-    except Exception:
-        log.warning("Could not fetch athlete profile for TSS for user=%s", user_id)
+    do_activities, do_sleep, do_hrv, do_body = _MODE_FLAGS.get(mode, _MODE_FLAGS[SYNC_MODE_FULL])
 
-    ftp = profile_data.get("ftp_watts")
-    fcmax = profile_data.get("fc_max_bpm")
-
-    do_activities = mode in (SYNC_MODE_FULL, SYNC_MODE_ACTIVITIES_ONLY)
-    do_sleep = mode in (SYNC_MODE_FULL, SYNC_MODE_SLEEP_ONLY)
-    do_hrv = mode in (SYNC_MODE_FULL, SYNC_MODE_SLEEP_ONLY)
-    do_body = mode == SYNC_MODE_FULL
-
-    # Activities — one shot for the whole range
     if do_activities:
-        try:
-            activities = client.get_activities_by_date(start.isoformat(), end.isoformat())
-            rows = [
-                transform_activity(user_id=user_id, raw=a, ftp_watts=ftp, fc_max_bpm=fcmax)
-                for a in activities
-            ]
-            if rows:
-                db.table("activities").upsert(
-                    rows, on_conflict="user_id,garmin_activity_id"
-                ).execute()
-        except _AbortSyncErrors:
-            log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
-            raise
-        except Exception:
-            log.exception("activities sync failed for user=%s", user_id)
+        _sync_activities(db, user_id, client, start, end, profile)
 
     # Per-day metrics — daily always (HR baseline), then sleep / hrv / body as requested
     current = start
