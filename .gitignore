@@ -71,3 +71,4 @@ worker/coverage/
 # Supabase service role). Used to bridge dev workstation → UNRAID server.
 # DO NOT COMMIT.
 local-setup/
+.superpowers/

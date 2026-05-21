@@ -22,6 +22,7 @@ import { PhaseBadge } from '../_components/phase-badge'
 import { SessionCard } from '../_components/session-card'
 import { ActivityRow } from '../_components/activity-row'
 import { BanisterChart } from '../_components/charts/banister-chart'
+import { SyncTimingsCard } from '../_components/sync-timings-card'
 import type { ActivityRowDto, BanisterPoint, PlannedSession, RaceGoal } from '@/lib/dashboard/types'
 
 export const revalidate = 0
@@ -115,10 +116,13 @@ export default async function TodayPage() {
     supabase
       .from('planned_sessions')
       .select(
-        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes, workout, workout_generated_at'
+        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes, workout, workout_generated_at, plan_id, training_plans!inner(status)'
       )
       .eq('user_id', userId)
       .eq('date', today)
+      .eq('training_plans.status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from('daily_metrics')
@@ -164,7 +168,9 @@ export default async function TodayPage() {
       .maybeSingle(),
     supabase
       .from('garmin_credentials')
-      .select('last_sync_status, last_sync_error_message')
+      .select(
+        'last_sync_status, last_sync_error_message, last_sleep_sync_at, last_activities_sync_at, last_profile_sync_at'
+      )
       .eq('user_id', userId)
       .maybeSingle(),
   ])
@@ -180,6 +186,11 @@ export default async function TodayPage() {
   const race = raceRes.data as RaceGoal | null
   const garminSyncStatus = (garminCredsRes.data?.last_sync_status ?? null) as string | null
   const garminSyncError = (garminCredsRes.data?.last_sync_error_message ?? null) as string | null
+  const lastSleepSyncAt = (garminCredsRes.data?.last_sleep_sync_at ?? null) as string | null
+  const lastActivitiesSyncAt = (garminCredsRes.data?.last_activities_sync_at ?? null) as
+    | string
+    | null
+  const lastProfileSyncAt = (garminCredsRes.data?.last_profile_sync_at ?? null) as string | null
 
   const sleepValue = sleep?.sleep_score ? String(sleep.sleep_score) : '—'
   const hrvValue = hrv?.hrv_rmssd ? `${String(Math.round(Number(hrv.hrv_rmssd)))} ms` : '—'
@@ -208,6 +219,12 @@ export default async function TodayPage() {
           </div>
         )}
       </header>
+
+      <SyncTimingsCard
+        lastSleepSyncAt={lastSleepSyncAt}
+        lastActivitiesSyncAt={lastActivitiesSyncAt}
+        lastProfileSyncAt={lastProfileSyncAt}
+      />
 
       {briefing && <BriefingCard briefing={briefing} />}
 

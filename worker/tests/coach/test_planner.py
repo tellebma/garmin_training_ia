@@ -368,7 +368,8 @@ def test_build_week_sessions_weekly_tss_sums_close_to_budget() -> None:
 
 
 def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
-    """Re-generating archives the existing active plan via UPDATE before INSERT."""
+    """Re-generating archives previous plans AND deletes their planned_sessions
+    before inserting the new plan (prevents duplicate sessions on /today)."""
     from garmin_sync.coach import planner as p_mod
 
     profile = {
@@ -389,7 +390,17 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
             {"order": 3, "discipline": "run", "distance_km": 8, "elevation_gain_m": 200},
         ],
     }
-    update_call = MagicMock()
+
+    # Stable singletons so we can assert against the same mock across calls
+    tp_mock = MagicMock()
+    tp_mock.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
+        {"id": "old-plan-1"}
+    ]
+    tp_mock.update.return_value.in_.return_value.execute.return_value = MagicMock()
+    tp_mock.insert.return_value.execute.return_value.data = [{"id": "plan-2"}]
+
+    ps_mock = MagicMock()
+    ps_mock.delete.return_value.in_.return_value.execute.return_value = MagicMock()
 
     def _table_router(table_name: str):
         m = MagicMock()
@@ -402,13 +413,9 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
         elif table_name == "activities":
             m.select.return_value.eq.return_value.gte.return_value.execute.return_value.data = []
         elif table_name == "training_plans":
-            m.update = update_call
-            update_call.return_value.eq.return_value.eq.return_value.execute.return_value = (
-                MagicMock()
-            )
-            m.insert.return_value.execute.return_value.data = [{"id": "plan-2"}]
-        else:
-            m.insert.return_value.execute.return_value.data = []
+            return tp_mock
+        elif table_name == "planned_sessions":
+            return ps_mock
         return m
 
     fake_db = MagicMock()
@@ -417,6 +424,17 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
 
     result = generate_plan("u1")
     assert result["status"] == "ok"
-    update_call.assert_called_once()
-    args, _kwargs = update_call.call_args
-    assert args[0]["status"] == "archived"
+
+    # 1. planned_sessions of previous plans deleted
+    ps_mock.delete.assert_called_once()
+    delete_in_args, _ = ps_mock.delete.return_value.in_.call_args
+    assert delete_in_args[0] == "plan_id"
+    assert delete_in_args[1] == ["old-plan-1"]
+
+    # 2. previous training_plans archived
+    tp_mock.update.assert_called_once()
+    update_args, _ = tp_mock.update.call_args
+    assert update_args[0]["status"] == "archived"
+    update_in_args, _ = tp_mock.update.return_value.in_.call_args
+    assert update_in_args[0] == "id"
+    assert update_in_args[1] == ["old-plan-1"]

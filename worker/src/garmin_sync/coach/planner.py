@@ -568,10 +568,24 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         )
         all_sessions.extend(sessions)
 
-    # Archive previous active plan
-    db.table("training_plans").update({"status": "archived"}).eq("user_id", user_id).eq(
-        "race_goal_id", race["id"]
-    ).execute()
+    # Archive previous plans for this race and delete their planned_sessions
+    # (FK has no ON DELETE CASCADE; without this, sessions of archived plans
+    # remain in planned_sessions and create duplicates on /today queries).
+    previous_plans_resp = (
+        db.table("training_plans")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("race_goal_id", race["id"])
+        .execute()
+    )
+    previous_plan_ids = [
+        p["id"] for p in cast("list[dict[str, Any]]", previous_plans_resp.data or [])
+    ]
+    if previous_plan_ids:
+        db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).execute()
+        db.table("training_plans").update({"status": "archived"}).in_(
+            "id", previous_plan_ids
+        ).execute()
 
     # Insert new plan
     insert_resp = (
