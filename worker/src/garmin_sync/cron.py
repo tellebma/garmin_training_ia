@@ -108,17 +108,22 @@ def run_sync_for_user(
             log.exception("recompute_daily_state failed for user=%s", user_id)
         return {"status": "garmin_no_display_name"}
 
-    db.table("garmin_credentials").update(
-        {
-            "last_sync_at": datetime.now(UTC).isoformat(),
-            "last_sync_status": "ok",
-            "last_sync_status_at": datetime.now(UTC).isoformat(),
-            "last_sync_error_message": None,
-            "initial_sync_completed_at": datetime.now(UTC).isoformat()
-            if not creds.get("initial_sync_completed_at")
-            else creds["initial_sync_completed_at"],
-        }
-    ).eq("user_id", user_id).execute()
+    now_iso = datetime.now(UTC).isoformat()
+    update_payload: dict[str, Any] = {
+        "last_sync_at": now_iso,
+        "last_sync_status": "ok",
+        "last_sync_status_at": now_iso,
+        "last_sync_error_message": None,
+        "initial_sync_completed_at": now_iso
+        if not creds.get("initial_sync_completed_at")
+        else creds["initial_sync_completed_at"],
+    }
+    # Per-category timestamps for UI freshness display
+    if mode in (SYNC_MODE_FULL, SYNC_MODE_SLEEP_ONLY):
+        update_payload["last_sleep_sync_at"] = now_iso
+    if mode in (SYNC_MODE_FULL, SYNC_MODE_ACTIVITIES_ONLY):
+        update_payload["last_activities_sync_at"] = now_iso
+    db.table("garmin_credentials").update(update_payload).eq("user_id", user_id).execute()
 
     # E7 — Materialize Banister state for fast frontend reads.
     # Wrapped in try/except : a failure here MUST NOT abort the sync.
@@ -179,7 +184,12 @@ def run_profile_sync_cron() -> dict[str, Any]:
     results: dict[str, dict[str, Any]] = {}
     for uid in user_ids:
         try:
-            results[uid] = sync_garmin_profile(uid)
+            result = sync_garmin_profile(uid)
+            results[uid] = result
+            if isinstance(result, dict) and result.get("status") == "ok":
+                db.table("garmin_credentials").update(
+                    {"last_profile_sync_at": datetime.now(UTC).isoformat()}
+                ).eq("user_id", uid).execute()
         except Exception:
             log.exception("profile sync failed for user=%s", uid)
             results[uid] = {"status": "exception"}
