@@ -26,6 +26,9 @@ TAPER_RAMP_RATE = 0.55  # -45% taper
 
 DAY_NAME_TO_INDEX = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
+# Type alias reused with cast() when reading list-of-rows DB responses.
+type RowList = list[dict[str, Any]]
+
 
 def distribute_weekly_tss_by_sport(
     *,
@@ -463,7 +466,7 @@ def _load_today_banister_state(
     """
     history_start = today - timedelta(days=180)
     activities = cast(
-        "list[dict[str, Any]]",
+        RowList,
         db.table("activities")
         .select("start_time, sport, duration_s, power_avg, hr_avg")
         .eq("user_id", user_id)
@@ -579,7 +582,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         .execute()
     )
     previous_plan_ids = [
-        p["id"] for p in cast("list[dict[str, Any]]", previous_plans_resp.data or [])
+        p["id"] for p in cast(RowList, previous_plans_resp.data or [])
     ]
     if previous_plan_ids:
         db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).execute()
@@ -606,7 +609,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         )
         .execute()
     )
-    plan_id = cast("list[dict[str, Any]]", insert_resp.data)[0]["id"]
+    plan_id = cast(RowList, insert_resp.data)[0]["id"]
 
     for s in all_sessions:
         s["plan_id"] = plan_id
