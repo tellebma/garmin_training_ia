@@ -1,5 +1,9 @@
 import { cn } from '@/lib/utils'
-import type { DailyBriefing, ReadinessStatus } from '@/lib/coach/briefing-types'
+import type {
+  ActivityInsightSeverity,
+  DailyBriefing,
+  ReadinessStatus,
+} from '@/lib/coach/briefing-types'
 
 const STATUS_LABEL: Record<ReadinessStatus, string> = {
   ready: 'En forme',
@@ -19,12 +23,19 @@ const STATUS_BADGE_CLASSES: Record<ReadinessStatus, string> = {
   rest_advised: 'bg-red-500/10 text-red-700 dark:text-red-300',
 }
 
+const INSIGHT_CLASSES: Record<ActivityInsightSeverity, string> = {
+  positive: 'border-emerald-500/30 bg-emerald-500/5',
+  watch: 'border-amber-500/30 bg-amber-500/5',
+  risk: 'border-red-500/30 bg-red-500/5',
+}
+
 interface Props {
   briefing: DailyBriefing
 }
 
 export function BriefingCard({ briefing }: Readonly<Props>) {
-  const { readiness_score, status, explanation_md, suggested_session } = briefing
+  const { readiness_score, status, explanation_md, suggested_session, activity_review } = briefing
+  const insights = activity_review.insights.slice(0, 4)
   return (
     <section
       className={cn('rounded-lg border p-4', STATUS_CLASSES[status])}
@@ -44,6 +55,31 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
         </span>
       </div>
       <p className="text-foreground text-sm whitespace-pre-wrap">{explanation_md}</p>
+      {insights.length > 0 && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-foreground text-sm font-medium">Revue des activités</p>
+            <p className="text-muted-foreground text-xs">
+              {String(activity_review.activities_7d)} activités ·{' '}
+              {String(Math.round(activity_review.tss_7d))} TSS ·{' '}
+              {String(activity_review.elevation_gain_7d)} m D+
+            </p>
+          </div>
+          <ul className="space-y-2">
+            {insights.map((insight) => (
+              <li
+                key={insight.name}
+                className={cn(
+                  'rounded-md border px-3 py-2 text-sm',
+                  INSIGHT_CLASSES[insight.severity]
+                )}
+              >
+                {insight.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {suggested_session && (
         <div className="bg-background mt-3 rounded-md border p-3 text-sm">
           <p className="text-foreground font-medium">Adaptation proposée</p>

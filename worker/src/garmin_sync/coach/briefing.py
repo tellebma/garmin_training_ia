@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal, cast
 
+from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.supabase_client import get_admin_client
 
 Status = Literal["ready", "caution", "rest_advised"]
@@ -63,6 +64,7 @@ class DailyBriefing:
     factors: list[ReadinessFactor]
     planned_session: dict[str, Any] | None
     suggested_session: SuggestedSession | None
+    activity_review: ActivityReview
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +86,7 @@ class DailyBriefing:
                 if self.suggested_session
                 else None
             ),
+            "activity_review": self.activity_review.to_dict(),
         }
 
 
@@ -320,6 +323,30 @@ def _load_tsb(db: Any, user_id: str, today: date) -> float | None:
     return float(val) if val is not None else None
 
 
+def _load_recent_activities(db: Any, user_id: str, today: date) -> list[dict[str, Any]]:
+    start = today - timedelta(days=90)
+    resp = (
+        db.table("activities")
+        .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
+        .eq("user_id", user_id)
+        .gte("start_time", start.isoformat())
+        .execute()
+    )
+    return cast("list[dict[str, Any]]", resp.data or [])
+
+
+def _activity_review_factors(review: ActivityReview) -> list[ReadinessFactor]:
+    return [
+        ReadinessFactor(
+            f"activity_{insight.name}",
+            insight.readiness_impact,
+            insight.message,
+        )
+        for insight in review.insights
+        if insight.readiness_impact != 0
+    ]
+
+
 def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     """Compute the full daily briefing for one user. Single DB round-trip per source."""
     today = today or date.today()
@@ -331,6 +358,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     rh_baseline = _load_resting_hr_baseline(db, user_id, today)
     tsb = _load_tsb(db, user_id, today)
     planned = _load_planned_session(db, user_id, today)
+    activity_review = build_activity_review(_load_recent_activities(db, user_id, today), today)
 
     weekly_avg = None
     if hrv and hrv.get("hrv_weekly_avg"):
@@ -342,6 +370,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     factors.extend(_score_resting_hr(daily, rh_baseline))
     factors.extend(_score_tsb(tsb))
     factors.extend(_score_body_battery(daily))
+    factors.extend(_activity_review_factors(activity_review))
 
     score = BASELINE_SCORE + sum(f.impact for f in factors)
     score = max(0, min(100, score))
@@ -358,4 +387,5 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         factors=factors,
         planned_session=planned,
         suggested_session=suggestion,
+        activity_review=activity_review,
     )

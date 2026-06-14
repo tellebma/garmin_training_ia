@@ -3,6 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const workerBriefing = vi.fn()
 const supabaseGetSession = vi.fn()
 
+const emptyActivityReview = {
+  lookback_days: 90,
+  activities_7d: 0,
+  activities_28d: 0,
+  tss_7d: 0,
+  avg_weekly_tss_prev_21d: 0,
+  elevation_gain_7d: 0,
+  avg_weekly_elevation_prev_21d: 0,
+  sport_counts_28d: {},
+  days_since_last_activity: null,
+  insights: [],
+}
+
 vi.mock('@/lib/worker', () => ({
   workerDailyBriefing: (jwt: string) => workerBriefing(jwt) as unknown,
 }))
@@ -28,6 +41,7 @@ describe('getDailyBriefing', () => {
       factors: [],
       planned_session: null,
       suggested_session: null,
+      activity_review: emptyActivityReview,
     })
     const { getDailyBriefing } = await import('@/app/actions/briefing')
     const r = await getDailyBriefing()
@@ -62,7 +76,7 @@ describe('getDailyBriefing', () => {
 
   it('returns unknown_response when worker returns unexpected shape', async () => {
     supabaseGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'jwt-1' } } })
-    // No "status" field and not a briefing -> fallthrough branch
+    // No "status" field and not a complete briefing -> fallthrough branch
     workerBriefing.mockResolvedValueOnce({ random: 'thing' })
     const { getDailyBriefing } = await import('@/app/actions/briefing')
     const r = await getDailyBriefing()
