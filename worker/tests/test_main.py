@@ -238,6 +238,7 @@ def test_regenerate_session_not_found(mock_jwt, mock_regen, mock_rl):
 def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute, mock_rl):
     from garmin_sync.coach.activity_review import build_activity_review
     from garmin_sync.coach.briefing import (
+        CoachRecommendation,
         DailyBriefing,
         ReadinessFactor,
         SuggestedSession,
@@ -253,6 +254,13 @@ def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute, mock_rl):
         planned_session={"sport": "run", "session_type": "intervals"},
         suggested_session=SuggestedSession(sport="run", session_type="threshold", note="ok"),
         activity_review=build_activity_review([]),
+        last_session_feedback=None,
+        coach_recommendation=CoachRecommendation(
+            action="ease",
+            title="Séance allégée",
+            rationale="ok",
+            instruction="Z2 facile.",
+        ),
     )
     client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})

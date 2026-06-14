@@ -15,6 +15,15 @@ export interface SuggestedSession {
   note: string
 }
 
+export type CoachRecommendationAction = 'maintain' | 'ease' | 'rest' | 'caution'
+
+export interface CoachRecommendation {
+  action: CoachRecommendationAction
+  title: string
+  rationale: string
+  instruction: string
+}
+
 export type ActivityInsightSeverity = 'positive' | 'watch' | 'risk'
 
 export interface ActivityInsight {
@@ -37,6 +46,17 @@ export interface ActivityReview {
   insights: ActivityInsight[]
 }
 
+export interface SessionFeedback {
+  activity_date: string
+  sport: string
+  planned_sport: string | null
+  planned_session_type: string | null
+  verdict: string
+  severity: ActivityInsightSeverity
+  message: string
+  readiness_impact: number
+}
+
 export interface DailyBriefing {
   date: string
   readiness_score: number
@@ -54,6 +74,8 @@ export interface DailyBriefing {
   } | null
   suggested_session: SuggestedSession | null
   activity_review: ActivityReview
+  last_session_feedback: SessionFeedback | null
+  coach_recommendation: CoachRecommendation
 }
 
 export type BriefingResponse =

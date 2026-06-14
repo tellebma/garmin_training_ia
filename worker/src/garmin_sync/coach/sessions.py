@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
+from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
 from garmin_sync.supabase_client import get_admin_client
 
@@ -46,13 +47,55 @@ def _load_profile_and_race(
     return profile, race, weeks
 
 
-def _race_context(race: dict[str, Any] | None, weeks: int) -> dict[str, Any]:
-    if not race:
-        return {"discipline": "unknown", "total_elevation_gain_m": 0, "weeks_to_race": weeks}
-    return {
-        "discipline": race.get("discipline", "unknown"),
-        "total_elevation_gain_m": race.get("total_elevation_gain_m") or 0,
+def _race_context(
+    race: dict[str, Any] | None, weeks: int, activity_review: ActivityReview | None = None
+) -> dict[str, Any]:
+    ctx = {
+        "discipline": "unknown",
+        "total_elevation_gain_m": 0,
         "weeks_to_race": weeks,
+    }
+    if race:
+        ctx = {
+            "discipline": race.get("discipline", "unknown"),
+            "total_elevation_gain_m": race.get("total_elevation_gain_m") or 0,
+            "weeks_to_race": weeks,
+        }
+    if activity_review:
+        ctx["activity_review"] = activity_review.to_dict()
+    return ctx
+
+
+def _load_activity_review(db: Any, user_id: str, today: date) -> ActivityReview:
+    start = today - timedelta(days=90)
+    resp = (
+        db.table("activities")
+        .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
+        .eq("user_id", user_id)
+        .gte("start_time", start.isoformat())
+        .order("start_time", desc=True)
+        .execute()
+    )
+    rows = resp.data if isinstance(resp.data, list) else []
+    return build_activity_review(cast("list[dict[str, Any]]", rows), today=today)
+
+
+def _activity_review_note(activity_review: ActivityReview) -> str:
+    insights = [i.message for i in activity_review.insights[:3]]
+    if not insights:
+        return ""
+    return " Revue coach récente : " + " ".join(insights)
+
+
+def _session_with_activity_review_note(
+    session: dict[str, Any], activity_review: ActivityReview
+) -> dict[str, Any]:
+    note = _activity_review_note(activity_review)
+    if not note:
+        return session
+    return {
+        **session,
+        "coach_context": note.strip(),
     }
 
 
@@ -102,12 +145,14 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
         return {"generated_count": 0, "failed_count": 0, "skipped_count": 0}
 
     athlete, race, weeks = _load_profile_and_race(db, user_id)
-    race_ctx = _race_context(race, weeks)
+    activity_review = _load_activity_review(db, user_id, today)
+    race_ctx = _race_context(race, weeks, activity_review)
 
     generated = 0
     failed = 0
     for session in pending:
-        if _generate_and_persist(db, session, athlete, race_ctx):
+        session_for_generation = _session_with_activity_review_note(session, activity_review)
+        if _generate_and_persist(db, session_for_generation, athlete, race_ctx):
             generated += 1
         else:
             failed += 1
@@ -133,9 +178,13 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
         raise SessionNotFound(f"session {session_id} not found for user {user_id}")
 
     athlete, race, weeks = _load_profile_and_race(db, user_id)
-    race_ctx = _race_context(race, weeks)
+    activity_review = _load_activity_review(db, user_id, date.today())
+    race_ctx = _race_context(race, weeks, activity_review)
+    session_for_generation = _session_with_activity_review_note(session, activity_review)
 
-    workout = generate_workout_for_session(session=session, athlete=athlete, race_context=race_ctx)
+    workout = generate_workout_for_session(
+        session=session_for_generation, athlete=athlete, race_context=race_ctx
+    )
     db.table("planned_sessions").update(
         {
             "workout": workout.model_dump(),

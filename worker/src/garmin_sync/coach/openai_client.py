@@ -80,6 +80,23 @@ def _build_user_prompt(
             f"- Dénivelé total : {race_context['total_elevation_gain_m']}m",
         ]
     )
+    activity_review = race_context.get("activity_review")
+    if isinstance(activity_review, dict):
+        lines.extend(
+            [
+                "",
+                "Revue activités récentes :",
+                f"- 7 derniers jours : {activity_review.get('activities_7d', 0)} activités, "
+                f"{activity_review.get('tss_7d', 0)} TSS, "
+                f"{activity_review.get('elevation_gain_7d', 0)}m D+.",
+            ]
+        )
+        insights = activity_review.get("insights") or []
+        for insight in insights[:3]:
+            if isinstance(insight, dict) and insight.get("message"):
+                lines.append(f"- {insight['message']}")
+    if session.get("coach_context"):
+        lines.extend(["", f"Contexte coach : {session['coach_context']}"])
     return "\n".join(lines)
 
 

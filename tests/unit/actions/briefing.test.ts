@@ -42,6 +42,13 @@ describe('getDailyBriefing', () => {
       planned_session: null,
       suggested_session: null,
       activity_review: emptyActivityReview,
+      last_session_feedback: null,
+      coach_recommendation: {
+        action: 'maintain',
+        title: 'Séance maintenue',
+        rationale: 'ok',
+        instruction: 'Reste dans les zones.',
+      },
     })
     const { getDailyBriefing } = await import('@/app/actions/briefing')
     const r = await getDailyBriefing()

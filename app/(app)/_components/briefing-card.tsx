@@ -34,7 +34,15 @@ interface Props {
 }
 
 export function BriefingCard({ briefing }: Readonly<Props>) {
-  const { readiness_score, status, explanation_md, suggested_session, activity_review } = briefing
+  const {
+    readiness_score,
+    status,
+    explanation_md,
+    suggested_session,
+    activity_review,
+    last_session_feedback,
+    coach_recommendation,
+  } = briefing
   const insights = activity_review.insights.slice(0, 4)
   return (
     <section
@@ -55,6 +63,31 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
         </span>
       </div>
       <p className="text-foreground text-sm whitespace-pre-wrap">{explanation_md}</p>
+      <div className="bg-background mt-3 rounded-md border p-3 text-sm">
+        <p className="text-foreground font-medium">{coach_recommendation.title}</p>
+        <p className="text-muted-foreground mt-1">{coach_recommendation.rationale}</p>
+        <p className="text-foreground mt-2">{coach_recommendation.instruction}</p>
+      </div>
+      {last_session_feedback && (
+        <div
+          className={cn(
+            'mt-3 rounded-md border p-3 text-sm',
+            INSIGHT_CLASSES[last_session_feedback.severity]
+          )}
+        >
+          <p className="text-foreground font-medium">Retour post-séance</p>
+          <p className="text-muted-foreground mt-1">{last_session_feedback.message}</p>
+          <p className="text-foreground mt-2 text-xs">
+            <span className="font-semibold">{last_session_feedback.sport}</span>
+            {last_session_feedback.planned_sport && (
+              <>
+                {' '}
+                · prévu : <span>{last_session_feedback.planned_sport}</span>
+              </>
+            )}
+          </p>
+        </div>
+      )}
       {insights.length > 0 && (
         <div className="mt-4 space-y-2">
           <div className="flex items-center justify-between gap-3">

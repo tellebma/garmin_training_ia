@@ -10,6 +10,8 @@ function isFullBriefing(d: unknown): d is DailyBriefing {
   if (typeof d !== 'object' || d === null) return false
   if (!('readiness_score' in d)) return false
   if (!('activity_review' in d)) return false
+  if (!('last_session_feedback' in d)) return false
+  if (!('coach_recommendation' in d)) return false
   return typeof d.readiness_score === 'number'
 }
 

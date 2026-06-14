@@ -25,10 +25,12 @@ ajustements concrets.
 - Statut V1 : intégré au briefing quotidien via `activity_review` avec signaux de
   charge récente, grosse séance, reprise après pause, régularité, D+ et déséquilibre
   de disciplines.
-- Suite : réutiliser explicitement `activity_review` dans `/coach/generate-plan` et
-  `/coach/ensure-sessions`, puis ajouter la comparaison prévu vs réalisé.
+- Statut V1 action 2 : `activity_review` est maintenant réutilisé dans
+  `/coach/generate-plan`, `/coach/ensure-sessions` et `/coach/regenerate-session`.
+- Suite : enrichir les règles avec une comparaison prévu vs réalisé sur plusieurs
+  séances, pas seulement la dernière activité.
 
-### P0 — Recommandations coach contextualisées
+### P0 — Recommandations coach contextualisées — V1 livrée
 
 - Transformer le briefing quotidien en vraie décision coach : maintenir, alléger,
   remplacer par récupération, déplacer une séance, ou ajouter endurance facile.
@@ -37,6 +39,8 @@ ajustements concrets.
 - Inclure des consignes terrain : intensité, durée, RPE, zones, nutrition/hydratation
   si séance longue, signaux d'arrêt si fatigue.
 - Critère coach : la recommandation doit être actionnable sans relire tout le plan.
+- Statut V1 : le briefing expose `coach_recommendation` avec une action claire
+  (`maintain`, `ease`, `rest`, `caution`), un rationnel et une consigne terrain.
 
 ### P1 — Détection des signaux de progression et stagnation
 
@@ -54,7 +58,7 @@ ajustements concrets.
 - Run : progressivité, risque blessure, intensité trop fréquente, allure/FC.
 - Brick : pertinence à l'approche de la course, charge cumulée, placement dans la semaine.
 
-### P1 — Feedback post-séance
+### P1 — Feedback post-séance — V1 livrée
 
 - Après chaque activité, comparer prévu vs réalisé : durée, TSS, distance, D+,
   intensité, sport, respect de la séance.
@@ -62,6 +66,12 @@ ajustements concrets.
   "volume insuffisant", "séance à récupérer", "à ne pas compenser demain".
 - Utiliser ce feedback pour ajuster les prochaines séances plutôt que générer un
   plan figé.
+- Statut V1 : le briefing compare la dernière activité récente à la séance prévue
+  du même jour (`last_session_feedback`) et applique un impact readiness en cas
+  de séance trop intense, trop longue, jour de repos non respecté ou sport différent.
+- Statut V1 action 2 : `activity_review` est utilisé dans `/coach/ensure-sessions`
+  et `/coach/regenerate-session` pour enrichir le contexte LLM, et dans
+  `/coach/generate-plan` pour alléger la première semaine en cas de signal de risque.
 
 ### P1 — Garde-fous santé/performance
 

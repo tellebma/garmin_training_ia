@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import date, timedelta
 from unittest.mock import MagicMock
 
+from garmin_sync.coach.activity_review import build_activity_review
 from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    compute_first_week_tss_multiplier,
     distribute_weekly_tss_by_sport,
     generate_plan,
     pick_session_types_for_phase,
@@ -67,6 +69,31 @@ def test_ramp_rates_consistent_with_spec() -> None:
     """Sanity check : deload < normal, taper << normal."""
     assert DELOAD_RAMP_RATE < NORMAL_RAMP_RATE
     assert TAPER_RAMP_RATE < DELOAD_RAMP_RATE
+
+
+def test_first_week_multiplier_keeps_normal_load_without_risk() -> None:
+    review = build_activity_review([], today=date(2026, 5, 20))
+    assert compute_first_week_tss_multiplier(review) == 1.0
+
+
+def test_first_week_multiplier_deloads_on_recent_load_spike() -> None:
+    review = build_activity_review(
+        [
+            {"start_time": "2026-05-19T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 95},
+            {
+                "start_time": "2026-05-18T08:00:00Z",
+                "sport": "bike",
+                "duration_s": 3 * 3600,
+                "tss": 130,
+            },
+            {"start_time": "2026-05-08T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 80},
+            {"start_time": "2026-05-01T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 80},
+            {"start_time": "2026-04-24T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 80},
+        ],
+        today=date(2026, 5, 20),
+    )
+
+    assert compute_first_week_tss_multiplier(review) == 0.85
 
 
 def test_generate_plan_no_race_goal_returns_error(monkeypatch) -> None:
