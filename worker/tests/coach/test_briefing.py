@@ -123,9 +123,10 @@ def _mock_db_with(
         elif table_name == "planned_sessions":
             single.return_value.execute.return_value.data = planned
         elif table_name == "activities":
-            rows_q = (
-                m.select.return_value.eq.return_value.gte.return_value.order.return_value.execute.return_value
+            activities_query = (
+                m.select.return_value.eq.return_value.gte.return_value.order.return_value
             )
+            rows_q = activities_query.execute.return_value
             rows_q.data = activities or []
         return m
 
