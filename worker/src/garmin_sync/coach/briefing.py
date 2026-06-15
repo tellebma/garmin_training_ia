@@ -27,7 +27,7 @@ type _RowT = dict[str, Any] | None
 READY_MIN = 70
 CAUTION_MIN = 40
 BASELINE_SCORE = 80
-BRIEFING_CACHE_VERSION = "daily-briefing:v2"
+BRIEFING_CACHE_VERSION = "daily-briefing:v3"
 
 log = logging.getLogger(__name__)
 
@@ -344,6 +344,43 @@ def _hard_session(session: dict[str, Any] | None) -> bool:
     if not session:
         return False
     return str(session.get("session_type") or "") in {"threshold", "intervals", "long", "race"}
+
+
+def _hard_session_guardrail_factors(
+    planned_session: dict[str, Any] | None,
+    factors: list[ReadinessFactor],
+) -> list[ReadinessFactor]:
+    """Add a coach guardrail when a hard session meets unfavorable recovery signals."""
+    if not _hard_session(planned_session):
+        return []
+    if str((planned_session or {}).get("session_type") or "") == "race":
+        return []
+
+    unfavorable = [
+        factor
+        for factor in factors
+        if factor.impact <= -8
+        and factor.name.startswith(
+            (
+                "hrv_",
+                "sleep_",
+                "tsb_",
+                "body_battery_",
+                "activity_",
+                "session_feedback_",
+            )
+        )
+    ]
+    if not unfavorable:
+        return []
+
+    return [
+        ReadinessFactor(
+            "hard_session_guardrail",
+            -10,
+            "Séance dure prévue alors qu'un signal de récupération est défavorable.",
+        )
+    ]
 
 
 def build_next_session_adjustment(
@@ -669,6 +706,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     factors.extend(_score_body_battery(daily))
     factors.extend(_activity_review_factors(activity_review))
     factors.extend(_session_feedback_factor(session_feedback))
+    factors.extend(_hard_session_guardrail_factors(planned, factors))
 
     score = BASELINE_SCORE + sum(f.impact for f in factors)
     score = max(0, min(100, score))

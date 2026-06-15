@@ -3,6 +3,7 @@ import { SignOutButton } from '@/components/auth/sign-out-button'
 import { Button } from '@/components/ui/button'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import { SESSION_TYPE_LABEL, SPORT_LABEL } from '../_components/sport-icon'
 import { PersoEditForm } from './_components/perso-edit-form'
 import { RaceEditForm } from './_components/race-edit-form'
 import { PerfEditForm } from './_components/perf-edit-form'
@@ -47,9 +48,54 @@ interface GarminCredentialsRow {
   updated_at: string
 }
 
+interface CoachAdjustmentDecisionRow {
+  id: number
+  planned_session_id: string
+  original_session_type: string | null
+  suggested_session_type: string
+  decision: 'accepted' | 'ignored'
+  source: string
+  created_at: string
+  planned_sessions:
+    | {
+        date: string | null
+        sport: string | null
+        session_type: string | null
+      }
+    | {
+        date: string | null
+        sport: string | null
+        session_type: string | null
+      }[]
+    | null
+}
+
 function formatDateTime(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('fr-FR', { dateStyle: 'medium' })
+}
+
+function formatSessionType(sessionType: string | null): string {
+  if (!sessionType) return '—'
+  const labels: Record<string, string> = SESSION_TYPE_LABEL
+  return labels[sessionType] ?? sessionType
+}
+
+function formatSport(sport: string | null): string {
+  if (!sport) return 'Séance'
+  const labels: Record<string, string> = SPORT_LABEL
+  return labels[sport] ?? sport
+}
+
+function normalizePlannedSession(decision: CoachAdjustmentDecisionRow) {
+  const plannedSession = decision.planned_sessions
+  if (Array.isArray(plannedSession)) return plannedSession[0] ?? null
+  return plannedSession
 }
 
 export default async function ProfilePage() {
@@ -60,28 +106,38 @@ export default async function ProfilePage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: race }, { data: garmin }] = await Promise.all([
-    supabase
-      .from('athlete_profiles')
-      .select(
-        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_synced_at, available_days, hours_per_week, sports_strengths'
-      )
-      .eq('user_id', userId)
-      .single<AthleteProfileRow>(),
-    supabase
-      .from('race_goals')
-      .select('race_date, discipline, name, location, target_time_seconds, legs')
-      .eq('user_id', userId)
-      .eq('is_primary', true)
-      .maybeSingle<RaceGoalRow>(),
-    supabase
-      .from('garmin_credentials')
-      .select(
-        'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
-      )
-      .eq('user_id', userId)
-      .maybeSingle<GarminCredentialsRow>(),
-  ])
+  const [{ data: profile }, { data: race }, { data: garmin }, { data: adjustmentDecisions }] =
+    await Promise.all([
+      supabase
+        .from('athlete_profiles')
+        .select(
+          'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_synced_at, available_days, hours_per_week, sports_strengths'
+        )
+        .eq('user_id', userId)
+        .single<AthleteProfileRow>(),
+      supabase
+        .from('race_goals')
+        .select('race_date, discipline, name, location, target_time_seconds, legs')
+        .eq('user_id', userId)
+        .eq('is_primary', true)
+        .maybeSingle<RaceGoalRow>(),
+      supabase
+        .from('garmin_credentials')
+        .select(
+          'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
+        )
+        .eq('user_id', userId)
+        .maybeSingle<GarminCredentialsRow>(),
+      supabase
+        .from('coach_adjustment_decisions')
+        .select(
+          'id, planned_session_id, original_session_type, suggested_session_type, decision, source, created_at, planned_sessions(date, sport, session_type)'
+        )
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10)
+        .overrideTypes<CoachAdjustmentDecisionRow[], { merge: false }>(),
+    ])
 
   const garminConnected = garmin !== null
   const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
@@ -182,6 +238,55 @@ export default async function ProfilePage() {
       <RaceEditForm initial={raceInitial} />
       <PerfEditForm initial={perfInitial} />
       <DispoEditForm initial={dispoInitial} />
+
+      <section className="space-y-3 rounded-lg border p-6">
+        <div>
+          <h2 className="text-lg font-semibold">Décisions coach</h2>
+          <p className="text-muted-foreground text-sm">
+            Historique des adaptations proposées par le coach et de tes choix.
+          </p>
+        </div>
+
+        {(adjustmentDecisions ?? []).length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            Aucune adaptation acceptée ou ignorée pour le moment.
+          </p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {(adjustmentDecisions ?? []).map((decision) => {
+              const plannedSession = normalizePlannedSession(decision)
+              return (
+                <li key={decision.id} className="space-y-2 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {formatSport(plannedSession?.sport ?? null)} ·{' '}
+                        {formatDate(plannedSession?.date ?? null)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {formatSessionType(decision.original_session_type)} →{' '}
+                        {formatSessionType(decision.suggested_session_type)}
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        decision.decision === 'accepted'
+                          ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground rounded-full px-3 py-1 text-xs font-medium'
+                      }
+                    >
+                      {decision.decision === 'accepted' ? 'Acceptée' : 'Ignorée'}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    Décision enregistrée le {formatDateTime(decision.created_at)}
+                  </p>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
 
       <SignOutButton />
     </div>

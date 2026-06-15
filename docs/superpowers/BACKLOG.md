@@ -150,8 +150,15 @@ ajustements concrets.
 - Statut V1 action 9 : les acceptations/refus sont persistés dans
   `coach_adjustment_decisions`, et le briefing ne repropose plus le même ajustement
   pour une séance déjà traitée.
-- Suite : afficher l'historique de ces décisions coach dans le profil ou dans une
-  vue d'audit du plan.
+- Statut V1 action 10 : le profil expose maintenant l'historique des dernières
+  décisions coach acceptées ou ignorées, avec la séance concernée, l'adaptation
+  proposée et la date d'enregistrement.
+- Statut V1 action 11 : le briefing applique un garde-fou explicite quand une
+  séance dure tombe sur un signal de récupération défavorable (HRV, sommeil, TSB,
+  charge récente ou feedback de séance), ce qui pousse l'ajustement vers une séance
+  allégée avant d'empiler de l'intensité.
+- Suite : enrichir ces garde-fous avec une analyse de progression hebdomadaire par
+  discipline, en particulier pour limiter les hausses trop rapides en course à pied.
 
 ### P1 — Garde-fous santé/performance
 

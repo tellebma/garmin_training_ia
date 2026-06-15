@@ -263,6 +263,29 @@ def test_compute_briefing_caution_with_low_hrv(mock_db_fn):
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_downgrades_hard_session_when_recovery_signal_is_bad(mock_db_fn):
+    db = _mock_db_with(
+        hrv={"hrv_rmssd": 33, "hrv_status": "balanced", "hrv_weekly_avg": 40},
+        sleep={"sleep_duration_s": 7.5 * 3600, "sleep_score": 75},
+        daily=None,
+        tsb=None,
+        planned={"sport": "run", "session_type": "intervals"},
+    )
+    mock_db_fn.return_value = db
+
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+
+    factor_names = {f.name for f in b.factors}
+    assert "hrv_low" in factor_names
+    assert "hard_session_guardrail" in factor_names
+    assert b.status == "caution"
+    assert b.suggested_session is not None
+    assert b.suggested_session.session_type == "threshold"
+    assert b.next_session_adjustment.status == "suggested"
+    assert b.next_session_adjustment.suggested_session_type == "threshold"
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
 def test_compute_briefing_no_data_returns_ready_default(mock_db_fn):
     """Without any biometric data, default to ready (baseline score)."""
     db = _mock_db_with()
