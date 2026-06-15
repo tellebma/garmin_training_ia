@@ -20,6 +20,8 @@ from garmin_sync.supabase_client import get_admin_client
 
 log = logging.getLogger(__name__)
 
+DbRows = list[dict[str, Any]]
+
 # Ramp rates by phase / week index
 NORMAL_RAMP_RATE = 1.05  # +5% per week (normal weeks)
 DELOAD_RAMP_RATE = 0.70  # -30% deload week (every 4th week)
@@ -477,7 +479,7 @@ def _load_today_banister_state(
     """
     history_start = today - timedelta(days=180)
     activities = cast(
-        "list[dict[str, Any]]",
+        DbRows,
         db.table("activities")
         .select("start_time, sport, duration_s, power_avg, hr_avg, tss, elevation_gain_m")
         .eq("user_id", user_id)
@@ -596,9 +598,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         .eq("race_goal_id", race["id"])
         .execute()
     )
-    previous_plan_ids = [
-        p["id"] for p in cast("list[dict[str, Any]]", previous_plans_resp.data or [])
-    ]
+    previous_plan_ids = [p["id"] for p in cast(DbRows, previous_plans_resp.data or [])]
     if previous_plan_ids:
         db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).execute()
         db.table("training_plans").update({"status": "archived"}).in_(
@@ -628,7 +628,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         )
         .execute()
     )
-    plan_id = cast("list[dict[str, Any]]", insert_resp.data)[0]["id"]
+    plan_id = cast(DbRows, insert_resp.data)[0]["id"]
 
     for s in all_sessions:
         s["plan_id"] = plan_id

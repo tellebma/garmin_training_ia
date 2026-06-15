@@ -68,6 +68,44 @@ def test_activity_review_rewards_consistent_week_without_risk():
     assert sum(i.readiness_impact for i in review.insights) > 0
 
 
+def test_activity_review_detects_no_recent_activity_and_load_drop():
+    review = build_activity_review(
+        [
+            _activity("2026-05-12", tss=120),
+            _activity("2026-05-06", tss=120),
+            _activity("2026-04-30", tss=120),
+            {"start_time": "not-a-date", "sport": "run", "duration_s": 3600, "tss": 200},
+            {"start_time": None, "sport": "run", "duration_s": 3600, "tss": 200},
+        ],
+        today=date(2026, 5, 20),
+    )
+
+    names = {i.name for i in review.insights}
+    assert review.activities_7d == 0
+    assert review.tss_7d == 0
+    assert "no_recent_activity" in names
+    assert "load_drop" in names
+
+
+def test_activity_review_detects_elevation_spike_and_sport_imbalance():
+    today = date(2026, 5, 20)
+    activities = [
+        _activity("2026-05-19", sport="run", duration_s=0, tss=None, elevation_gain_m=600),
+        _activity("2026-05-18", sport="run", tss=45),
+        _activity("2026-05-16", sport="run", tss=45),
+        _activity("2026-05-14", sport="run", tss=45),
+        _activity("2026-05-10", sport="run", tss=45, elevation_gain_m=300),
+        _activity("2026-05-03", sport="run", tss=45, elevation_gain_m=300),
+        _activity("2026-04-26", sport="run", tss=45, elevation_gain_m=300),
+    ]
+
+    review = build_activity_review(activities, today=today)
+
+    names = {i.name for i in review.insights}
+    assert "elevation_spike" in names
+    assert "sport_imbalance" in names
+
+
 def test_activity_review_serializes_for_api_payload():
     review = build_activity_review([], today=date(2026, 5, 20))
     payload = review.to_dict()

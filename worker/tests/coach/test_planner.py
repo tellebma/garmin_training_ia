@@ -96,6 +96,22 @@ def test_first_week_multiplier_deloads_on_recent_load_spike() -> None:
     assert compute_first_week_tss_multiplier(review) == 0.85
 
 
+def test_first_week_multiplier_light_deload_on_recent_long_session() -> None:
+    review = build_activity_review(
+        [
+            {
+                "start_time": "2026-05-19T08:00:00Z",
+                "sport": "bike",
+                "duration_s": 3 * 3600,
+                "tss": 95,
+            }
+        ],
+        today=date(2026, 5, 20),
+    )
+
+    assert compute_first_week_tss_multiplier(review) == 0.92
+
+
 def test_generate_plan_no_race_goal_returns_error(monkeypatch) -> None:
     """Without an active race_goal, generate_plan returns no_race_goal status."""
     from garmin_sync.coach import planner as p_mod

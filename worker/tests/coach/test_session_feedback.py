@@ -47,6 +47,39 @@ def test_session_feedback_too_intense_penalizes_readiness():
     assert feedback.readiness_impact == -10
 
 
+def test_session_feedback_too_long():
+    feedback = build_session_feedback(
+        activity=_activity(duration_s=5400, tss=65),
+        planned_session=_planned(target_duration_s=3600, target_tss=60),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "too_long"
+    assert feedback.readiness_impact == -5
+
+
+def test_session_feedback_too_short_without_compensation():
+    feedback = build_session_feedback(
+        activity=_activity(duration_s=1800, tss=35),
+        planned_session=_planned(target_duration_s=3600, target_tss=60),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "too_short"
+    assert feedback.severity == "watch"
+
+
+def test_session_feedback_more_elevation():
+    feedback = build_session_feedback(
+        activity=_activity(elevation_gain_m=250, tss=60),
+        planned_session=_planned(target_elevation_gain_m=100),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "more_elevation"
+    assert feedback.readiness_impact == -5
+
+
 def test_session_feedback_trained_on_rest_day():
     feedback = build_session_feedback(
         activity=_activity(sport="bike"),
@@ -64,6 +97,14 @@ def test_session_feedback_unplanned_activity():
     assert feedback is not None
     assert feedback.verdict == "unplanned"
     assert feedback.planned_sport is None
+
+
+def test_session_feedback_ignores_invalid_activity_dates():
+    assert (
+        build_session_feedback(activity=_activity(start_time="not-a-date"), planned_session=None)
+        is None
+    )
+    assert build_session_feedback(activity=_activity(start_time=None), planned_session=None) is None
 
 
 def test_session_feedback_sport_equivalence_accepts_garmin_names():

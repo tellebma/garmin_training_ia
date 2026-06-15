@@ -116,6 +116,133 @@ def _sport_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def _recency_insight(
+    *, activities_7d: list[dict[str, Any]], days_since_last_activity: int | None
+) -> ActivityInsight | None:
+    if days_since_last_activity is None:
+        return ActivityInsight(
+            "no_activity_history",
+            "watch",
+            "Pas encore assez d'historique : reste prudent sur l'intensité.",
+        )
+    if days_since_last_activity >= 10:
+        return ActivityInsight(
+            "return_after_break",
+            "risk",
+            f"Dernière activité il y a {days_since_last_activity} jours : reprise progressive.",
+            -10,
+        )
+    if len(activities_7d) == 0:
+        return ActivityInsight(
+            "no_recent_activity",
+            "watch",
+            "Aucune activité sur 7 jours : évite de compenser avec une séance trop dure.",
+        )
+    return None
+
+
+def _load_trend_insight(*, tss_7d: float, avg_weekly_tss_prev_21d: float) -> ActivityInsight | None:
+    if avg_weekly_tss_prev_21d < 80:
+        return None
+
+    ratio = tss_7d / avg_weekly_tss_prev_21d
+    if ratio >= 1.4 and tss_7d >= 140:
+        return ActivityInsight(
+            "load_spike",
+            "risk",
+            "Charge des 7 derniers jours nettement au-dessus de ta tendance.",
+            -10,
+        )
+    if ratio <= 0.6:
+        return ActivityInsight(
+            "load_drop",
+            "watch",
+            "Charge récente en baisse : reprends sans chercher à rattraper.",
+        )
+    return None
+
+
+def _hard_sessions_insight(activities_7d: list[dict[str, Any]]) -> ActivityInsight | None:
+    hard_7d = [r for r in activities_7d if _is_hard(r)]
+    if len(hard_7d) < 3:
+        return None
+    return ActivityInsight(
+        "hard_sessions_density",
+        "risk",
+        "Plusieurs séances intenses récentes : privilégie récupération ou endurance facile.",
+        -10,
+    )
+
+
+def _recent_long_insight(
+    *, activities_7d: list[dict[str, Any]], today: date
+) -> ActivityInsight | None:
+    recent_long = [
+        r
+        for r in activities_7d
+        if _is_long_or_heavy(r) and (d := _activity_date(r)) is not None and (today - d).days <= 2
+    ]
+    if not recent_long:
+        return None
+    return ActivityInsight(
+        "recent_long_session",
+        "watch",
+        "Grosse séance récente : garde de la marge aujourd'hui.",
+        -5,
+    )
+
+
+def _elevation_insight(
+    *, elevation_7d: int, avg_weekly_elevation_prev_21d: int
+) -> ActivityInsight | None:
+    if avg_weekly_elevation_prev_21d < 200:
+        return None
+
+    elevation_ratio = elevation_7d / avg_weekly_elevation_prev_21d
+    if elevation_ratio < 1.5 or elevation_7d < 500:
+        return None
+    return ActivityInsight(
+        "elevation_spike",
+        "watch",
+        "Dénivelé récent élevé : attention à la fatigue musculaire.",
+        -5,
+    )
+
+
+def _consistent_week_insight(
+    *, activities_7d: list[dict[str, Any]], insights: list[ActivityInsight]
+) -> ActivityInsight | None:
+    if len(activities_7d) < 4 or any(i.severity == "risk" for i in insights):
+        return None
+    return ActivityInsight(
+        "consistent_week",
+        "positive",
+        "Bonne régularité cette semaine : on peut construire sans forcer.",
+        5,
+    )
+
+
+def _sport_imbalance_insight(activities_28d: list[dict[str, Any]]) -> ActivityInsight | None:
+    counts = _sport_counts(activities_28d)
+    total_28d = sum(counts.values())
+    if total_28d < 6 or not counts:
+        return None
+
+    main_sport, main_count = max(counts.items(), key=lambda kv: kv[1])
+    if main_count / total_28d < 0.8:
+        return None
+    return ActivityInsight(
+        "sport_imbalance",
+        "watch",
+        f"Beaucoup de {main_sport} récemment : surveille l'équilibre entre disciplines.",
+    )
+
+
+def _append_if_present(insights: list[ActivityInsight], insight: ActivityInsight | None) -> None:
+    if insight is not None:
+        insights.append(insight)
+
+
 def _build_insights(
     *,
     activities_7d: list[dict[str, Any]],
@@ -129,114 +256,34 @@ def _build_insights(
 ) -> list[ActivityInsight]:
     insights: list[ActivityInsight] = []
 
-    if days_since_last_activity is None:
-        insights.append(
-            ActivityInsight(
-                "no_activity_history",
-                "watch",
-                "Pas encore assez d'historique : reste prudent sur l'intensité.",
-            )
-        )
-    elif days_since_last_activity >= 10:
-        insights.append(
-            ActivityInsight(
-                "return_after_break",
-                "risk",
-                f"Dernière activité il y a {days_since_last_activity} jours : reprise progressive.",
-                -10,
-            )
-        )
-    elif len(activities_7d) == 0:
-        insights.append(
-            ActivityInsight(
-                "no_recent_activity",
-                "watch",
-                "Aucune activité sur 7 jours : évite de compenser avec une séance trop dure.",
-            )
-        )
-
-    if avg_weekly_tss_prev_21d >= 80:
-        ratio = tss_7d / avg_weekly_tss_prev_21d
-        if ratio >= 1.4 and tss_7d >= 140:
-            insights.append(
-                ActivityInsight(
-                    "load_spike",
-                    "risk",
-                    "Charge des 7 derniers jours nettement au-dessus de ta tendance.",
-                    -10,
-                )
-            )
-        elif ratio <= 0.6:
-            insights.append(
-                ActivityInsight(
-                    "load_drop",
-                    "watch",
-                    "Charge récente en baisse : reprends sans chercher à rattraper.",
-                )
-            )
-
-    hard_7d = [r for r in activities_7d if _is_hard(r)]
-    if len(hard_7d) >= 3:
-        insights.append(
-            ActivityInsight(
-                "hard_sessions_density",
-                "risk",
-                "Plusieurs séances intenses récentes : privilégie récupération "
-                "ou endurance facile.",
-                -10,
-            )
-        )
-
-    recent_long = [
-        r
-        for r in activities_7d
-        if _is_long_or_heavy(r) and (d := _activity_date(r)) is not None and (today - d).days <= 2
-    ]
-    if recent_long:
-        insights.append(
-            ActivityInsight(
-                "recent_long_session",
-                "watch",
-                "Grosse séance récente : garde de la marge aujourd'hui.",
-                -5,
-            )
-        )
-
-    if avg_weekly_elevation_prev_21d >= 200:
-        elevation_ratio = elevation_7d / avg_weekly_elevation_prev_21d
-        if elevation_ratio >= 1.5 and elevation_7d >= 500:
-            insights.append(
-                ActivityInsight(
-                    "elevation_spike",
-                    "watch",
-                    "Dénivelé récent élevé : attention à la fatigue musculaire.",
-                    -5,
-                )
-            )
-
-    if len(activities_7d) >= 4 and not any(i.severity == "risk" for i in insights):
-        insights.append(
-            ActivityInsight(
-                "consistent_week",
-                "positive",
-                "Bonne régularité cette semaine : on peut construire sans forcer.",
-                5,
-            )
-        )
-
-    counts = _sport_counts(activities_28d)
-    total_28d = sum(counts.values())
-    if total_28d >= 6 and counts:
-        main_sport, main_count = max(counts.items(), key=lambda kv: kv[1])
-        if main_count / total_28d >= 0.8:
-            insights.append(
-                ActivityInsight(
-                    "sport_imbalance",
-                    "watch",
-                    f"Beaucoup de {main_sport} récemment : surveille l'équilibre "
-                    "entre disciplines.",
-                )
-            )
+    _append_if_present(
+        insights,
+        _recency_insight(
+            activities_7d=activities_7d,
+            days_since_last_activity=days_since_last_activity,
+        ),
+    )
+    _append_if_present(
+        insights,
+        _load_trend_insight(
+            tss_7d=tss_7d,
+            avg_weekly_tss_prev_21d=avg_weekly_tss_prev_21d,
+        ),
+    )
+    _append_if_present(insights, _hard_sessions_insight(activities_7d))
+    _append_if_present(insights, _recent_long_insight(activities_7d=activities_7d, today=today))
+    _append_if_present(
+        insights,
+        _elevation_insight(
+            elevation_7d=elevation_7d,
+            avg_weekly_elevation_prev_21d=avg_weekly_elevation_prev_21d,
+        ),
+    )
+    _append_if_present(
+        insights,
+        _consistent_week_insight(activities_7d=activities_7d, insights=insights),
+    )
+    _append_if_present(insights, _sport_imbalance_insight(activities_28d))
 
     return insights[:5]
 
