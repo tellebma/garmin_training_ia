@@ -141,8 +141,11 @@ ajustements concrets.
 - Statut V1 action 6 : le briefing quotidien expose maintenant
   `next_session_adjustment` avec statut visible, séance ciblée et adaptation
   proposée avant toute modification réelle du plan.
-- Suite : appliquer ces ajustements aux régénérations de séance et ajouter une
-  action utilisateur explicite pour accepter/refuser la modification du plan.
+- Statut V1 action 7 : les générations et régénérations de séance reçoivent le
+  signal d'ajustement coach dans leur contexte LLM pour produire une séance plus
+  facile quand les activités récentes rendent une séance dure risquée.
+- Suite : ajouter une action utilisateur explicite pour accepter/refuser la
+  modification du plan avant de changer la séance stockée.
 
 ### P1 — Garde-fous santé/performance
 
