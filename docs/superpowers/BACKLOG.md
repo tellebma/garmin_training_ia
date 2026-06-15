@@ -121,6 +121,12 @@ ajustements concrets.
   l'objectif initial.
 - Critère coach : l'utilisateur doit comprendre si l'activité l'a fait progresser,
   l'a fatigué inutilement, ou doit modifier la prochaine séance.
+- Statut V1 : les activités de `/history` sont ouvrables via `/history/[id]`.
+  La fiche affiche les métriques disponibles, une analyse coach déterministe,
+  des recommandations pour les prochaines séances, la comparaison à la séance
+  planifiée du même jour et une comparaison graphique avec les activités similaires.
+- Suite : ingérer les samples Garmin détaillés pour produire de vrais graphes
+  temporels altitude / FC / allure / puissance / cadence et des analyses par segment.
 
 ### P1 — Garde-fous santé/performance
 
