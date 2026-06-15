@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from fastapi import FastAPI, Header, HTTPException, status
+from fastapi import APIRouter, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from garmin_sync.auth import AuthError, verify_shared_token, verify_supabase_jwt
@@ -27,8 +27,11 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+router = APIRouter()
+
+
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def scheduler_lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Start the in-container scheduler on app startup, stop it on shutdown."""
     from garmin_sync.scheduler import init_scheduler, shutdown_scheduler
 
@@ -39,11 +42,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         shutdown_scheduler()
 
 
-app = FastAPI(title="garmin-sync", version="0.1.0", lifespan=lifespan)
+def create_app(*, enable_scheduler: bool | None = None) -> FastAPI:
+    """Build the FastAPI app.
+
+    Tests default to no scheduler via ENV=test, while runtime keeps the scheduler
+    attached through the lifespan hook.
+    """
+    if enable_scheduler is None:
+        enable_scheduler = get_settings().env != "test"
+    app_lifespan = scheduler_lifespan if enable_scheduler else None
+    created = FastAPI(title="garmin-sync", version="0.1.0", lifespan=app_lifespan)
+    created.include_router(router)
+    return created
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
+@router.get("/health")
+async def health() -> dict[str, str]:
     return {"status": "ok", "env": get_settings().env}
 
 
@@ -72,8 +86,8 @@ def _new_error_id() -> str:
 _AuthHeader = Annotated[str | None, Header()]
 
 
-@app.post("/sync/{user_id}")
-def sync_user(
+@router.post("/sync/{user_id}")
+async def sync_user(
     user_id: str,
     authorization: _AuthHeader = None,
     initial: bool = False,
@@ -93,8 +107,8 @@ class GarminMFARequest(BaseModel):
     code: str
 
 
-@app.post("/garmin/connect")
-def garmin_connect(
+@router.post("/garmin/connect")
+async def garmin_connect(
     body: GarminConnectRequest,
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
@@ -114,8 +128,8 @@ def garmin_connect(
         }
 
 
-@app.post("/garmin/mfa")
-def garmin_mfa(
+@router.post("/garmin/mfa")
+async def garmin_mfa(
     body: GarminMFARequest,
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
@@ -134,8 +148,8 @@ def garmin_mfa(
         }
 
 
-@app.post("/garmin/profile-sync")
-def garmin_profile_sync(
+@router.post("/garmin/profile-sync")
+async def garmin_profile_sync(
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     """Pull FTP/VMA/FCmax from Garmin and upsert into athlete_profiles.
@@ -158,8 +172,8 @@ def garmin_profile_sync(
         }
 
 
-@app.post("/coach/generate-plan")
-def coach_generate_plan(
+@router.post("/coach/generate-plan")
+async def coach_generate_plan(
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     """Generate or regenerate a Banister training plan for the calling user."""
@@ -182,8 +196,8 @@ class EnsureSessionsRequest(BaseModel):
     days: int = Field(default=7, ge=1, le=30)
 
 
-@app.post("/coach/ensure-sessions")
-def coach_ensure_sessions(
+@router.post("/coach/ensure-sessions")
+async def coach_ensure_sessions(
     body: EnsureSessionsRequest,
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
@@ -211,8 +225,8 @@ def coach_ensure_sessions(
         }
 
 
-@app.post("/coach/daily-briefing")
-def coach_daily_briefing(
+@router.post("/coach/daily-briefing")
+async def coach_daily_briefing(
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
     """Compute the readiness briefing for today and return adjusted session if needed."""
@@ -236,8 +250,8 @@ def coach_daily_briefing(
         }
 
 
-@app.post("/coach/regenerate-session/{session_id}")
-def coach_regenerate_session(
+@router.post("/coach/regenerate-session/{session_id}")
+async def coach_regenerate_session(
     session_id: str,
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
@@ -267,3 +281,6 @@ def coach_regenerate_session(
             "error_id": error_id,
             "type": type(e).__name__,
         }
+
+
+app = create_app()
