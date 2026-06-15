@@ -6,6 +6,7 @@ import type { DailyBriefing } from '@/lib/coach/briefing-types'
 
 vi.mock('@/app/actions/sessions', () => ({
   applySessionAdjustment: vi.fn(),
+  ignoreSessionAdjustment: vi.fn(),
 }))
 
 afterEach(() => {

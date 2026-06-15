@@ -446,6 +446,38 @@ def build_next_session_adjustment(
     )
 
 
+def _no_repeated_adjustment(planned_session: dict[str, Any] | None) -> NextSessionAdjustment:
+    return NextSessionAdjustment(
+        status="none",
+        action="maintain",
+        title="Ajustement déjà traité",
+        rationale="Cette proposition a déjà été acceptée ou ignorée.",
+        instruction="Le coach ne repropose pas le même ajustement pour cette séance.",
+        target_session=planned_session,
+    )
+
+
+def _load_adjustment_decision(
+    db: Any,
+    user_id: str,
+    adjustment: NextSessionAdjustment,
+) -> dict[str, Any] | None:
+    target_id = (adjustment.target_session or {}).get("id")
+    suggested_type = adjustment.suggested_session_type
+    if adjustment.status != "suggested" or not target_id or not suggested_type:
+        return None
+    resp = (
+        db.table("coach_adjustment_decisions")
+        .select("decision")
+        .eq("user_id", user_id)
+        .eq("planned_session_id", str(target_id))
+        .eq("suggested_session_type", suggested_type)
+        .maybe_single()
+        .execute()
+    )
+    return cast(_RowT, resp.data if resp else None)
+
+
 def format_explanation_md(factors: list[ReadinessFactor], status: Status) -> str:
     """Build a short FR markdown explanation from the factors."""
     negatives = [f for f in factors if f.impact < 0]
@@ -656,6 +688,8 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         activity_review=activity_review,
         session_feedback=session_feedback,
     )
+    if _load_adjustment_decision(db, user_id, next_session_adjustment):
+        next_session_adjustment = _no_repeated_adjustment(planned)
     explanation = format_explanation_md(factors, status)
 
     return DailyBriefing(

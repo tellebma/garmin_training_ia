@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
-import { applySessionAdjustment } from '@/app/actions/sessions'
+import { applySessionAdjustment, ignoreSessionAdjustment } from '@/app/actions/sessions'
 
 interface Props {
   readonly sessionId: string
@@ -28,7 +28,14 @@ export function NextSessionAdjustmentActions({ sessionId, suggestedSessionType }
 
   function ignore(): void {
     setError(null)
-    setStatus('ignored')
+    startTransition(async () => {
+      const result = await ignoreSessionAdjustment(sessionId, suggestedSessionType)
+      if (!result.success) {
+        setError(result.error)
+        return
+      }
+      setStatus('ignored')
+    })
   }
 
   if (status === 'accepted') {

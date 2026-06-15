@@ -147,8 +147,11 @@ ajustements concrets.
 - Statut V1 action 8 : le briefing affiche des actions Accepter / Ignorer. La séance
   stockée n'est modifiée qu'après acceptation utilisateur, avec effacement du workout
   existant pour relancer une génération cohérente.
-- Suite : ajouter une trace persistée des acceptations/refus pour auditer les
-  décisions coach et éviter de reproposer plusieurs fois le même ajustement.
+- Statut V1 action 9 : les acceptations/refus sont persistés dans
+  `coach_adjustment_decisions`, et le briefing ne repropose plus le même ajustement
+  pour une séance déjà traitée.
+- Suite : afficher l'historique de ces décisions coach dans le profil ou dans une
+  vue d'audit du plan.
 
 ### P1 — Garde-fous santé/performance
 

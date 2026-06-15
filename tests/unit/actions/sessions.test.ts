@@ -110,7 +110,13 @@ describe('sessions Server Actions', () => {
       data: { session: { user: { id: 'u1' }, access_token: 'jwt-1' } },
     })
     const selectMaybeSingle = vi.fn().mockResolvedValueOnce({
-      data: { id: 'sess-1', user_id: 'u1', target_duration_s: 3600, target_tss: 80 },
+      data: {
+        id: 'sess-1',
+        user_id: 'u1',
+        session_type: 'intervals',
+        target_duration_s: 3600,
+        target_tss: 80,
+      },
       error: null,
     })
     const selectEqUser = vi.fn(() => ({ maybeSingle: selectMaybeSingle }))
@@ -123,7 +129,13 @@ describe('sessions Server Actions', () => {
     const updateQuery = {
       update: vi.fn(() => ({ eq: updateEqId })),
     }
-    supabaseFrom.mockReturnValueOnce(selectQuery).mockReturnValueOnce(updateQuery)
+    const upsertQuery = {
+      upsert: vi.fn().mockResolvedValueOnce({ error: null }),
+    }
+    supabaseFrom
+      .mockReturnValueOnce(selectQuery)
+      .mockReturnValueOnce(updateQuery)
+      .mockReturnValueOnce(upsertQuery)
 
     const { applySessionAdjustment } = await import('@/app/actions/sessions')
     const result = await applySessionAdjustment('sess-1', 'recovery')
@@ -138,8 +150,55 @@ describe('sessions Server Actions', () => {
     })
     expect(updateEqId).toHaveBeenCalledWith('id', 'sess-1')
     expect(updateEqUser).toHaveBeenCalledWith('user_id', 'u1')
+    expect(upsertQuery.upsert).toHaveBeenCalledWith(
+      {
+        user_id: 'u1',
+        planned_session_id: 'sess-1',
+        original_session_type: 'intervals',
+        suggested_session_type: 'recovery',
+        decision: 'accepted',
+        source: 'daily_briefing',
+      },
+      { onConflict: 'user_id,planned_session_id,suggested_session_type' }
+    )
     expect(revalidatePath).toHaveBeenCalledWith('/today')
     expect(revalidatePath).toHaveBeenCalledWith('/plan')
+  })
+
+  it('ignoreSessionAdjustment stores an ignored decision without changing the session', async () => {
+    supabaseGetSession.mockResolvedValueOnce({
+      data: { session: { user: { id: 'u1' }, access_token: 'jwt-1' } },
+    })
+    const selectMaybeSingle = vi.fn().mockResolvedValueOnce({
+      data: { id: 'sess-1', user_id: 'u1', session_type: 'intervals' },
+      error: null,
+    })
+    const selectEqUser = vi.fn(() => ({ maybeSingle: selectMaybeSingle }))
+    const selectEqId = vi.fn(() => ({ eq: selectEqUser }))
+    const selectQuery = {
+      select: vi.fn(() => ({ eq: selectEqId })),
+    }
+    const upsertQuery = {
+      upsert: vi.fn().mockResolvedValueOnce({ error: null }),
+    }
+    supabaseFrom.mockReturnValueOnce(selectQuery).mockReturnValueOnce(upsertQuery)
+
+    const { ignoreSessionAdjustment } = await import('@/app/actions/sessions')
+    const result = await ignoreSessionAdjustment('sess-1', 'recovery')
+
+    expect(result.success).toBe(true)
+    expect(upsertQuery.upsert).toHaveBeenCalledWith(
+      {
+        user_id: 'u1',
+        planned_session_id: 'sess-1',
+        original_session_type: 'intervals',
+        suggested_session_type: 'recovery',
+        decision: 'ignored',
+        source: 'daily_briefing',
+      },
+      { onConflict: 'user_id,planned_session_id,suggested_session_type' }
+    )
+    expect(revalidatePath).toHaveBeenCalledWith('/today')
   })
 
   it('applySessionAdjustment rejects invalid session types', async () => {

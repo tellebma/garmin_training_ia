@@ -106,6 +106,7 @@ def _mock_db_with(
     daily=None,
     tsb=None,
     planned=None,
+    adjustment_decision=None,
     baseline_rows=None,
     activities=None,
 ):
@@ -128,6 +129,11 @@ def _mock_db_with(
             single.return_value.execute.return_value.data = row
         elif table_name == "planned_sessions":
             single.return_value.execute.return_value.data = planned
+        elif table_name == "coach_adjustment_decisions":
+            decision_single = (
+                m.select.return_value.eq.return_value.eq.return_value.eq.return_value.maybe_single
+            )
+            decision_single.return_value.execute.return_value.data = adjustment_decision
         elif table_name == "activities":
             activities_query = (
                 m.select.return_value.eq.return_value.gte.return_value.order.return_value
@@ -180,6 +186,23 @@ def test_build_next_session_adjustment_replaces_hard_session_after_risky_feedbac
     assert adjustment.status == "suggested"
     assert adjustment.action == "replace_with_recovery"
     assert adjustment.suggested_session_type == "recovery"
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_hides_adjustment_already_ignored(mock_db_fn):
+    db = _mock_db_with(
+        hrv={"hrv_rmssd": 25, "hrv_status": "low", "hrv_weekly_avg": 40},
+        sleep={"sleep_duration_s": 6.2 * 3600, "sleep_score": 60},
+        planned={"id": "s1", "sport": "run", "session_type": "intervals"},
+        adjustment_decision={"decision": "ignored"},
+    )
+    mock_db_fn.return_value = db
+
+    briefing = compute_briefing("u1", today=date(2026, 5, 20))
+
+    assert briefing.suggested_session is not None
+    assert briefing.next_session_adjustment.status == "none"
+    assert briefing.next_session_adjustment.title == "Ajustement déjà traité"
 
 
 def build_session_feedback_for_test(severity="risk"):

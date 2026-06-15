@@ -6,6 +6,7 @@ import { workerEnsureSessions, workerRegenerateSession } from '@/lib/worker'
 
 type Result = { success: true; data: unknown } | { success: false; error: string }
 type SessionType = 'endurance' | 'threshold' | 'intervals' | 'long' | 'recovery' | 'race' | 'rest'
+type AdjustmentDecision = 'accepted' | 'ignored'
 
 const ALLOWED_SESSION_TYPES = new Set<SessionType>([
   'endurance',
@@ -56,6 +57,34 @@ function adjustedTargets(
   return {}
 }
 
+async function upsertAdjustmentDecision({
+  userId,
+  sessionId,
+  originalSessionType,
+  suggestedSessionType,
+  decision,
+}: {
+  userId: string
+  sessionId: string
+  originalSessionType: string | null
+  suggestedSessionType: SessionType
+  decision: AdjustmentDecision
+}): Promise<string | null> {
+  const supabase = await createClient()
+  const { error } = await supabase.from('coach_adjustment_decisions').upsert(
+    {
+      user_id: userId,
+      planned_session_id: sessionId,
+      original_session_type: originalSessionType,
+      suggested_session_type: suggestedSessionType,
+      decision,
+      source: 'daily_briefing',
+    },
+    { onConflict: 'user_id,planned_session_id,suggested_session_type' }
+  )
+  return error?.message ?? null
+}
+
 export async function ensureGeneratedSessions(days = 7): Promise<Result> {
   const jwt = await getJwt()
   if (!jwt) return { success: false, error: 'unauthenticated' }
@@ -84,7 +113,7 @@ export async function applySessionAdjustment(
 
   const { data: current, error: readError } = await supabase
     .from('planned_sessions')
-    .select('id, user_id, target_duration_s, target_tss')
+    .select('id, user_id, session_type, target_duration_s, target_tss')
     .eq('id', sessionId)
     .eq('user_id', userId)
     .maybeSingle()
@@ -105,9 +134,51 @@ export async function applySessionAdjustment(
     .eq('user_id', userId)
 
   if (updateError) return { success: false, error: updateError.message }
+  const decisionError = await upsertAdjustmentDecision({
+    userId,
+    sessionId,
+    originalSessionType: typeof current.session_type === 'string' ? current.session_type : null,
+    suggestedSessionType: sessionType,
+    decision: 'accepted',
+  })
+  if (decisionError) return { success: false, error: decisionError }
   revalidatePath('/today')
   revalidatePath('/plan')
   return { success: true, data: { status: 'ok', session_type: sessionType } }
+}
+
+export async function ignoreSessionAdjustment(
+  sessionId: string,
+  suggestedSessionType: string
+): Promise<Result> {
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user.id
+  if (!userId) return { success: false, error: 'unauthenticated' }
+
+  const sessionType = parseSessionType(suggestedSessionType)
+  if (!sessionType) return { success: false, error: 'invalid_session_type' }
+
+  const { data: current, error: readError } = await supabase
+    .from('planned_sessions')
+    .select('id, user_id, session_type')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (readError) return { success: false, error: readError.message }
+  if (!current) return { success: false, error: 'session_not_found' }
+
+  const decisionError = await upsertAdjustmentDecision({
+    userId,
+    sessionId,
+    originalSessionType: typeof current.session_type === 'string' ? current.session_type : null,
+    suggestedSessionType: sessionType,
+    decision: 'ignored',
+  })
+  if (decisionError) return { success: false, error: decisionError }
+  revalidatePath('/today')
+  return { success: true, data: { status: 'ok', decision: 'ignored' } }
 }
 
 export async function regenerateSession(sessionId: string): Promise<Result> {
