@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildActivityCoachAnalysis,
+  summarizeActivitySamples,
   summarizeSimilarActivities,
   type ActivityDetail,
+  type ActivitySample,
 } from '@/lib/coach/activity-analysis'
 import type { PlannedSession } from '@/lib/dashboard/types'
 
@@ -86,5 +88,76 @@ describe('buildActivityCoachAnalysis', () => {
     expect(analysis.tone).toBe('positive')
     expect(analysis.title).toBe('Bonne activité')
     expect(analysis.insights[0]).toMatch(/Exécution cohérente/)
+  })
+})
+
+describe('summarizeActivitySamples', () => {
+  const samples: ActivitySample[] = [
+    {
+      sample_index: 0,
+      sample_time: null,
+      elapsed_s: 0,
+      distance_m: 0,
+      elevation_m: 100,
+      heart_rate_bpm: 120,
+      power_w: null,
+      cadence_rpm: null,
+      speed_m_s: 2.5,
+    },
+    {
+      sample_index: 1,
+      sample_time: null,
+      elapsed_s: 60,
+      distance_m: 200,
+      elevation_m: 112,
+      heart_rate_bpm: 166,
+      power_w: null,
+      cadence_rpm: null,
+      speed_m_s: 2.4,
+    },
+    {
+      sample_index: 2,
+      sample_time: null,
+      elapsed_s: 120,
+      distance_m: 500,
+      elevation_m: 113,
+      heart_rate_bpm: 170,
+      power_w: null,
+      cadence_rpm: null,
+      speed_m_s: 3.1,
+    },
+    {
+      sample_index: 3,
+      sample_time: null,
+      elapsed_s: 180,
+      distance_m: 700,
+      elevation_m: 104,
+      heart_rate_bpm: 150,
+      power_w: null,
+      cadence_rpm: null,
+      speed_m_s: 3.4,
+    },
+  ]
+
+  it('summarizes heart-rate zones from samples', () => {
+    const summary = summarizeActivitySamples(samples, 190)
+
+    expect(summary.hrZones.find((z) => z.zone === 'Z3')?.percent).toBe(25)
+    expect(summary.hrZones.find((z) => z.zone === 'Z4')?.percent).toBe(50)
+    expect(summary.hrZones.find((z) => z.zone === 'Z5')?.percent).toBe(0)
+  })
+
+  it('summarizes climb flat and descent terrain', () => {
+    const summary = summarizeActivitySamples(samples, 190)
+
+    const climb = summary.terrain.find((segment) => segment.terrain === 'Montée')
+    const flat = summary.terrain.find((segment) => segment.terrain === 'Plat')
+    const descent = summary.terrain.find((segment) => segment.terrain === 'Descente')
+
+    expect(climb?.distance_m).toBe(200)
+    expect(climb?.avg_grade_pct).toBe(6)
+    expect(flat?.distance_m).toBe(300)
+    expect(descent?.distance_m).toBe(200)
+    expect(summary.recommendations.join(' ')).toMatch(/ralentis tôt/)
   })
 })

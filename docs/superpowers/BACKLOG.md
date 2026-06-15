@@ -130,8 +130,12 @@ ajustements concrets.
 - Statut V1 action 2 : le worker récupère les détails Garmin manquants via
   `get_activity_details`, stocke les samples dans `activity_samples`, et la fiche
   activité affiche les courbes temporelles quand les samples sont disponibles.
-- Suite : enrichir l'analyse coach avec des segments montée / plat / descente et
-  des zones cardio calculées à partir des samples.
+- Statut V1 action 3 : la fiche activité calcule désormais les zones cardio à partir
+  des samples et segmente l'effort en montée / plat / descente avec distance, pente,
+  FC moyenne et vitesse moyenne. Les recommandations coach utilisent ces signaux
+  pour pointer une intensité trop élevée ou une montée prise trop haut en cardio.
+- Suite : détecter la dérive cardio et le pacing irrégulier par segment pour produire
+  des conseils encore plus proches d'un retour d'entraîneur après séance.
 
 ### P1 — Garde-fous santé/performance
 

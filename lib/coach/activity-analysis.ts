@@ -57,6 +57,29 @@ export interface ActivityComparisonPoint {
   similarAvg: number | null
 }
 
+export interface HeartRateZoneSummary {
+  zone: 'Z1' | 'Z2' | 'Z3' | 'Z4' | 'Z5'
+  label: string
+  samples: number
+  percent: number
+}
+
+export interface TerrainSegmentSummary {
+  terrain: 'Montée' | 'Plat' | 'Descente'
+  distance_m: number
+  elevation_delta_m: number
+  avg_grade_pct: number | null
+  avg_hr_bpm: number | null
+  avg_speed_kmh: number | null
+}
+
+export interface SampleCoachSummary {
+  hrZones: HeartRateZoneSummary[]
+  terrain: TerrainSegmentSummary[]
+  insights: string[]
+  recommendations: string[]
+}
+
 interface AnalysisDraft {
   tone: ActivityAnalysisTone
   title: string
@@ -290,6 +313,162 @@ function buildChartData(
   ]
 }
 
+function avgNumber(values: number[]): number | null {
+  if (values.length === 0) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function hrZone(hr: number, fcMax: number): HeartRateZoneSummary['zone'] {
+  const pct = hr / fcMax
+  if (pct < 0.6) return 'Z1'
+  if (pct < 0.7) return 'Z2'
+  if (pct < 0.8) return 'Z3'
+  if (pct < 0.9) return 'Z4'
+  return 'Z5'
+}
+
+function terrainForGrade(gradePct: number): TerrainSegmentSummary['terrain'] {
+  if (gradePct >= 3) return 'Montée'
+  if (gradePct <= -3) return 'Descente'
+  return 'Plat'
+}
+
+function emptyTerrain(): Record<TerrainSegmentSummary['terrain'], TerrainSegmentSummary> {
+  return {
+    Montée: {
+      terrain: 'Montée',
+      distance_m: 0,
+      elevation_delta_m: 0,
+      avg_grade_pct: null,
+      avg_hr_bpm: null,
+      avg_speed_kmh: null,
+    },
+    Plat: {
+      terrain: 'Plat',
+      distance_m: 0,
+      elevation_delta_m: 0,
+      avg_grade_pct: null,
+      avg_hr_bpm: null,
+      avg_speed_kmh: null,
+    },
+    Descente: {
+      terrain: 'Descente',
+      distance_m: 0,
+      elevation_delta_m: 0,
+      avg_grade_pct: null,
+      avg_hr_bpm: null,
+      avg_speed_kmh: null,
+    },
+  }
+}
+
+function summarizeHrZones(samples: ActivitySample[], fcMax: number | null): HeartRateZoneSummary[] {
+  const usableFcMax = fcMax && fcMax >= 100 ? fcMax : 190
+  const zones: HeartRateZoneSummary[] = [
+    { zone: 'Z1', label: '<60%', samples: 0, percent: 0 },
+    { zone: 'Z2', label: '60-70%', samples: 0, percent: 0 },
+    { zone: 'Z3', label: '70-80%', samples: 0, percent: 0 },
+    { zone: 'Z4', label: '80-90%', samples: 0, percent: 0 },
+    { zone: 'Z5', label: '>90%', samples: 0, percent: 0 },
+  ]
+  const hrSamples = samples.filter((sample) => typeof sample.heart_rate_bpm === 'number')
+  for (const sample of hrSamples) {
+    const zone = hrZone(sample.heart_rate_bpm ?? 0, usableFcMax)
+    const item = zones.find((z) => z.zone === zone)
+    if (item) item.samples += 1
+  }
+  for (const zone of zones) {
+    zone.percent =
+      hrSamples.length > 0 ? (round((zone.samples / hrSamples.length) * 100, 1) ?? 0) : 0
+  }
+  return zones
+}
+
+function summarizeTerrain(samples: ActivitySample[]): TerrainSegmentSummary[] {
+  const buckets = emptyTerrain()
+  const hrValues: Record<TerrainSegmentSummary['terrain'], number[]> = {
+    Montée: [],
+    Plat: [],
+    Descente: [],
+  }
+  const speedValues: Record<TerrainSegmentSummary['terrain'], number[]> = {
+    Montée: [],
+    Plat: [],
+    Descente: [],
+  }
+
+  for (let i = 1; i < samples.length; i += 1) {
+    const prev = samples[i - 1]
+    const cur = samples[i]
+    if (!prev || !cur) continue
+    if (
+      typeof prev.distance_m !== 'number' ||
+      typeof cur.distance_m !== 'number' ||
+      typeof prev.elevation_m !== 'number' ||
+      typeof cur.elevation_m !== 'number'
+    ) {
+      continue
+    }
+    const distanceDelta = cur.distance_m - prev.distance_m
+    if (distanceDelta <= 0) continue
+    const elevationDelta = cur.elevation_m - prev.elevation_m
+    const gradePct = (elevationDelta / distanceDelta) * 100
+    const terrain = terrainForGrade(gradePct)
+    buckets[terrain].distance_m += distanceDelta
+    buckets[terrain].elevation_delta_m += elevationDelta
+    if (typeof cur.heart_rate_bpm === 'number') hrValues[terrain].push(cur.heart_rate_bpm)
+    if (typeof cur.speed_m_s === 'number') speedValues[terrain].push(cur.speed_m_s * 3.6)
+  }
+
+  return (['Montée', 'Plat', 'Descente'] as const).map((terrain) => {
+    const bucket = buckets[terrain]
+    return {
+      ...bucket,
+      distance_m: round(bucket.distance_m, 1) ?? 0,
+      elevation_delta_m: round(bucket.elevation_delta_m, 1) ?? 0,
+      avg_grade_pct:
+        bucket.distance_m > 0
+          ? round((bucket.elevation_delta_m / bucket.distance_m) * 100, 1)
+          : null,
+      avg_hr_bpm: round(avgNumber(hrValues[terrain])),
+      avg_speed_kmh: round(avgNumber(speedValues[terrain]), 1),
+    }
+  })
+}
+
+function sampleInsights(
+  zones: HeartRateZoneSummary[],
+  terrain: TerrainSegmentSummary[]
+): Pick<SampleCoachSummary, 'insights' | 'recommendations'> {
+  const insights: string[] = []
+  const recommendations: string[] = []
+  const highIntensity = zones
+    .filter((zone) => zone.zone === 'Z4' || zone.zone === 'Z5')
+    .reduce((sum, zone) => sum + zone.percent, 0)
+  const climb = terrain.find((item) => item.terrain === 'Montée')
+
+  if (highIntensity >= 35) {
+    insights.push(`Temps cardio élevé : ${highIntensity.toFixed(1)}% des points en Z4/Z5.`)
+    recommendations.push(
+      'Prévois de la récupération ou de l’endurance facile avant la prochaine séance dure.'
+    )
+  }
+  if (climb && climb.distance_m >= 200 && (climb.avg_hr_bpm ?? 0) >= 160) {
+    insights.push(
+      `Montées exigeantes : FC moyenne ${String(Math.round(climb.avg_hr_bpm ?? 0))} bpm.`
+    )
+    recommendations.push(
+      'Dans les prochaines montées, ralentis tôt pour éviter de transformer la sortie en séance seuil.'
+    )
+  }
+  if (insights.length === 0)
+    insights.push('Les samples ne montrent pas de dérive majeure à corriger.')
+  if (recommendations.length === 0) {
+    recommendations.push('Garde cette régularité et surveille surtout les sensations le lendemain.')
+  }
+  return { insights, recommendations }
+}
+
 export function summarizeSimilarActivities(activities: ActivityDetail[]): SimilarActivitySummary {
   function avg(metric: keyof ActivityDetail): number | null {
     const values = activities
@@ -342,4 +521,14 @@ export function buildActivityCoachAnalysis({
     recommendations: draft.recommendations.slice(0, 4),
     chartData: buildChartData(activity, plannedSession, similar),
   }
+}
+
+export function summarizeActivitySamples(
+  samples: ActivitySample[],
+  fcMax: number | null = null
+): SampleCoachSummary {
+  const hrZones = summarizeHrZones(samples, fcMax)
+  const terrain = summarizeTerrain(samples)
+  const { insights, recommendations } = sampleInsights(hrZones, terrain)
+  return { hrZones, terrain, insights, recommendations }
 }

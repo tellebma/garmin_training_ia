@@ -8,6 +8,7 @@ import { MetricTile } from '../../_components/metric-tile'
 import { SPORT_LABEL } from '../../_components/sport-icon'
 import {
   buildActivityCoachAnalysis,
+  summarizeActivitySamples,
   summarizeSimilarActivities,
   type ActivityDetail,
   type ActivitySample,
@@ -50,6 +51,11 @@ function formatNumber(value: number | null | undefined, suffix = ''): string {
   return `${String(Math.round(value))}${suffix}`
 }
 
+function formatDecimal(value: number | null | undefined, suffix = ''): string {
+  if (value === null || value === undefined) return '—'
+  return `${value.toFixed(1)}${suffix}`
+}
+
 function toneClass(tone: 'positive' | 'watch' | 'risk'): string {
   if (tone === 'risk') return 'border-red-500/30 bg-red-500/5'
   if (tone === 'watch') return 'border-amber-500/30 bg-amber-500/5'
@@ -78,7 +84,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
     new Date(activity.start_time).getTime() - 90 * 86_400_000
   ).toISOString()
 
-  const [plannedRes, similarRes, samplesRes] = await Promise.all([
+  const [plannedRes, similarRes, samplesRes, profileRes] = await Promise.all([
     supabase
       .from('planned_sessions')
       .select(
@@ -109,13 +115,18 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
       .eq('garmin_activity_id', activity.garmin_activity_id)
       .order('sample_index', { ascending: true })
       .limit(2000),
+    supabase.from('athlete_profiles').select('fc_max_bpm').eq('user_id', userId).maybeSingle(),
   ])
 
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
   const samples: ActivitySample[] = samplesRes.data ?? []
+  const profileData = profileRes.data as { fc_max_bpm?: unknown } | null
+  const profileFcMax = typeof profileData?.fc_max_bpm === 'number' ? profileData.fc_max_bpm : null
+  const fcMax: number | null = profileFcMax ?? activity.hr_max ?? null
   const similar = summarizeSimilarActivities(similarActivities)
   const analysis = buildActivityCoachAnalysis({ activity, plannedSession, similar })
+  const sampleSummary = samples.length > 0 ? summarizeActivitySamples(samples, fcMax) : null
   const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
 
   return (
@@ -215,6 +226,70 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
         >
           <ActivitySamplesChart data={samples} />
         </ChartCard>
+      )}
+
+      {sampleSummary && (
+        <section className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+          <div className="bg-card rounded-lg border p-4">
+            <h2 className="text-sm font-semibold">Zones cardio</h2>
+            <div className="mt-4 space-y-3">
+              {sampleSummary.hrZones.map((zone) => (
+                <div key={zone.zone}>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="font-medium">{zone.zone}</span>
+                    <span className="text-muted-foreground">
+                      {zone.label} · {zone.percent.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="bg-muted h-2 overflow-hidden rounded">
+                    <div
+                      className="bg-primary h-full rounded"
+                      style={{ width: `${String(Math.min(100, zone.percent))}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-muted-foreground mt-4 space-y-2 text-sm">
+              {sampleSummary.insights.map((insight) => (
+                <p key={insight}>{insight}</p>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-card rounded-lg border p-4">
+            <h2 className="text-sm font-semibold">Montée / plat / descente</h2>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-muted-foreground text-xs uppercase">
+                  <tr>
+                    <th className="py-2 pr-3">Terrain</th>
+                    <th className="py-2 pr-3">Distance</th>
+                    <th className="py-2 pr-3">Pente</th>
+                    <th className="py-2 pr-3">FC</th>
+                    <th className="py-2">Vitesse</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleSummary.terrain.map((segment) => (
+                    <tr key={segment.terrain} className="border-border/60 border-t">
+                      <td className="py-2 pr-3 font-medium">{segment.terrain}</td>
+                      <td className="py-2 pr-3">{formatDistanceFromMeters(segment.distance_m)}</td>
+                      <td className="py-2 pr-3">{formatDecimal(segment.avg_grade_pct, '%')}</td>
+                      <td className="py-2 pr-3">{formatNumber(segment.avg_hr_bpm, ' bpm')}</td>
+                      <td className="py-2">{formatDecimal(segment.avg_speed_kmh, ' km/h')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-muted-foreground mt-4 space-y-2 text-sm">
+              {sampleSummary.recommendations.map((recommendation) => (
+                <p key={recommendation}>{recommendation}</p>
+              ))}
+            </div>
+          </div>
+        </section>
       )}
 
       <section className="grid gap-4 md:grid-cols-2">
