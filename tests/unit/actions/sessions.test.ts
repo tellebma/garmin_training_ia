@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const workerEnsure = vi.fn()
 const workerRegen = vi.fn()
 const supabaseGetSession = vi.fn()
+const supabaseFrom = vi.fn()
+const revalidatePath = vi.fn()
 
 vi.mock('@/lib/worker', () => ({
   workerEnsureSessions: (jwt: string, days: number) => workerEnsure(jwt, days) as unknown,
@@ -11,7 +13,13 @@ vi.mock('@/lib/worker', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
     auth: { getSession: () => supabaseGetSession() as unknown },
+    from: supabaseFrom,
   }),
+}))
+vi.mock('next/cache', () => ({
+  revalidatePath: (path: string): void => {
+    revalidatePath(path)
+  },
 }))
 
 describe('sessions Server Actions', () => {
@@ -95,5 +103,54 @@ describe('sessions Server Actions', () => {
     const result = await regenerateSession('sess-1')
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error).toBe('session_not_found')
+  })
+
+  it('applySessionAdjustment updates the owned session and clears workout', async () => {
+    supabaseGetSession.mockResolvedValueOnce({
+      data: { session: { user: { id: 'u1' }, access_token: 'jwt-1' } },
+    })
+    const selectMaybeSingle = vi.fn().mockResolvedValueOnce({
+      data: { id: 'sess-1', user_id: 'u1', target_duration_s: 3600, target_tss: 80 },
+      error: null,
+    })
+    const selectEqUser = vi.fn(() => ({ maybeSingle: selectMaybeSingle }))
+    const selectEqId = vi.fn(() => ({ eq: selectEqUser }))
+    const selectQuery = {
+      select: vi.fn(() => ({ eq: selectEqId })),
+    }
+    const updateEqUser = vi.fn().mockResolvedValueOnce({ error: null })
+    const updateEqId = vi.fn(() => ({ eq: updateEqUser }))
+    const updateQuery = {
+      update: vi.fn(() => ({ eq: updateEqId })),
+    }
+    supabaseFrom.mockReturnValueOnce(selectQuery).mockReturnValueOnce(updateQuery)
+
+    const { applySessionAdjustment } = await import('@/app/actions/sessions')
+    const result = await applySessionAdjustment('sess-1', 'recovery')
+
+    expect(result.success).toBe(true)
+    expect(updateQuery.update).toHaveBeenCalledWith({
+      session_type: 'recovery',
+      workout: null,
+      workout_generated_at: null,
+      target_duration_s: 2400,
+      target_tss: 30,
+    })
+    expect(updateEqId).toHaveBeenCalledWith('id', 'sess-1')
+    expect(updateEqUser).toHaveBeenCalledWith('user_id', 'u1')
+    expect(revalidatePath).toHaveBeenCalledWith('/today')
+    expect(revalidatePath).toHaveBeenCalledWith('/plan')
+  })
+
+  it('applySessionAdjustment rejects invalid session types', async () => {
+    supabaseGetSession.mockResolvedValueOnce({
+      data: { session: { user: { id: 'u1' }, access_token: 'jwt-1' } },
+    })
+    const { applySessionAdjustment } = await import('@/app/actions/sessions')
+    const result = await applySessionAdjustment('sess-1', 'harder-than-needed')
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error).toBe('invalid_session_type')
+    expect(supabaseFrom).not.toHaveBeenCalled()
   })
 })

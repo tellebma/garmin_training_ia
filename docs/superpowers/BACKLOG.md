@@ -144,8 +144,11 @@ ajustements concrets.
 - Statut V1 action 7 : les générations et régénérations de séance reçoivent le
   signal d'ajustement coach dans leur contexte LLM pour produire une séance plus
   facile quand les activités récentes rendent une séance dure risquée.
-- Suite : ajouter une action utilisateur explicite pour accepter/refuser la
-  modification du plan avant de changer la séance stockée.
+- Statut V1 action 8 : le briefing affiche des actions Accepter / Ignorer. La séance
+  stockée n'est modifiée qu'après acceptation utilisateur, avec effacement du workout
+  existant pour relancer une génération cohérente.
+- Suite : ajouter une trace persistée des acceptations/refus pour auditer les
+  décisions coach et éviter de reproposer plusieurs fois le même ajustement.
 
 ### P1 — Garde-fous santé/performance
 

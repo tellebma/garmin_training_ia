@@ -4,6 +4,7 @@ import type {
   DailyBriefing,
   ReadinessStatus,
 } from '@/lib/coach/briefing-types'
+import { NextSessionAdjustmentActions } from './next-session-adjustment-actions'
 
 const STATUS_LABEL: Record<ReadinessStatus, string> = {
   ready: 'En forme',
@@ -106,6 +107,13 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
               )}
             </p>
           )}
+          {next_session_adjustment.target_session?.id &&
+            next_session_adjustment.suggested_session_type && (
+              <NextSessionAdjustmentActions
+                sessionId={next_session_adjustment.target_session.id}
+                suggestedSessionType={next_session_adjustment.suggested_session_type}
+              />
+            )}
         </div>
       )}
       {insights.length > 0 && (

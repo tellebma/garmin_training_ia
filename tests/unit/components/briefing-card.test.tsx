@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { BriefingCard } from '@/app/(app)/_components/briefing-card'
 import type { DailyBriefing } from '@/lib/coach/briefing-types'
+
+vi.mock('@/app/actions/sessions', () => ({
+  applySessionAdjustment: vi.fn(),
+}))
 
 afterEach(() => {
   cleanup()
@@ -70,6 +74,7 @@ describe('BriefingCard', () => {
         rationale: 'La derniere seance etait plus intense que prevu.',
         instruction: 'Passer en récupération active avant de reprendre le plan.',
         target_session: {
+          id: 'session-1',
           sport: 'run',
           session_type: 'intervals',
           target_duration_s: 3600,
@@ -94,5 +99,7 @@ describe('BriefingCard', () => {
     expect(screen.getByText('Remplacer la séance dure')).toBeTruthy()
     expect(screen.getByText(/intervals/)).toBeTruthy()
     expect(screen.getByText(/recovery/)).toBeTruthy()
+    expect(screen.getByText('Accepter')).toBeTruthy()
+    expect(screen.getByText('Ignorer')).toBeTruthy()
   })
 })
