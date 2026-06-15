@@ -2,32 +2,87 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
 from unittest.mock import patch
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
+from fastapi import FastAPI
+
+
+class ASGITestClient:
+    """Small sync wrapper around httpx.ASGITransport.
+
+    FastAPI's TestClient currently hangs in this dependency set when dispatching
+    requests. ASGITransport exercises the same app routes without Starlette's
+    blocking test portal.
+    """
+
+    def __init__(self, app: FastAPI) -> None:
+        self.app = app
+
+    def get(self, path: str, **kwargs: object) -> httpx.Response:
+        return asyncio.run(self._request("GET", path, **kwargs))
+
+    def post(self, path: str, **kwargs: object) -> httpx.Response:
+        return asyncio.run(self._request("POST", path, **kwargs))
+
+    async def _request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+        transport = httpx.ASGITransport(app=self.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.request(method, path, **kwargs)
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client() -> ASGITestClient:
     from garmin_sync.main import app
 
-    yield TestClient(app)  # noqa: PT022
+    return ASGITestClient(app)
 
 
-def test_health_ok(client: TestClient) -> None:
+def test_health_ok(client: ASGITestClient) -> None:
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
 
-def test_sync_endpoint_requires_shared_token(client: TestClient) -> None:
+def test_create_app_can_disable_scheduler_lifespan() -> None:
+    from garmin_sync.main import create_app
+
+    with (
+        patch("garmin_sync.scheduler.init_scheduler") as init_scheduler,
+        patch("garmin_sync.scheduler.shutdown_scheduler") as shutdown_scheduler,
+    ):
+        r = ASGITestClient(create_app(enable_scheduler=False)).get("/health")
+
+    assert r.status_code == 200
+    init_scheduler.assert_not_called()
+    shutdown_scheduler.assert_not_called()
+
+
+def test_create_app_can_enable_scheduler_lifespan() -> None:
+    from garmin_sync.main import create_app
+
+    async def run_lifespan(app: FastAPI) -> None:
+        async with app.router.lifespan_context(app):
+            pass
+
+    with (
+        patch("garmin_sync.scheduler.init_scheduler") as init_scheduler,
+        patch("garmin_sync.scheduler.shutdown_scheduler") as shutdown_scheduler,
+    ):
+        asyncio.run(run_lifespan(create_app(enable_scheduler=True)))
+
+    init_scheduler.assert_called_once()
+    shutdown_scheduler.assert_called_once()
+
+
+def test_sync_endpoint_requires_shared_token(client: ASGITestClient) -> None:
     r = client.post("/sync/u1", headers={"Authorization": "Bearer wrong"})
     assert r.status_code == 401
 
 
-def test_sync_endpoint_with_valid_token(client: TestClient) -> None:
+def test_sync_endpoint_with_valid_token(client: ASGITestClient) -> None:
     with patch("garmin_sync.main.run_sync_for_user") as fake:
         fake.return_value = {"activities": 5}
         r = client.post(
@@ -39,19 +94,19 @@ def test_sync_endpoint_with_valid_token(client: TestClient) -> None:
     fake.assert_called_once_with("u1", initial=False)
 
 
-def test_garmin_connect_endpoint_requires_jwt(client: TestClient) -> None:
+def test_garmin_connect_endpoint_requires_jwt(client: ASGITestClient) -> None:
     r = client.post("/garmin/connect", json={"email": "a@b.c", "password": "p"})
     assert r.status_code == 401
 
 
-def test_garmin_profile_sync_requires_jwt(client: TestClient) -> None:
+def test_garmin_profile_sync_requires_jwt(client: ASGITestClient) -> None:
     """No Authorization header → 401."""
     r = client.post("/garmin/profile-sync")
     assert r.status_code == 401
 
 
 def test_garmin_profile_sync_returns_status_dict(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from garmin_sync import main as main_mod
 
@@ -69,7 +124,7 @@ def test_garmin_profile_sync_returns_status_dict(
 
 
 def test_garmin_profile_sync_catches_unexpected(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from garmin_sync import main as main_mod
 
@@ -88,13 +143,13 @@ def test_garmin_profile_sync_catches_unexpected(
     assert "traceback" not in body
 
 
-def test_coach_generate_plan_requires_jwt(client: TestClient) -> None:
+def test_coach_generate_plan_requires_jwt(client: ASGITestClient) -> None:
     r = client.post("/coach/generate-plan")
     assert r.status_code == 401
 
 
 def test_coach_generate_plan_returns_status_dict(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from garmin_sync import main as main_mod
 
@@ -112,7 +167,7 @@ def test_coach_generate_plan_returns_status_dict(
 
 
 def test_coach_generate_plan_catches_unexpected(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from garmin_sync import main as main_mod
 
@@ -134,7 +189,7 @@ def test_coach_generate_plan_catches_unexpected(
 def test_ensure_sessions_endpoint_ok(mock_jwt, mock_ensure, mock_rl):
     mock_jwt.return_value = "user-1"
     mock_ensure.return_value = {"generated_count": 3, "failed_count": 0, "skipped_count": 0}
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post(
         "/coach/ensure-sessions",
         json={"days": 7},
@@ -153,7 +208,7 @@ def test_ensure_sessions_endpoint_ok(mock_jwt, mock_ensure, mock_rl):
 def test_ensure_sessions_default_days(mock_jwt, mock_ensure, mock_rl):
     mock_jwt.return_value = "user-1"
     mock_ensure.return_value = {"generated_count": 0, "failed_count": 0, "skipped_count": 0}
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post("/coach/ensure-sessions", json={}, headers={"Authorization": "Bearer fake.jwt"})
     assert r.status_code == 200
     mock_ensure.assert_called_once_with(user_id="user-1", days=7)
@@ -162,7 +217,7 @@ def test_ensure_sessions_default_days(mock_jwt, mock_ensure, mock_rl):
 @patch("garmin_sync.main.verify_supabase_jwt")
 def test_ensure_sessions_rejects_days_out_of_bounds(mock_jwt):
     mock_jwt.return_value = "user-1"
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     # days=0 rejected (ge=1)
     r1 = client.post(
         "/coach/ensure-sessions",
@@ -186,7 +241,7 @@ def test_ensure_sessions_returns_rate_limited_status(mock_jwt, mock_rl):
 
     mock_jwt.return_value = "user-1"
     mock_rl.side_effect = RateLimited("too many calls")
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post(
         "/coach/ensure-sessions",
         json={"days": 7},
@@ -204,7 +259,7 @@ def test_ensure_sessions_returns_rate_limited_status(mock_jwt, mock_rl):
 def test_regenerate_session_endpoint_ok(mock_jwt, mock_regen, mock_rl):
     mock_jwt.return_value = "user-1"
     mock_regen.return_value = {"status": "ok", "workout": {"summary_md": "x"}}
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post(
         "/coach/regenerate-session/sess-1",
         headers={"Authorization": "Bearer fake.jwt"},
@@ -222,7 +277,7 @@ def test_regenerate_session_not_found(mock_jwt, mock_regen, mock_rl):
 
     mock_jwt.return_value = "user-1"
     mock_regen.side_effect = SessionNotFound("nope")
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post(
         "/coach/regenerate-session/sess-1",
         headers={"Authorization": "Bearer fake.jwt"},
@@ -262,7 +317,7 @@ def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute, mock_rl):
             instruction="Z2 facile.",
         ),
     )
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})
     assert r.status_code == 200
     body = r.json()
@@ -279,7 +334,7 @@ def test_daily_briefing_returns_rate_limited(mock_jwt, mock_rl):
 
     mock_jwt.return_value = "user-1"
     mock_rl.side_effect = RateLimited("too many")
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})
     assert r.status_code == 200
     assert r.json()["status"] == "rate_limited"
@@ -292,7 +347,7 @@ def test_regenerate_session_returns_rate_limited_status(mock_jwt, mock_rl):
 
     mock_jwt.return_value = "user-1"
     mock_rl.side_effect = RateLimited("too many calls")
-    client = TestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post(
         "/coach/regenerate-session/sess-1",
         headers={"Authorization": "Bearer fake.jwt"},

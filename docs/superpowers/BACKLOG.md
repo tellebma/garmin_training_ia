@@ -136,6 +136,10 @@ ajustements concrets.
 - Diagnostic complémentaire : le blocage se reproduit aussi avec une app FastAPI
   minimale et `TestClient`, donc vérifier la compatibilité FastAPI / Starlette /
   httpx avant de refactorer l'app.
+- Statut V1 : suite worker complète débloquée localement. `main.py` expose
+  `create_app(enable_scheduler=...)`, désactive le scheduler par défaut en
+  `ENV=test`, et `tests/test_main.py` utilise `httpx.ASGITransport` car
+  `fastapi.testclient.TestClient` bloque dans la pile de dépendances actuelle.
 
 ### P0 — Aligner documentation, CI et runtime
 
