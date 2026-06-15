@@ -127,6 +127,11 @@ ajustements concrets.
   planifiée du même jour et une comparaison graphique avec les activités similaires.
 - Suite : ingérer les samples Garmin détaillés pour produire de vrais graphes
   temporels altitude / FC / allure / puissance / cadence et des analyses par segment.
+- Statut V1 action 2 : le worker récupère les détails Garmin manquants via
+  `get_activity_details`, stocke les samples dans `activity_samples`, et la fiche
+  activité affiche les courbes temporelles quand les samples sont disponibles.
+- Suite : enrichir l'analyse coach avec des segments montée / plat / descente et
+  des zones cardio calculées à partir des samples.
 
 ### P1 — Garde-fous santé/performance
 

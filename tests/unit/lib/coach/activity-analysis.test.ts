@@ -8,6 +8,7 @@ import type { PlannedSession } from '@/lib/dashboard/types'
 
 const baseActivity: ActivityDetail = {
   id: 'a1',
+  garmin_activity_id: 123,
   start_time: '2026-06-14T08:00:00Z',
   sport: 'run',
   duration_s: 3600,

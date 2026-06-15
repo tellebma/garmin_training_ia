@@ -21,6 +21,17 @@ def _pace_s_per_km(avg_speed_m_s: float | None) -> float | None:
     return round(1000.0 / avg_speed_m_s, 2)
 
 
+_DETAIL_SAMPLE_KEYS = ("activityDetailMetrics", "metrics", "samples", "chartData")
+_TIME_KEYS = ("directTimestamp", "timestamp", "startTimeGMT", "sampleTime")
+_ELAPSED_KEYS = ("sumElapsedDuration", "elapsedDuration", "elapsed_s", "elapsedSeconds")
+_DISTANCE_KEYS = ("sumDistance", "distance", "distanceMeters")
+_ELEVATION_KEYS = ("directElevation", "elevation", "elevationMeters")
+_HR_KEYS = ("directHeartRate", "heartRate", "heartRateBpm")
+_POWER_KEYS = ("directPower", "power", "watts")
+_CADENCE_KEYS = ("directBikeCadence", "directRunCadence", "cadence", "stepsPerMinute")
+_SPEED_KEYS = ("directSpeed", "speed", "speedMetersPerSecond")
+
+
 # Garmin returns granular sport types (e.g. "road_biking", "trail_running").
 # We normalize to our 5 canonical sports for the planner/dashboard.
 _SPORT_RUN = {
@@ -116,10 +127,109 @@ def transform_activity(
     }
 
 
+def transform_activity_samples(
+    *,
+    user_id: str,
+    garmin_activity_id: int,
+    raw_details: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Extract chart samples from Garmin activity details.
+
+    Garmin Connect has changed the exact shape of activity details over time.
+    The common shape is `activityDetailMetrics: [{metrics: [{key, value}, ...]}]`;
+    this transformer also accepts direct sample dicts for defensive compatibility.
+    """
+    samples = _sample_rows(raw_details)
+    rows: list[dict[str, Any]] = []
+    for idx, sample in enumerate(samples):
+        normalized = _normalize_sample(sample)
+        if not _has_sample_signal(normalized):
+            continue
+        rows.append(
+            {
+                "user_id": user_id,
+                "garmin_activity_id": garmin_activity_id,
+                "sample_index": idx,
+                "sample_time": _parse_sample_time(normalized),
+                "elapsed_s": _to_float(_first_value(normalized, _ELAPSED_KEYS)),
+                "distance_m": _to_float(_first_value(normalized, _DISTANCE_KEYS)),
+                "elevation_m": _to_float(_first_value(normalized, _ELEVATION_KEYS)),
+                "heart_rate_bpm": _to_int(_first_value(normalized, _HR_KEYS)),
+                "power_w": _to_int(_first_value(normalized, _POWER_KEYS)),
+                "cadence_rpm": _to_int(_first_value(normalized, _CADENCE_KEYS)),
+                "speed_m_s": _to_float(_first_value(normalized, _SPEED_KEYS)),
+                "raw": sample,
+            }
+        )
+    return rows
+
+
+def _sample_rows(raw_details: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in _DETAIL_SAMPLE_KEYS:
+        value = raw_details.get(key)
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _normalize_sample(sample: dict[str, Any]) -> dict[str, Any]:
+    metrics = sample.get("metrics")
+    if not isinstance(metrics, list):
+        return sample
+
+    normalized = {k: v for k, v in sample.items() if k != "metrics"}
+    for metric in metrics:
+        if not isinstance(metric, dict):
+            continue
+        key = metric.get("key") or metric.get("metricKey")
+        if isinstance(key, str):
+            normalized[key] = metric.get("value")
+    return normalized
+
+
+def _first_value(sample: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = sample.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _parse_sample_time(sample: dict[str, Any]) -> str | None:
+    value = _first_value(sample, _TIME_KEYS)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        return None
+
+
+def _has_sample_signal(sample: dict[str, Any]) -> bool:
+    signal_keys = (
+        _DISTANCE_KEYS
+        + _ELEVATION_KEYS
+        + _HR_KEYS
+        + _POWER_KEYS
+        + _CADENCE_KEYS
+        + _SPEED_KEYS
+    )
+    return any(_first_value(sample, (key,)) is not None for key in signal_keys)
+
+
 def _to_int(value: Any) -> int | None:
     if value is None:
         return None
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return None

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Flame, Gauge, HeartPulse, Mountain, Route, Timer, Zap } from 'lucide-react'
 import { ActivityComparisonChart } from '../../_components/charts/activity-comparison-chart'
+import { ActivitySamplesChart } from '../../_components/charts/activity-samples-chart'
 import { ChartCard } from '../../_components/chart-card'
 import { MetricTile } from '../../_components/metric-tile'
 import { SPORT_LABEL } from '../../_components/sport-icon'
@@ -9,6 +10,7 @@ import {
   buildActivityCoachAnalysis,
   summarizeSimilarActivities,
   type ActivityDetail,
+  type ActivitySample,
 } from '@/lib/coach/activity-analysis'
 import { formatDistanceFromMeters, formatDuration, formatTSS } from '@/lib/dashboard/format'
 import { requireOnboarded } from '@/lib/onboarding/guard'
@@ -62,7 +64,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   const { data: activityData } = await supabase
     .from('activities')
     .select(
-      'id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
+      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
     )
     .eq('user_id', userId)
     .eq('id', id)
@@ -76,7 +78,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
     new Date(activity.start_time).getTime() - 90 * 86_400_000
   ).toISOString()
 
-  const [plannedRes, similarRes] = await Promise.all([
+  const [plannedRes, similarRes, samplesRes] = await Promise.all([
     supabase
       .from('planned_sessions')
       .select(
@@ -90,7 +92,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
     supabase
       .from('activities')
       .select(
-        'id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
+        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
       )
       .eq('user_id', userId)
       .eq('sport', activity.sport)
@@ -98,10 +100,20 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
       .gte('start_time', ninetyDaysAgo)
       .order('start_time', { ascending: false })
       .limit(12),
+    supabase
+      .from('activity_samples')
+      .select(
+        'sample_index, sample_time, elapsed_s, distance_m, elevation_m, heart_rate_bpm, power_w, cadence_rpm, speed_m_s'
+      )
+      .eq('user_id', userId)
+      .eq('garmin_activity_id', activity.garmin_activity_id)
+      .order('sample_index', { ascending: true })
+      .limit(2000),
   ])
 
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
+  const samples: ActivitySample[] = samplesRes.data ?? []
   const similar = summarizeSimilarActivities(similarActivities)
   const analysis = buildActivityCoachAnalysis({ activity, plannedSession, similar })
   const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
@@ -195,6 +207,15 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
       >
         <ActivityComparisonChart data={analysis.chartData} />
       </ChartCard>
+
+      {samples.length > 0 && (
+        <ChartCard
+          title="Courbes d'activité"
+          description="Fréquence cardiaque, altitude, puissance, cadence et allure selon les données Garmin disponibles."
+        >
+          <ActivitySamplesChart data={samples} />
+        </ChartCard>
+      )}
 
       <section className="grid gap-4 md:grid-cols-2">
         <div className="bg-card rounded-lg border p-4">

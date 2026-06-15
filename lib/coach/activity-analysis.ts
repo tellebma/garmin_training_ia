@@ -4,6 +4,7 @@ export type ActivityAnalysisTone = 'positive' | 'watch' | 'risk'
 
 export interface ActivityDetail {
   id: string
+  garmin_activity_id: number
   start_time: string
   sport: string
   duration_s: number | null
@@ -16,6 +17,18 @@ export interface ActivityDetail {
   power_max: number | null
   pace_avg_s_per_km: number | null
   calories: number | null
+}
+
+export interface ActivitySample {
+  sample_index: number
+  sample_time: string | null
+  elapsed_s: number | null
+  distance_m: number | null
+  elevation_m: number | null
+  heart_rate_bpm: number | null
+  power_w: number | null
+  cadence_rpm: number | null
+  speed_m_s: number | null
 }
 
 export interface SimilarActivitySummary {
