@@ -201,9 +201,7 @@ def test_transform_activity_samples_skips_rows_without_metric_signal() -> None:
         user_id="u1",
         garmin_activity_id=123,
         raw_details={
-            "activityDetailMetrics": [
-                {"metrics": [{"key": "sumElapsedDuration", "value": 1}]}
-            ]
+            "activityDetailMetrics": [{"metrics": [{"key": "sumElapsedDuration", "value": 1}]}]
         },
     )
 

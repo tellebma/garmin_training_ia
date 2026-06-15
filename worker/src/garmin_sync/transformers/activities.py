@@ -207,12 +207,7 @@ def _parse_sample_time(sample: dict[str, Any]) -> str | None:
 
 def _has_sample_signal(sample: dict[str, Any]) -> bool:
     signal_keys = (
-        _DISTANCE_KEYS
-        + _ELEVATION_KEYS
-        + _HR_KEYS
-        + _POWER_KEYS
-        + _CADENCE_KEYS
-        + _SPEED_KEYS
+        _DISTANCE_KEYS + _ELEVATION_KEYS + _HR_KEYS + _POWER_KEYS + _CADENCE_KEYS + _SPEED_KEYS
     )
     return any(_first_value(sample, (key,)) is not None for key in signal_keys)
 

@@ -388,8 +388,7 @@ def build_next_session_adjustment(
                 title="Repos à protéger",
                 rationale=session_feedback.message,
                 instruction=(
-                    "Ne compense pas l'activité précédente : "
-                    "garde ce repos comme une séance utile."
+                    "Ne compense pas l'activité précédente : garde ce repos comme une séance utile."
                 ),
                 target_session=planned_session,
                 suggested_session_type="rest",
@@ -419,8 +418,7 @@ def build_next_session_adjustment(
             title="Réduire l'intention de séance",
             rationale=risk_insights[0].message,
             instruction=(
-                "Garde la séance, mais baisse l'intensité cible "
-                "et conserve une marge cardio."
+                "Garde la séance, mais baisse l'intensité cible et conserve une marge cardio."
             ),
             target_session=planned_session,
             suggested_session_type=_DOWNGRADE_ONE_LEVEL.get(planned_type, planned_type),
@@ -432,8 +430,7 @@ def build_next_session_adjustment(
             title="Réduire l'intention de séance",
             rationale=watch_feedback.message,
             instruction=(
-                "Garde la séance, mais baisse l'intensité cible "
-                "et conserve une marge cardio."
+                "Garde la séance, mais baisse l'intensité cible et conserve une marge cardio."
             ),
             target_session=planned_session,
             suggested_session_type=_DOWNGRADE_ONE_LEVEL.get(planned_type, planned_type),
