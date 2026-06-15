@@ -98,6 +98,30 @@ ajustements concrets.
   et `/coach/regenerate-session` pour enrichir le contexte LLM, et dans
   `/coach/generate-plan` pour alléger la première semaine en cas de signal de risque.
 
+### P1 — Fiche activité coach dans l'historique
+
+- Permettre d'ouvrir une activité depuis l'historique et d'obtenir une analyse
+  complète, orientée efficacité de l'entraînement.
+- Afficher les métriques clés disponibles : durée, distance, allure/vitesse,
+  dénivelé positif/négatif, FC moyenne/max, zones cardio, puissance si disponible,
+  cadence, calories, TSS/charge estimée, dérive cardio, intensité, régularité,
+  segments montée/descente/plat et comparaison avec les activités similaires.
+- Ajouter des graphes lisibles : profil d'altitude, fréquence cardiaque dans le
+  temps, allure/vitesse, puissance, cadence, zones cardio, distribution d'effort et
+  corrélation effort vs dénivelé.
+- Produire une lecture coach : objectif probable de la séance, exécution réelle,
+  points forts, points à corriger, risque fatigue/blessure, impact sur les prochaines
+  séances.
+- Donner des recommandations terrain pour les prochaines séances, par exemple :
+  ralentir dans les montées, rester autour d'une cible cardio, mieux lisser l'effort,
+  mieux gérer la nutrition/hydratation, ou conserver une intensité facile si la
+  séance devait être de récupération.
+- Comparer prévu vs réalisé quand une séance planifiée existe le même jour :
+  durée, sport, intensité, charge, respect des blocs et dérive par rapport à
+  l'objectif initial.
+- Critère coach : l'utilisateur doit comprendre si l'activité l'a fait progresser,
+  l'a fatigué inutilement, ou doit modifier la prochaine séance.
+
 ### P1 — Garde-fous santé/performance
 
 - Détecter les progressions hebdo trop rapides, en particulier en course à pied.
@@ -127,6 +151,28 @@ ajustements concrets.
 
 ## Qualité / plateforme
 
+### P0 — Cache et chargement rapide du briefing quotidien
+
+- Éviter de recalculer le briefing à chaque ouverture de `/today`.
+- Ajouter un cache métier par `user_id + date` pour le briefing quotidien, avec
+  payload, date de calcul, version de logique coach et empreinte des données source
+  si nécessaire.
+- Retourner immédiatement le briefing du jour en cache quand il est encore valide.
+- Invalider ou recalculer après une nouvelle sync Garmin, une nouvelle activité, une
+  mise à jour sommeil/HRV, un changement de séance planifiée ou une régénération de
+  plan.
+- Mettre en place un comportement stale-while-revalidate : afficher vite le dernier
+  briefing fiable, puis rafraîchir en arrière-plan si les données ont changé.
+- Optimiser `/today` en lançant le chargement du briefing en parallèle des autres
+  requêtes Supabase, pour éviter de bloquer toute la page sur l'appel worker.
+- Critère UX : l'ouverture de la page du jour doit être quasi immédiate, même si le
+  recalcul coach prend plus de temps.
+- Statut V1 : cache Supabase `coach_daily_briefings` par utilisateur/date/version,
+  retour cache avant rate limit, calcul + upsert en cas de miss, et chargement du
+  briefing en parallèle des autres données de `/today`.
+- Suite : ajouter une empreinte des données sources pour invalider finement après
+  nouvelle activité, sommeil/HRV ou modification de séance planifiée.
+
 ### P0 — Débloquer la suite de tests worker
 
 - `TestClient(app)` bloque actuellement sur `tests/test_main.py::test_health_ok`
@@ -146,6 +192,8 @@ ajustements concrets.
 - README annonce Node 20+ alors que la CI utilise Node 22.
 - README worker mentionne encore le timer systemd 05:00 UTC alors que le code utilise
   APScheduler embarqué avec plusieurs jobs UTC.
+- Statut V1 : README racine aligné sur Node 22+ / pnpm 11+, README worker mis à
+  jour avec le scheduler APScheduler embarqué et les horaires UTC réels.
 
 ### P1 — Rendre les générations async observables
 

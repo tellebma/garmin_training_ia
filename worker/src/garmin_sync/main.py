@@ -232,14 +232,21 @@ async def coach_daily_briefing(
     """Compute the readiness briefing for today and return adjusted session if needed."""
     user_id = _require_user_jwt(authorization)
     try:
-        from garmin_sync.coach.briefing import compute_briefing
+        from garmin_sync.coach.briefing import (
+            compute_and_cache_daily_briefing,
+            get_cached_daily_briefing,
+        )
         from garmin_sync.coach.rate_limit import DAILY_BRIEFING, RateLimited, check_or_raise
+
+        cached = get_cached_daily_briefing(user_id=user_id)
+        if cached is not None:
+            return cached
 
         try:
             check_or_raise(user_id=user_id, limit=DAILY_BRIEFING)
         except RateLimited:
             return {"status": "rate_limited", "retry_after_seconds": 60}
-        return compute_briefing(user_id=user_id).to_dict()
+        return compute_and_cache_daily_briefing(user_id=user_id)
     except Exception as e:
         error_id = _new_error_id()
         log.exception("[%s] coach_daily_briefing crashed for user=%s", error_id, user_id)
