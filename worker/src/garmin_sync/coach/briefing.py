@@ -537,19 +537,19 @@ def get_cached_daily_briefing(user_id: str, today: date | None = None) -> dict[s
     briefing_date = today or date.today()
     db = get_admin_client()
     try:
-        row = (
+        resp = (
             db.table("coach_daily_briefings")
             .select("payload, logic_version")
             .eq("user_id", user_id)
             .eq("briefing_date", briefing_date.isoformat())
             .maybe_single()
             .execute()
-            .data
         )
     except Exception:
         log.warning("daily briefing cache read failed for user=%s", user_id, exc_info=True)
         return None
 
+    row = cast(dict[str, Any] | None, resp.data if resp else None)
     if not row or row.get("logic_version") != BRIEFING_CACHE_VERSION:
         return None
     payload = row.get("payload")
