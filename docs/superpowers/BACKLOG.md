@@ -125,8 +125,6 @@ ajustements concrets.
   La fiche affiche les métriques disponibles, une analyse coach déterministe,
   des recommandations pour les prochaines séances, la comparaison à la séance
   planifiée du même jour et une comparaison graphique avec les activités similaires.
-- Suite : ingérer les samples Garmin détaillés pour produire de vrais graphes
-  temporels altitude / FC / allure / puissance / cadence et des analyses par segment.
 - Statut V1 action 2 : le worker récupère les détails Garmin manquants via
   `get_activity_details`, stocke les samples dans `activity_samples`, et la fiche
   activité affiche les courbes temporelles quand les samples sont disponibles.
@@ -137,8 +135,11 @@ ajustements concrets.
 - Statut V1 action 4 : la fiche activité détecte la dérive cardio entre première et
   seconde moitié, affiche l'évolution FC/vitesse et mesure la variabilité de vitesse
   par terrain pour signaler un pacing irrégulier.
-- Suite : relier ces signaux aux prochaines séances planifiées pour proposer un
-  ajustement concret de charge ou d'intensité après une activité coûteuse.
+- Statut V1 action 5 : la fiche activité relie les signaux détaillés aux prochaines
+  séances planifiées et propose maintien, allègement, récupération active ou repos
+  protégé selon le coût observé.
+- Suite : appliquer automatiquement ces ajustements au briefing quotidien et aux
+  régénérations de séance, avec un statut visible avant modification du plan.
 
 ### P1 — Garde-fous santé/performance
 

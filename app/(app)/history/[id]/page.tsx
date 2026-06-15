@@ -7,6 +7,7 @@ import { ChartCard } from '../../_components/chart-card'
 import { MetricTile } from '../../_components/metric-tile'
 import { SPORT_LABEL } from '../../_components/sport-icon'
 import {
+  buildNextSessionAdjustment,
   buildActivityCoachAnalysis,
   summarizeActivitySamples,
   summarizeSimilarActivities,
@@ -96,7 +97,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
     new Date(activity.start_time).getTime() - 90 * 86_400_000
   ).toISOString()
 
-  const [plannedRes, similarRes, samplesRes, profileRes] = await Promise.all([
+  const [plannedRes, similarRes, samplesRes, profileRes, upcomingRes] = await Promise.all([
     supabase
       .from('planned_sessions')
       .select(
@@ -128,17 +129,28 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
       .order('sample_index', { ascending: true })
       .limit(2000),
     supabase.from('athlete_profiles').select('fc_max_bpm').eq('user_id', userId).maybeSingle(),
+    supabase
+      .from('planned_sessions')
+      .select(
+        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes'
+      )
+      .eq('user_id', userId)
+      .gt('date', activityDate)
+      .order('date', { ascending: true })
+      .limit(3),
   ])
 
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
   const samples: ActivitySample[] = samplesRes.data ?? []
+  const upcomingSessions: PlannedSession[] = upcomingRes.data ?? []
   const profileData = profileRes.data as { fc_max_bpm?: unknown } | null
   const profileFcMax = typeof profileData?.fc_max_bpm === 'number' ? profileData.fc_max_bpm : null
   const fcMax: number | null = profileFcMax ?? activity.hr_max ?? null
   const similar = summarizeSimilarActivities(similarActivities)
   const analysis = buildActivityCoachAnalysis({ activity, plannedSession, similar })
   const sampleSummary = samples.length > 0 ? summarizeActivitySamples(samples, fcMax) : null
+  const nextSessionAdjustment = buildNextSessionAdjustment(sampleSummary, upcomingSessions)
   const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
 
   return (
@@ -394,6 +406,36 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
             </div>
           </dl>
         </div>
+      </section>
+
+      <section className="bg-card rounded-lg border p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              Impact sur la suite
+            </p>
+            <h2 className="mt-1 text-sm font-semibold">{nextSessionAdjustment.title}</h2>
+            <p className="text-muted-foreground mt-2 text-sm">{nextSessionAdjustment.rationale}</p>
+          </div>
+          {nextSessionAdjustment.targetSession && (
+            <div className="bg-muted rounded-md px-3 py-2 text-sm md:min-w-48">
+              <p className="font-medium">
+                {new Date(nextSessionAdjustment.targetSession.date).toLocaleDateString('fr-FR', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                })}
+              </p>
+              <p className="text-muted-foreground">
+                {knownSport(nextSessionAdjustment.targetSession.sport)
+                  ? SPORT_LABEL[nextSessionAdjustment.targetSession.sport]
+                  : nextSessionAdjustment.targetSession.sport}{' '}
+                · {nextSessionAdjustment.targetSession.session_type}
+              </p>
+            </div>
+          )}
+        </div>
+        <p className="mt-4 text-sm">{nextSessionAdjustment.recommendation}</p>
       </section>
     </div>
   )

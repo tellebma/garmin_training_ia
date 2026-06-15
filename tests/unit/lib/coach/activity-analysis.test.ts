@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildActivityCoachAnalysis,
+  buildNextSessionAdjustment,
   summarizeActivitySamples,
   summarizeSimilarActivities,
   type ActivityDetail,
@@ -203,5 +204,71 @@ describe('summarizeActivitySamples', () => {
     expect(flat?.speed_variability_pct).toBeGreaterThan(35)
     expect(summary.insights.join(' ')).toMatch(/Pacing irrégulier/)
     expect(summary.recommendations.join(' ')).toMatch(/régularité/)
+  })
+})
+
+describe('buildNextSessionAdjustment', () => {
+  const nextHardSession: PlannedSession = {
+    ...planned,
+    id: 'next-hard',
+    date: '2026-06-15',
+    session_type: 'intervals',
+    target_duration_s: 3600,
+    target_tss: 75,
+  }
+
+  const nextEasySession: PlannedSession = {
+    ...planned,
+    id: 'next-easy',
+    date: '2026-06-15',
+    session_type: 'recovery',
+    target_duration_s: 2400,
+    target_tss: 25,
+  }
+
+  it('replaces a hard next session after multiple costly signals', () => {
+    const costlySamples: ActivitySample[] = [130, 132, 134, 136, 165, 168, 170, 172].map(
+      (heartRate, index) => ({
+        sample_index: index,
+        sample_time: null,
+        elapsed_s: index * 60,
+        distance_m: index * 180,
+        elevation_m: 100,
+        heart_rate_bpm: heartRate,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: 3,
+      })
+    )
+    const summary = summarizeActivitySamples(costlySamples, 190)
+
+    const adjustment = buildNextSessionAdjustment(summary, [nextHardSession])
+
+    expect(adjustment.action).toBe('replace_with_recovery')
+    expect(adjustment.targetSession?.id).toBe('next-hard')
+    expect(adjustment.recommendation).toMatch(/endurance facile|récupération active/)
+  })
+
+  it('keeps an easy next session easy after cardio drift', () => {
+    const driftSamples: ActivitySample[] = [130, 132, 134, 136, 145, 147, 149, 151].map(
+      (heartRate, index) => ({
+        sample_index: index,
+        sample_time: null,
+        elapsed_s: index * 60,
+        distance_m: index * 180,
+        elevation_m: 100,
+        heart_rate_bpm: heartRate,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: 3,
+      })
+    )
+    const summary = summarizeActivitySamples(driftSamples, 190)
+
+    const adjustment = buildNextSessionAdjustment(summary, [nextEasySession])
+
+    expect(adjustment.action).toBe('ease')
+    expect(adjustment.targetSession?.id).toBe('next-easy')
+    expect(adjustment.recommendation).toMatch(/aisance respiratoire/)
   })
 })

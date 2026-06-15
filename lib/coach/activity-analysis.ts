@@ -93,6 +93,14 @@ export interface SampleCoachSummary {
   recommendations: string[]
 }
 
+export interface NextSessionAdjustment {
+  action: 'maintain' | 'ease' | 'replace_with_recovery' | 'protect_rest'
+  title: string
+  rationale: string
+  recommendation: string
+  targetSession: PlannedSession | null
+}
+
 interface AnalysisDraft {
   tone: ActivityAnalysisTone
   title: string
@@ -653,4 +661,95 @@ export function summarizeActivitySamples(
   const cardioDrift = summarizeCardioDrift(samples)
   const { insights, recommendations } = sampleInsights(hrZones, terrain, cardioDrift)
   return { hrZones, terrain, cardioDrift, insights, recommendations }
+}
+
+function hardSession(session: PlannedSession): boolean {
+  return ['threshold', 'intervals', 'long', 'race'].includes(session.session_type)
+}
+
+function easySession(session: PlannedSession): boolean {
+  return session.session_type === 'recovery' || session.session_type === 'endurance'
+}
+
+export function buildNextSessionAdjustment(
+  summary: SampleCoachSummary | null,
+  nextSessions: PlannedSession[]
+): NextSessionAdjustment {
+  const targetSession = nextSessions.find((session) => session.session_type !== 'rest') ?? null
+  if (!summary || nextSessions.length === 0) {
+    return {
+      action: 'maintain',
+      title: 'Suite du plan inchangée',
+      rationale:
+        'Aucune séance future exploitable ou pas assez de données détaillées sur cette activité.',
+      recommendation:
+        'Garde le plan tel quel et ajuste seulement selon les sensations du lendemain.',
+      targetSession,
+    }
+  }
+
+  const highIntensity = summary.hrZones
+    .filter((zone) => zone.zone === 'Z4' || zone.zone === 'Z5')
+    .reduce((sum, zone) => sum + zone.percent, 0)
+  const hasCardioDrift =
+    summary.cardioDrift.signal === 'risk' || summary.cardioDrift.signal === 'watch'
+  const hasIrregularPacing = summary.terrain.some(
+    (segment) => segment.distance_m >= 200 && (segment.speed_variability_pct ?? 0) >= 18
+  )
+  const loadSignals = [highIntensity >= 35, hasCardioDrift, hasIrregularPacing].filter(
+    Boolean
+  ).length
+
+  if (!targetSession) {
+    return {
+      action: 'protect_rest',
+      title: 'Repos à protéger',
+      rationale: 'Les prochaines entrées du plan sont du repos.',
+      recommendation:
+        'Ne compense pas cette activité : garde le repos prévu pour absorber la charge.',
+      targetSession,
+    }
+  }
+
+  if (loadSignals >= 2 && hardSession(targetSession)) {
+    return {
+      action: 'replace_with_recovery',
+      title: 'Alléger la prochaine séance clé',
+      rationale:
+        'Cette activité combine plusieurs signaux coûteux : intensité cardio, dérive ou pacing irrégulier.',
+      recommendation:
+        'Transforme la prochaine séance dure en endurance facile ou récupération active, puis reprends le fil du plan.',
+      targetSession,
+    }
+  }
+
+  if ((hasCardioDrift || highIntensity >= 35) && easySession(targetSession)) {
+    return {
+      action: 'ease',
+      title: 'Garder facile',
+      rationale: 'La séance suivante est déjà compatible avec l’absorption de cette charge.',
+      recommendation:
+        'Conserve-la en aisance respiratoire, sans chercher les zones hautes même si les jambes répondent bien.',
+      targetSession,
+    }
+  }
+
+  if (loadSignals >= 1 && hardSession(targetSession)) {
+    return {
+      action: 'ease',
+      title: 'Réduire l’intention',
+      rationale: 'Un signal de coût ressort de cette activité avant une séance exigeante.',
+      recommendation:
+        'Garde la séance, mais baisse l’objectif d’intensité : moins de répétitions, plus de récupération ou cap cardio strict.',
+      targetSession,
+    }
+  }
+
+  return {
+    action: 'maintain',
+    title: 'Suite cohérente',
+    rationale: 'Les signaux détaillés ne demandent pas de modifier fortement la prochaine séance.',
+    recommendation: 'Suis le plan prévu et surveille surtout les sensations au réveil.',
+    targetSession,
+  }
 }
