@@ -8,6 +8,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, cast
 
+from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.banister import (
     BanisterState,
     compute_banister_history,
@@ -18,6 +19,8 @@ from garmin_sync.coach.tss import compute_tss
 from garmin_sync.supabase_client import get_admin_client
 
 log = logging.getLogger(__name__)
+
+DbRows = list[dict[str, Any]]
 
 # Ramp rates by phase / week index
 NORMAL_RAMP_RATE = 1.05  # +5% per week (normal weeks)
@@ -200,6 +203,19 @@ _ELEVATION_SESSION_WEIGHT: dict[str, float] = {
     "race": 1.0,
     "rest": 0.0,
 }
+
+_FIRST_WEEK_STRONG_DELOAD_SIGNALS = {"return_after_break", "load_spike", "hard_sessions_density"}
+_FIRST_WEEK_LIGHT_DELOAD_SIGNALS = {"recent_long_session", "elevation_spike"}
+
+
+def compute_first_week_tss_multiplier(activity_review: ActivityReview) -> float:
+    """Return a conservative first-week TSS multiplier from recent coach signals."""
+    names = {insight.name for insight in activity_review.insights}
+    if names & _FIRST_WEEK_STRONG_DELOAD_SIGNALS:
+        return 0.85
+    if names & _FIRST_WEEK_LIGHT_DELOAD_SIGNALS:
+        return 0.92
+    return 1.0
 
 
 def compute_elevation_per_sport(legs: list[dict[str, Any]]) -> dict[str, int]:
@@ -454,7 +470,7 @@ def _compute_tss_by_date(
 
 def _load_today_banister_state(
     *, db: Any, user_id: str, profile: dict[str, Any], today: date
-) -> tuple[dict[date, float], BanisterState]:
+) -> tuple[dict[date, float], BanisterState, ActivityReview]:
     """Load last 180 days of activities, derive tss_by_date and today's CTL/ATL/TSB.
 
     Cold-start (<14 days of activities): skip the 180-day decay simulation and
@@ -463,9 +479,9 @@ def _load_today_banister_state(
     """
     history_start = today - timedelta(days=180)
     activities = cast(
-        "list[dict[str, Any]]",
+        DbRows,
         db.table("activities")
-        .select("start_time, sport, duration_s, power_avg, hr_avg")
+        .select("start_time, sport, duration_s, power_avg, hr_avg, tss, elevation_gain_m")
         .eq("user_id", user_id)
         .gte("start_time", history_start.isoformat())
         .execute()
@@ -473,10 +489,11 @@ def _load_today_banister_state(
         or [],
     )
     tss_by_date = _compute_tss_by_date(activities, profile)
+    activity_review = build_activity_review(activities, today=today)
 
     if len(tss_by_date) < 14:
         init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
-        return tss_by_date, BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0)
+        return tss_by_date, BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0), activity_review
 
     states = compute_banister_history(
         tss_by_date=tss_by_date,
@@ -485,7 +502,7 @@ def _load_today_banister_state(
         initial_ctl=0.0,
         initial_atl=0.0,
     )
-    return tss_by_date, states[-1]
+    return tss_by_date, states[-1], activity_review
 
 
 def generate_plan(user_id: str) -> dict[str, Any]:
@@ -528,9 +545,10 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     if race_date <= today:
         return {"status": "race_in_past"}
 
-    tss_by_date, today_state = _load_today_banister_state(
+    tss_by_date, today_state, activity_review = _load_today_banister_state(
         db=db, user_id=user_id, profile=profile, today=today
     )
+    first_week_tss_multiplier = compute_first_week_tss_multiplier(activity_review)
 
     # Compute phases and per-week sessions
     phases = compute_phases(today, race_date)
@@ -552,6 +570,8 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     for offset, phase in phases:
         ramp = _ramp_rate_for_week(offset, phase)
         weekly_tss = today_state.ctl * 7 * ramp
+        if offset == 0:
+            weekly_tss *= first_week_tss_multiplier
         is_last = offset == weeks_count - 1
         sessions = _build_week_sessions(
             week_offset=offset,
@@ -578,9 +598,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         .eq("race_goal_id", race["id"])
         .execute()
     )
-    previous_plan_ids = [
-        p["id"] for p in cast("list[dict[str, Any]]", previous_plans_resp.data or [])
-    ]
+    previous_plan_ids = [p["id"] for p in cast(DbRows, previous_plans_resp.data or [])]
     if previous_plan_ids:
         db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).execute()
         db.table("training_plans").update({"status": "archived"}).in_(
@@ -601,12 +619,16 @@ def generate_plan(user_id: str) -> dict[str, Any]:
                 "atl_initial": round(today_state.atl, 2),
                 "tsb_initial": round(today_state.tsb, 2),
                 "status": "active",
-                "params": {"cold_start": len(tss_by_date) < 14},
+                "params": {
+                    "cold_start": len(tss_by_date) < 14,
+                    "first_week_tss_multiplier": first_week_tss_multiplier,
+                    "activity_review_signals": [i.name for i in activity_review.insights],
+                },
             }
         )
         .execute()
     )
-    plan_id = cast("list[dict[str, Any]]", insert_resp.data)[0]["id"]
+    plan_id = cast(DbRows, insert_resp.data)[0]["id"]
 
     for s in all_sessions:
         s["plan_id"] = plan_id

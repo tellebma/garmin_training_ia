@@ -10,9 +10,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal, cast
 
+from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
+from garmin_sync.coach.session_feedback import SessionFeedback, activity_day, build_session_feedback
 from garmin_sync.supabase_client import get_admin_client
 
 Status = Literal["ready", "caution", "rest_advised"]
+RecommendationAction = Literal["maintain", "ease", "rest", "caution"]
 
 # Reused by the per-table loaders below to type-narrow the Supabase response.
 type _RowT = dict[str, Any] | None
@@ -53,6 +56,24 @@ class SuggestedSession:
 
 
 @dataclass(frozen=True)
+class CoachRecommendation:
+    """Human-readable coach decision for today."""
+
+    action: RecommendationAction
+    title: str
+    rationale: str
+    instruction: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "action": self.action,
+            "title": self.title,
+            "rationale": self.rationale,
+            "instruction": self.instruction,
+        }
+
+
+@dataclass(frozen=True)
 class DailyBriefing:
     """Full briefing payload returned by /coach/daily-briefing."""
 
@@ -63,6 +84,9 @@ class DailyBriefing:
     factors: list[ReadinessFactor]
     planned_session: dict[str, Any] | None
     suggested_session: SuggestedSession | None
+    activity_review: ActivityReview
+    last_session_feedback: SessionFeedback | None
+    coach_recommendation: CoachRecommendation
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +108,11 @@ class DailyBriefing:
                 if self.suggested_session
                 else None
             ),
+            "activity_review": self.activity_review.to_dict(),
+            "last_session_feedback": (
+                self.last_session_feedback.to_dict() if self.last_session_feedback else None
+            ),
+            "coach_recommendation": self.coach_recommendation.to_dict(),
         }
 
 
@@ -220,6 +249,65 @@ def suggest_adjustment(
     )
 
 
+def build_coach_recommendation(
+    *,
+    status: Status,
+    planned_session: dict[str, Any] | None,
+    suggested_session: SuggestedSession | None,
+    activity_review: ActivityReview,
+    session_feedback: SessionFeedback | None,
+) -> CoachRecommendation:
+    """Translate signals into a clear coach decision for the athlete."""
+    planned_type = str((planned_session or {}).get("session_type") or "séance")
+    risk_insights = [i for i in activity_review.insights if i.severity == "risk"]
+
+    if status == "rest_advised":
+        return CoachRecommendation(
+            action="rest",
+            title="Repos ou récupération très facile",
+            rationale="Les signaux de fatigue sont trop marqués pour empiler de la charge.",
+            instruction="Garde au maximum 20-40 min en Z1 si tu veux bouger, sinon repos complet.",
+        )
+
+    if suggested_session:
+        return CoachRecommendation(
+            action="ease",
+            title="Séance allégée",
+            rationale=suggested_session.note,
+            instruction=(
+                "Reste sous contrôle : aisance respiratoire, pas de bloc au-dessus du seuil."
+            ),
+        )
+
+    if session_feedback and session_feedback.severity == "risk":
+        return CoachRecommendation(
+            action="caution",
+            title="Prudence sur la prochaine séance",
+            rationale=session_feedback.message,
+            instruction=(
+                "Ne compense pas : garde la séance du jour facile ou raccourcis-la si besoin."
+            ),
+        )
+
+    if risk_insights:
+        return CoachRecommendation(
+            action="caution",
+            title="Séance maintenue avec marge",
+            rationale=risk_insights[0].message,
+            instruction=(
+                "Exécute la séance sans chercher un record : "
+                "RPE stable et récupération prioritaire."
+            ),
+        )
+
+    return CoachRecommendation(
+        action="maintain",
+        title="Séance maintenue",
+        rationale=f"Les signaux sont compatibles avec la séance {planned_type}.",
+        instruction="Respecte les zones prévues et termine avec la sensation d'en garder un peu.",
+    )
+
+
 def format_explanation_md(factors: list[ReadinessFactor], status: Status) -> str:
     """Build a short FR markdown explanation from the factors."""
     negatives = [f for f in factors if f.impact < 0]
@@ -320,6 +408,60 @@ def _load_tsb(db: Any, user_id: str, today: date) -> float | None:
     return float(val) if val is not None else None
 
 
+def _load_recent_activities(db: Any, user_id: str, today: date) -> list[dict[str, Any]]:
+    start = today - timedelta(days=90)
+    resp = (
+        db.table("activities")
+        .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
+        .eq("user_id", user_id)
+        .gte("start_time", start.isoformat())
+        .order("start_time", desc=True)
+        .execute()
+    )
+    return cast("list[dict[str, Any]]", resp.data or [])
+
+
+def _load_planned_session_for_date(
+    db: Any, user_id: str, session_date: date
+) -> dict[str, Any] | None:
+    resp = (
+        db.table("planned_sessions")
+        .select(
+            "id, date, sport, session_type, target_duration_s, target_tss, "
+            "target_elevation_gain_m, phase"
+        )
+        .eq("user_id", user_id)
+        .eq("date", session_date.isoformat())
+        .maybe_single()
+        .execute()
+    )
+    return cast(_RowT, resp.data if resp else None)
+
+
+def _activity_review_factors(review: ActivityReview) -> list[ReadinessFactor]:
+    return [
+        ReadinessFactor(
+            f"activity_{insight.name}",
+            insight.readiness_impact,
+            insight.message,
+        )
+        for insight in review.insights
+        if insight.readiness_impact != 0
+    ]
+
+
+def _session_feedback_factor(feedback: SessionFeedback | None) -> list[ReadinessFactor]:
+    if not feedback or feedback.readiness_impact == 0:
+        return []
+    return [
+        ReadinessFactor(
+            f"session_feedback_{feedback.verdict}",
+            feedback.readiness_impact,
+            feedback.message,
+        )
+    ]
+
+
 def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     """Compute the full daily briefing for one user. Single DB round-trip per source."""
     today = today or date.today()
@@ -331,6 +473,19 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     rh_baseline = _load_resting_hr_baseline(db, user_id, today)
     tsb = _load_tsb(db, user_id, today)
     planned = _load_planned_session(db, user_id, today)
+    recent_activities = _load_recent_activities(db, user_id, today)
+    activity_review = build_activity_review(recent_activities, today)
+    latest_activity = recent_activities[0] if recent_activities else None
+    latest_activity_date = activity_day(latest_activity) if latest_activity else None
+    feedback_planned = (
+        _load_planned_session_for_date(db, user_id, latest_activity_date)
+        if latest_activity_date
+        else None
+    )
+    session_feedback = build_session_feedback(
+        activity=latest_activity,
+        planned_session=feedback_planned,
+    )
 
     weekly_avg = None
     if hrv and hrv.get("hrv_weekly_avg"):
@@ -342,12 +497,21 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     factors.extend(_score_resting_hr(daily, rh_baseline))
     factors.extend(_score_tsb(tsb))
     factors.extend(_score_body_battery(daily))
+    factors.extend(_activity_review_factors(activity_review))
+    factors.extend(_session_feedback_factor(session_feedback))
 
     score = BASELINE_SCORE + sum(f.impact for f in factors)
     score = max(0, min(100, score))
 
     status = derive_status(score)
     suggestion = suggest_adjustment(planned, status)
+    coach_recommendation = build_coach_recommendation(
+        status=status,
+        planned_session=planned,
+        suggested_session=suggestion,
+        activity_review=activity_review,
+        session_feedback=session_feedback,
+    )
     explanation = format_explanation_md(factors, status)
 
     return DailyBriefing(
@@ -358,4 +522,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         factors=factors,
         planned_session=planned,
         suggested_session=suggestion,
+        activity_review=activity_review,
+        last_session_feedback=session_feedback,
+        coach_recommendation=coach_recommendation,
     )

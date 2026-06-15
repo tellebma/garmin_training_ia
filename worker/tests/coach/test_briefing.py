@@ -1,11 +1,14 @@
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+from garmin_sync.coach.activity_review import build_activity_review
 from garmin_sync.coach.briefing import (
     BASELINE_SCORE,
+    CoachRecommendation,
     DailyBriefing,
     ReadinessFactor,
     SuggestedSession,
+    build_coach_recommendation,
     compute_briefing,
     derive_status,
     format_explanation_md,
@@ -76,7 +79,30 @@ def test_format_explanation_md_caution_lists_negatives():
     assert "signes de fatigue" in md.lower()
 
 
-def _mock_db_with(*, hrv=None, sleep=None, daily=None, tsb=None, planned=None, baseline_rows=None):
+def test_build_coach_recommendation_rest_advised_is_clear():
+    rec = build_coach_recommendation(
+        status="rest_advised",
+        planned_session={"session_type": "intervals"},
+        suggested_session=SuggestedSession("rest", "rest", "Repos conseillé."),
+        activity_review=_empty_review(),
+        session_feedback=None,
+    )
+
+    assert rec.action == "rest"
+    assert "Repos" in rec.title
+    assert "Z1" in rec.instruction
+
+
+def _mock_db_with(
+    *,
+    hrv=None,
+    sleep=None,
+    daily=None,
+    tsb=None,
+    planned=None,
+    baseline_rows=None,
+    activities=None,
+):
     """Build a MagicMock db that returns the given rows for each table query."""
     db = MagicMock()
 
@@ -96,10 +122,20 @@ def _mock_db_with(*, hrv=None, sleep=None, daily=None, tsb=None, planned=None, b
             single.return_value.execute.return_value.data = row
         elif table_name == "planned_sessions":
             single.return_value.execute.return_value.data = planned
+        elif table_name == "activities":
+            activities_query = (
+                m.select.return_value.eq.return_value.gte.return_value.order.return_value
+            )
+            rows_q = activities_query.execute.return_value
+            rows_q.data = activities or []
         return m
 
     db.table.side_effect = _table_router
     return db
+
+
+def _empty_review():
+    return build_activity_review([], today=date(2026, 5, 20))
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -120,6 +156,8 @@ def test_compute_briefing_ready_with_good_signals(mock_db_fn):
     assert b.readiness_score == BASELINE_SCORE
     assert b.suggested_session is None
     assert b.planned_session is not None
+    assert b.activity_review.activities_7d == 0
+    assert b.coach_recommendation.action == "maintain"
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -171,6 +209,50 @@ def test_compute_briefing_tsb_very_negative_pushes_to_rest(mock_db_fn):
     assert b.suggested_session.session_type == "endurance"
 
 
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_activity_load_spike_affects_readiness(mock_db_fn):
+    activities = [
+        {"start_time": "2026-05-19T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 95},
+        {
+            "start_time": "2026-05-18T08:00:00Z",
+            "sport": "bike",
+            "duration_s": 3 * 3600,
+            "tss": 130,
+        },
+        {"start_time": "2026-05-08T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 90},
+        {"start_time": "2026-05-01T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 90},
+        {"start_time": "2026-04-24T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 90},
+    ]
+    db = _mock_db_with(
+        hrv={"hrv_rmssd": 42, "hrv_status": "balanced", "hrv_weekly_avg": 42},
+        sleep={"sleep_duration_s": 7.5 * 3600, "sleep_score": 75},
+        daily={"resting_hr": 55, "body_battery_low": 60},
+        tsb=2.0,
+        planned={
+            "sport": "run",
+            "session_type": "threshold",
+            "target_duration_s": 3600,
+            "target_tss": 60,
+            "target_elevation_gain_m": 100,
+        },
+        baseline_rows=[{"resting_hr": 55}],
+        activities=activities,
+    )
+    mock_db_fn.return_value = db
+
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+
+    factor_names = {f.name for f in b.factors}
+    assert "activity_load_spike" in factor_names
+    assert "activity_recent_long_session" in factor_names
+    assert "session_feedback_too_intense" in factor_names
+    assert b.readiness_score < BASELINE_SCORE
+    assert b.activity_review.activities_7d == 2
+    assert b.last_session_feedback is not None
+    assert b.last_session_feedback.verdict == "too_intense"
+    assert b.coach_recommendation.action in {"caution", "ease"}
+
+
 def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
     b = DailyBriefing(
         date="2026-05-20",
@@ -180,9 +262,20 @@ def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
         factors=[ReadinessFactor("hrv_low", -10, "ok")],
         planned_session={"sport": "run"},
         suggested_session=SuggestedSession(sport="run", session_type="endurance", note="ok"),
+        activity_review=_empty_review(),
+        last_session_feedback=None,
+        coach_recommendation=CoachRecommendation(
+            action="ease",
+            title="Séance allégée",
+            rationale="ok",
+            instruction="Z2 facile.",
+        ),
     )
     d = b.to_dict()
     assert d["readiness_score"] == 55
     assert d["status"] == "caution"
     assert d["factors"][0]["name"] == "hrv_low"
     assert d["suggested_session"]["session_type"] == "endurance"
+    assert d["activity_review"]["lookback_days"] == 90
+    assert d["last_session_feedback"] is None
+    assert d["coach_recommendation"]["action"] == "ease"

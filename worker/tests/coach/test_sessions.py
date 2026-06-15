@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from garmin_sync.coach.activity_review import ActivityInsight, ActivityReview
 from garmin_sync.coach.sessions import (
     SessionNotFound,
     ensure_sessions,
@@ -129,6 +130,64 @@ def test_ensure_sessions_continues_on_error(mock_db, mock_gen):
     result = ensure_sessions(user_id="u1", days=7)
     assert result["generated_count"] == 1
     assert result["failed_count"] == 1
+
+
+@patch("garmin_sync.coach.sessions._load_activity_review")
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_passes_activity_review_to_generation(mock_db, mock_gen, mock_review):
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [
+        {
+            "id": "s1",
+            "sport": "run",
+            "session_type": "endurance",
+            "target_duration_s": 3000,
+            "target_tss": 50,
+            "phase": "base",
+            "date": "2026-05-21",
+        }
+    ]
+    _profile_chain(db).data = {
+        "ftp_watts": 240,
+        "vma_kmh": 17.0,
+        "fc_max_bpm": 195,
+        "sports_strengths": {"swim": 2, "bike": 4, "run": 3},
+    }
+    _race_chain(db).data = {
+        "discipline": "triathlon",
+        "total_elevation_gain_m": 350,
+        "race_date": "2026-08-15",
+    }
+    mock_review.return_value = ActivityReview(
+        lookback_days=90,
+        activities_7d=2,
+        activities_28d=6,
+        tss_7d=220,
+        avg_weekly_tss_prev_21d=120,
+        elevation_gain_7d=800,
+        avg_weekly_elevation_prev_21d=300,
+        sport_counts_28d={"run": 4, "bike": 2},
+        days_since_last_activity=1,
+        insights=[
+            ActivityInsight(
+                "load_spike",
+                "risk",
+                "Charge récente nettement au-dessus de la tendance.",
+                -10,
+            )
+        ],
+    )
+    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["generated_count"] == 1
+    call_kwargs = mock_gen.call_args.kwargs
+    assert call_kwargs["race_context"]["activity_review"]["activities_7d"] == 2
+    assert "coach_context" in call_kwargs["session"]
+    assert "Charge récente" in call_kwargs["session"]["coach_context"]
 
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")

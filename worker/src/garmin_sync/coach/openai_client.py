@@ -42,12 +42,7 @@ def _get_client() -> OpenAI:
     return OpenAI(api_key=api_key, timeout=s.openai_timeout_s)
 
 
-def _build_user_prompt(
-    session: dict[str, Any],
-    athlete: dict[str, Any],
-    race_context: dict[str, Any],
-) -> str:
-    minutes = session["target_duration_s"] // 60
+def _athlete_lines(*, athlete: dict[str, Any], sport: str) -> list[str]:
     sports = athlete.get("sports_strengths") or {}
     swim = sports.get("swim", "?")
     bike = sports.get("bike", "?")
@@ -56,6 +51,44 @@ def _build_user_prompt(
     ftp = athlete.get("ftp_watts")
     vma = athlete.get("vma_kmh")
 
+    lines = [
+        "Athlète :",
+        f"- FC max : {fc} bpm" if fc else "- FC max : non connue",
+    ]
+    if sport == "bike":
+        lines.append(f"- FTP : {ftp} W" if ftp else "- FTP : non connue")
+    if sport == "run":
+        lines.append(f"- VMA : {vma} km/h" if vma else "- VMA : non connue")
+    lines.append(f"- Niveau (1-5) : swim={swim}, bike={bike}, run={run}")
+    return lines
+
+
+def _activity_review_lines(activity_review: Any) -> list[str]:
+    if not isinstance(activity_review, dict):
+        return []
+
+    lines = [
+        "",
+        "Revue activités récentes :",
+        f"- 7 derniers jours : {activity_review.get('activities_7d', 0)} activités, "
+        f"{activity_review.get('tss_7d', 0)} TSS, "
+        f"{activity_review.get('elevation_gain_7d', 0)}m D+.",
+    ]
+    insights = activity_review.get("insights") or []
+    lines.extend(
+        f"- {insight['message']}"
+        for insight in insights[:3]
+        if isinstance(insight, dict) and insight.get("message")
+    )
+    return lines
+
+
+def _build_user_prompt(
+    session: dict[str, Any],
+    athlete: dict[str, Any],
+    race_context: dict[str, Any],
+) -> str:
+    minutes = session["target_duration_s"] // 60
     target_dplus = session.get("target_elevation_gain_m")
     elevation_line = (
         f", dénivelé cible {target_dplus}m D+" if target_dplus and int(target_dplus) > 0 else ""
@@ -64,22 +97,19 @@ def _build_user_prompt(
         f"Session : {session['sport']} {session['session_type']} en phase {session['phase']}, "
         f"durée cible {minutes}min, TSS {session['target_tss']}{elevation_line}.",
         "",
-        "Athlète :",
-        f"- FC max : {fc} bpm" if fc else "- FC max : non connue",
     ]
-    if session["sport"] == "bike":
-        lines.append(f"- FTP : {ftp} W" if ftp else "- FTP : non connue")
-    if session["sport"] == "run":
-        lines.append(f"- VMA : {vma} km/h" if vma else "- VMA : non connue")
+    lines.extend(_athlete_lines(athlete=athlete, sport=str(session["sport"])))
     lines.extend(
         [
-            f"- Niveau (1-5) : swim={swim}, bike={bike}, run={run}",
             "",
             f"Course objectif (dans {race_context['weeks_to_race']} semaines) :",
             f"- Discipline : {race_context['discipline']}",
             f"- Dénivelé total : {race_context['total_elevation_gain_m']}m",
         ]
     )
+    lines.extend(_activity_review_lines(race_context.get("activity_review")))
+    if session.get("coach_context"):
+        lines.extend(["", f"Contexte coach : {session['coach_context']}"])
     return "\n".join(lines)
 
 

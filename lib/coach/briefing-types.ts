@@ -15,6 +15,48 @@ export interface SuggestedSession {
   note: string
 }
 
+export type CoachRecommendationAction = 'maintain' | 'ease' | 'rest' | 'caution'
+
+export interface CoachRecommendation {
+  action: CoachRecommendationAction
+  title: string
+  rationale: string
+  instruction: string
+}
+
+export type ActivityInsightSeverity = 'positive' | 'watch' | 'risk'
+
+export interface ActivityInsight {
+  name: string
+  severity: ActivityInsightSeverity
+  message: string
+  readiness_impact: number
+}
+
+export interface ActivityReview {
+  lookback_days: number
+  activities_7d: number
+  activities_28d: number
+  tss_7d: number
+  avg_weekly_tss_prev_21d: number
+  elevation_gain_7d: number
+  avg_weekly_elevation_prev_21d: number
+  sport_counts_28d: Record<string, number>
+  days_since_last_activity: number | null
+  insights: ActivityInsight[]
+}
+
+export interface SessionFeedback {
+  activity_date: string
+  sport: string
+  planned_sport: string | null
+  planned_session_type: string | null
+  verdict: string
+  severity: ActivityInsightSeverity
+  message: string
+  readiness_impact: number
+}
+
 export interface DailyBriefing {
   date: string
   readiness_score: number
@@ -31,6 +73,9 @@ export interface DailyBriefing {
     workout?: unknown
   } | null
   suggested_session: SuggestedSession | null
+  activity_review: ActivityReview
+  last_session_feedback: SessionFeedback | null
+  coach_recommendation: CoachRecommendation
 }
 
 export type BriefingResponse =

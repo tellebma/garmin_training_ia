@@ -275,13 +275,4 @@ Aussi : 429 Garmin sur l'IP UNRAID (l'owner doit attendre 1-24h avant de re-test
 
 ## TODO post-MVP (idées notées)
 
-- Custom SMTP Supabase (Resend gratuit 100/jour) — rate limits du SMTP intégré
-- Sentry intégration côté worker (env var `SENTRY_DSN`)
-- Vercel Speed Insights pour monitoring perf prod
-- Script `scripts/sync-email-templates.ts` qui pousse les templates depuis le repo
-  via Supabase Management API (vs sync manuel actuellement)
-- Migrer `_pending_mfa` (in-memory) vers Redis ou table Supabase quand le worker
-  scale horizontalement (E2 single-instance pour MVP)
-- Activer Captcha sur Supabase Auth quand on ouvre publiquement
-- Configurer HIBP (Leaked password protection) — Pro plan only
-- SonarQube Quality Gate custom (coverage 95% on new code) à finaliser dans la UI
+Le backlog canonique vit dans `docs/superpowers/BACKLOG.md`.
