@@ -7,7 +7,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from garmin_sync.coach.workout_schema import Workout
+from garmin_sync.coach.workout_schema import Workout, validate_workout_for_session
 from garmin_sync.config import get_settings
 
 
@@ -21,13 +21,18 @@ au profil de l'athlète. Tu réponds uniquement en JSON valide, sans aucun texte
 en dehors du schema.
 
 Règles :
-- Échauffement : 10-15min, progression Z1->Z2.
-- Retour calme : 8-12min, Z1.
+- Ne génère jamais de workout pour une séance "rest".
+- La durée totale warmup + main + cooldown doit rester proche de la durée cible.
+- Le corps de séance doit représenter au moins 55% de la durée totale.
+- Échauffement et retour calme sont proportionnels : courts sur récupération/endurance courte,
+  plus longs seulement pour seuil/intervalles.
+- Évite les découpages artificiels type 45min avec 15min échauffement, 18min travail,
+  12min retour calme.
+- Séance "recovery" : Z1 seulement, durée courte, échauffement intégré ou minimal.
+- Séance "endurance" : un bloc principal Z2-Z3 majoritaire.
 - Séance "long" : un seul gros bloc continu (pas d'intervalles).
 - Séance "intervals" : des sets répétés (work + rest).
 - Séance "threshold" : 1-2 sets longs (>=8min work, 2-3min rest).
-- Séance "recovery" : Z1 seulement, durée courte.
-- Séance "endurance" : un seul bloc Z2-Z3 continu.
 - summary_md : 1-2 phrases FR conseil du jour, motivant mais bref.
 - technical_focus : 1 phrase FR sur l'aspect technique spécifique au sport.
 """
@@ -136,4 +141,8 @@ def generate_workout_for_session(
     parsed = resp.choices[0].message.parsed
     if parsed is None:
         raise OpenAIError("OpenAI returned no parsed payload")
-    return Workout.model_validate(parsed.model_dump())
+    try:
+        workout = Workout.model_validate(parsed.model_dump())
+        return validate_workout_for_session(workout, session)
+    except ValueError as e:
+        raise OpenAIError(f"OpenAI returned unrealistic workout: {e}") from e

@@ -99,6 +99,13 @@ def _session_with_activity_review_note(
     }
 
 
+def _should_skip_workout_generation(session: dict[str, Any]) -> bool:
+    if session.get("sport") == "rest" or session.get("session_type") == "rest":
+        return True
+    duration = session.get("target_duration_s")
+    return not isinstance(duration, int) or duration <= 0
+
+
 def _generate_and_persist(
     db: Any,
     session: dict[str, Any],
@@ -144,19 +151,24 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
     if not pending:
         return {"generated_count": 0, "failed_count": 0, "skipped_count": 0}
 
+    generatable = [session for session in pending if not _should_skip_workout_generation(session)]
+    skipped = len(pending) - len(generatable)
+    if not generatable:
+        return {"generated_count": 0, "failed_count": 0, "skipped_count": skipped}
+
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, today)
     race_ctx = _race_context(race, weeks, activity_review)
 
     generated = 0
     failed = 0
-    for session in pending:
+    for session in generatable:
         session_for_generation = _session_with_activity_review_note(session, activity_review)
         if _generate_and_persist(db, session_for_generation, athlete, race_ctx):
             generated += 1
         else:
             failed += 1
-    return {"generated_count": generated, "failed_count": failed, "skipped_count": 0}
+    return {"generated_count": generated, "failed_count": failed, "skipped_count": skipped}
 
 
 def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
@@ -176,6 +188,8 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
     session = cast("dict[str, Any] | None", session_resp.data)
     if not session:
         raise SessionNotFound(f"session {session_id} not found for user {user_id}")
+    if _should_skip_workout_generation(session):
+        return {"status": "ok", "workout": None, "skipped": True}
 
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, date.today())

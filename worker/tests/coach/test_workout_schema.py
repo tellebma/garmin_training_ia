@@ -6,6 +6,7 @@ from garmin_sync.coach.workout_schema import (
     IntervalSet,
     IntervalTarget,
     Workout,
+    validate_workout_for_session,
 )
 
 
@@ -27,11 +28,13 @@ def test_target_rpe_out_of_range_rejects():
 
 def test_workout_minimal_structure():
     target = IntervalTarget(label="Z2", rpe=4)
-    block = IntervalBlock(duration_s=600, target=target)
+    warmup = IntervalBlock(duration_s=300, target=target)
+    main = IntervalBlock(duration_s=1500, target=target)
+    cooldown = IntervalBlock(duration_s=300, target=target)
     w = Workout(
-        warmup=block,
-        main=[block],
-        cooldown=block,
+        warmup=warmup,
+        main=[main],
+        cooldown=cooldown,
         summary_md="Test session",
     )
     assert w.summary_md == "Test session"
@@ -73,3 +76,43 @@ def test_workout_total_duration_includes_sets():
     w = Workout(warmup=warmup, main=[main_set], cooldown=cooldown, summary_md="x")
     # 600 + 5*(300+120) + 600 = 600 + 2100 + 600 = 3300
     assert w.total_duration_s() == 3300
+
+
+def test_workout_rejects_too_much_warmup_and_cooldown():
+    target_z2 = IntervalTarget(label="Z2", rpe=4)
+    target_z1 = IntervalTarget(label="Z1", rpe=2)
+
+    with pytest.raises(ValidationError):
+        Workout(
+            warmup=IntervalBlock(duration_s=900, target=target_z1),
+            main=[IntervalBlock(duration_s=1080, target=target_z2)],
+            cooldown=IntervalBlock(duration_s=720, target=target_z1),
+            summary_md="45min with too little real work",
+        )
+
+
+def test_validate_workout_for_session_accepts_close_duration():
+    target = IntervalTarget(label="Z2", rpe=4)
+    workout = Workout(
+        warmup=IntervalBlock(duration_s=300, target=target),
+        main=[IntervalBlock(duration_s=2400, target=target)],
+        cooldown=IntervalBlock(duration_s=300, target=target),
+        summary_md="Endurance réaliste",
+    )
+
+    validated = validate_workout_for_session(workout, {"target_duration_s": 3000})
+
+    assert validated is workout
+
+
+def test_validate_workout_for_session_rejects_duration_far_from_target():
+    target = IntervalTarget(label="Z2", rpe=4)
+    workout = Workout(
+        warmup=IntervalBlock(duration_s=300, target=target),
+        main=[IntervalBlock(duration_s=2400, target=target)],
+        cooldown=IntervalBlock(duration_s=300, target=target),
+        summary_md="Too long",
+    )
+
+    with pytest.raises(ValueError, match="too far from target"):
+        validate_workout_for_session(workout, {"target_duration_s": 1800})
