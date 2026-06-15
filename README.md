@@ -15,7 +15,7 @@ Plan d'entraînement triathlon personnalisé basé sur les données Garmin Conne
 
 ## Démarrage local
 
-Prérequis : Node 20+, pnpm 9+, un projet Supabase.
+Prérequis : Node 22+, pnpm 11+, un projet Supabase.
 
 ```bash
 pnpm install

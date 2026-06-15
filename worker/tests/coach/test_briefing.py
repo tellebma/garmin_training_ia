@@ -4,14 +4,17 @@ from unittest.mock import MagicMock, patch
 from garmin_sync.coach.activity_review import build_activity_review
 from garmin_sync.coach.briefing import (
     BASELINE_SCORE,
+    BRIEFING_CACHE_VERSION,
     CoachRecommendation,
     DailyBriefing,
     ReadinessFactor,
     SuggestedSession,
     build_coach_recommendation,
+    compute_and_cache_daily_briefing,
     compute_briefing,
     derive_status,
     format_explanation_md,
+    get_cached_daily_briefing,
     suggest_adjustment,
 )
 
@@ -279,3 +282,65 @@ def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
     assert d["activity_review"]["lookback_days"] == 90
     assert d["last_session_feedback"] is None
     assert d["coach_recommendation"]["action"] == "ease"
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_get_cached_daily_briefing_returns_payload_for_current_logic_version(mock_db_fn):
+    payload = {"date": "2026-05-20", "readiness_score": 80}
+    db = MagicMock()
+    query = db.table.return_value.select.return_value.eq.return_value.eq.return_value
+    query.maybe_single.return_value.execute.return_value.data = {
+        "logic_version": BRIEFING_CACHE_VERSION,
+        "payload": payload,
+    }
+    mock_db_fn.return_value = db
+
+    assert get_cached_daily_briefing("u1", today=date(2026, 5, 20)) == payload
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_get_cached_daily_briefing_ignores_stale_logic_version(mock_db_fn):
+    db = MagicMock()
+    query = db.table.return_value.select.return_value.eq.return_value.eq.return_value
+    query.maybe_single.return_value.execute.return_value.data = {
+        "logic_version": "old",
+        "payload": {"date": "2026-05-20", "readiness_score": 80},
+    }
+    mock_db_fn.return_value = db
+
+    assert get_cached_daily_briefing("u1", today=date(2026, 5, 20)) is None
+
+
+@patch("garmin_sync.coach.briefing.compute_briefing")
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_and_cache_daily_briefing_upserts_payload(mock_db_fn, mock_compute):
+    briefing = DailyBriefing(
+        date="2026-05-20",
+        readiness_score=80,
+        status="ready",
+        explanation_md="Bonne disponibilité.",
+        factors=[],
+        planned_session=None,
+        suggested_session=None,
+        activity_review=_empty_review(),
+        last_session_feedback=None,
+        coach_recommendation=CoachRecommendation(
+            action="maintain",
+            title="Séance maintenue",
+            rationale="ok",
+            instruction="Reste facile.",
+        ),
+    )
+    db = MagicMock()
+    mock_db_fn.return_value = db
+    mock_compute.return_value = briefing
+
+    payload = compute_and_cache_daily_briefing("u1", today=date(2026, 5, 20))
+
+    assert payload["readiness_score"] == 80
+    db.table.return_value.upsert.assert_called_once()
+    upsert_payload = db.table.return_value.upsert.call_args.args[0]
+    assert upsert_payload["user_id"] == "u1"
+    assert upsert_payload["briefing_date"] == "2026-05-20"
+    assert upsert_payload["logic_version"] == BRIEFING_CACHE_VERSION
+    assert db.table.return_value.upsert.call_args.kwargs["on_conflict"] == "user_id,briefing_date"

@@ -90,10 +90,8 @@ export default async function TodayPage() {
   // we still display whatever workout already exists.
   void ensureGeneratedSessions(7).catch(() => undefined)
 
-  // Daily briefing : awaited because it gates the session view; falls back
-  // to null on any error so the page still renders.
-  const briefingResult = await getDailyBriefing().catch(() => null)
-  const briefing = briefingResult?.success ? briefingResult.briefing : null
+  // Start early, then await with the rest of the page data.
+  const briefingPromise = getDailyBriefing().catch(() => null)
 
   const supabase = await createClient()
   const now = new Date()
@@ -104,6 +102,7 @@ export default async function TodayPage() {
   const ninetyDaysAgo = isoDate(new Date(now.getTime() - 90 * 86_400_000))
 
   const [
+    briefingResult,
     sessionRes,
     dailyRes,
     sleepRes,
@@ -113,6 +112,7 @@ export default async function TodayPage() {
     raceRes,
     garminCredsRes,
   ] = await Promise.all([
+    briefingPromise,
     supabase
       .from('planned_sessions')
       .select(
@@ -175,6 +175,7 @@ export default async function TodayPage() {
       .maybeSingle(),
   ])
 
+  const briefing = briefingResult?.success ? briefingResult.briefing : null
   const session = sessionRes.data as PlannedSession | null
   const daily = dailyRes.data
   const sleep = sleepRes.data

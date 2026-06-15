@@ -6,8 +6,9 @@ daily_metrics, daily_banister_state, planned_sessions).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, cast
 
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
@@ -24,6 +25,9 @@ type _RowT = dict[str, Any] | None
 READY_MIN = 70
 CAUTION_MIN = 40
 BASELINE_SCORE = 80
+BRIEFING_CACHE_VERSION = "daily-briefing:v1"
+
+log = logging.getLogger(__name__)
 
 # Session downgrade map: each session type maps to its one-step-lighter version.
 # Race is intentionally not in the map — race day overrides everything.
@@ -526,3 +530,51 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         last_session_feedback=session_feedback,
         coach_recommendation=coach_recommendation,
     )
+
+
+def get_cached_daily_briefing(user_id: str, today: date | None = None) -> dict[str, Any] | None:
+    """Return today's cached briefing payload when it matches the coach logic version."""
+    briefing_date = today or date.today()
+    db = get_admin_client()
+    try:
+        resp = (
+            db.table("coach_daily_briefings")
+            .select("payload, logic_version")
+            .eq("user_id", user_id)
+            .eq("briefing_date", briefing_date.isoformat())
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        log.warning("daily briefing cache read failed for user=%s", user_id, exc_info=True)
+        return None
+
+    row = cast(dict[str, Any] | None, resp.data if resp else None)
+    if not row or row.get("logic_version") != BRIEFING_CACHE_VERSION:
+        return None
+    payload = row.get("payload")
+    return payload if isinstance(payload, dict) else None
+
+
+def compute_and_cache_daily_briefing(
+    user_id: str,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Compute today's briefing, store it for fast subsequent /today loads, and return it."""
+    briefing_date = today or date.today()
+    payload = compute_briefing(user_id=user_id, today=briefing_date).to_dict()
+    db = get_admin_client()
+    try:
+        db.table("coach_daily_briefings").upsert(
+            {
+                "user_id": user_id,
+                "briefing_date": briefing_date.isoformat(),
+                "logic_version": BRIEFING_CACHE_VERSION,
+                "payload": payload,
+                "computed_at": datetime.now(UTC).isoformat(),
+            },
+            on_conflict="user_id,briefing_date",
+        ).execute()
+    except Exception:
+        log.warning("daily briefing cache write failed for user=%s", user_id, exc_info=True)
+    return payload

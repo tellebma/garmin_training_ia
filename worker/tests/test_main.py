@@ -288,35 +288,29 @@ def test_regenerate_session_not_found(mock_jwt, mock_regen, mock_rl):
 
 
 @patch("garmin_sync.coach.rate_limit.check_or_raise")
-@patch("garmin_sync.coach.briefing.compute_briefing")
+@patch("garmin_sync.coach.briefing.get_cached_daily_briefing")
+@patch("garmin_sync.coach.briefing.compute_and_cache_daily_briefing")
 @patch("garmin_sync.main.verify_supabase_jwt")
-def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute, mock_rl):
-    from garmin_sync.coach.activity_review import build_activity_review
-    from garmin_sync.coach.briefing import (
-        CoachRecommendation,
-        DailyBriefing,
-        ReadinessFactor,
-        SuggestedSession,
-    )
-
+def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute_cache, mock_cached, mock_rl):
     mock_jwt.return_value = "user-1"
-    mock_compute.return_value = DailyBriefing(
-        date="2026-05-20",
-        readiness_score=55,
-        status="caution",
-        explanation_md="Quelques signes de fatigue.",
-        factors=[ReadinessFactor("hrv_low", -10, "HRV bas")],
-        planned_session={"sport": "run", "session_type": "intervals"},
-        suggested_session=SuggestedSession(sport="run", session_type="threshold", note="ok"),
-        activity_review=build_activity_review([]),
-        last_session_feedback=None,
-        coach_recommendation=CoachRecommendation(
-            action="ease",
-            title="Séance allégée",
-            rationale="ok",
-            instruction="Z2 facile.",
-        ),
-    )
+    mock_cached.return_value = None
+    mock_compute_cache.return_value = {
+        "date": "2026-05-20",
+        "readiness_score": 55,
+        "status": "caution",
+        "explanation_md": "Quelques signes de fatigue.",
+        "factors": [{"name": "hrv_low", "impact": -10, "explanation": "HRV bas"}],
+        "planned_session": {"sport": "run", "session_type": "intervals"},
+        "suggested_session": {"sport": "run", "session_type": "threshold", "note": "ok"},
+        "activity_review": {"lookback_days": 90, "insights": []},
+        "last_session_feedback": None,
+        "coach_recommendation": {
+            "action": "ease",
+            "title": "Séance allégée",
+            "rationale": "ok",
+            "instruction": "Z2 facile.",
+        },
+    }
     client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})
     assert r.status_code == 200
@@ -324,15 +318,53 @@ def test_daily_briefing_endpoint_ok(mock_jwt, mock_compute, mock_rl):
     assert body["readiness_score"] == 55
     assert body["status"] == "caution"
     assert body["suggested_session"]["session_type"] == "threshold"
+    mock_cached.assert_called_once_with(user_id="user-1")
     mock_rl.assert_called_once()
+    mock_compute_cache.assert_called_once_with(user_id="user-1")
 
 
 @patch("garmin_sync.coach.rate_limit.check_or_raise")
+@patch("garmin_sync.coach.briefing.get_cached_daily_briefing")
+@patch("garmin_sync.coach.briefing.compute_and_cache_daily_briefing")
 @patch("garmin_sync.main.verify_supabase_jwt")
-def test_daily_briefing_returns_rate_limited(mock_jwt, mock_rl):
+def test_daily_briefing_endpoint_returns_cache_without_rate_limit(
+    mock_jwt, mock_compute_cache, mock_cached, mock_rl
+):
+    mock_jwt.return_value = "user-1"
+    mock_cached.return_value = {
+        "date": "2026-05-20",
+        "readiness_score": 80,
+        "status": "ready",
+        "explanation_md": "Bonne disponibilité.",
+        "factors": [],
+        "planned_session": None,
+        "suggested_session": None,
+        "activity_review": {"lookback_days": 90, "insights": []},
+        "last_session_feedback": None,
+        "coach_recommendation": {
+            "action": "maintain",
+            "title": "Séance maintenue",
+            "rationale": "ok",
+            "instruction": "Reste facile.",
+        },
+    }
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})
+
+    assert r.status_code == 200
+    assert r.json()["readiness_score"] == 80
+    mock_rl.assert_not_called()
+    mock_compute_cache.assert_not_called()
+
+
+@patch("garmin_sync.coach.rate_limit.check_or_raise")
+@patch("garmin_sync.coach.briefing.get_cached_daily_briefing")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_daily_briefing_returns_rate_limited(mock_jwt, mock_cached, mock_rl):
     from garmin_sync.coach.rate_limit import RateLimited
 
     mock_jwt.return_value = "user-1"
+    mock_cached.return_value = None
     mock_rl.side_effect = RateLimited("too many")
     client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
     r = client.post("/coach/daily-briefing", headers={"Authorization": "Bearer fake.jwt"})

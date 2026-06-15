@@ -1,7 +1,8 @@
 # garmin-sync worker
 
 Python worker for the Garmin Training Coach project. Syncs Garmin
-Connect data into Supabase via a daily cron + on-demand HTTP endpoint.
+Connect data into Supabase via in-container scheduled jobs + on-demand
+HTTP endpoints.
 
 ## Local dev
 
@@ -36,11 +37,28 @@ See `deploy/README.md`. The worker runs on the operator's self-hosted
 server at `https://garmin-sync.tellebma.fr`, packaged via Docker Hub
 (`tellebma/garmin-sync`) and deployed via `docker compose`.
 
-## Daily cron
+## Scheduled jobs
 
-A systemd timer on the host fires
-`docker exec garmin-sync python -m garmin_sync.cron` at 05:00 UTC daily.
-See `deploy/garmin-sync-cron.{service,timer}`.
+The FastAPI app starts an in-container APScheduler on startup. No host
+systemd timer is required. Current schedule, in UTC:
+
+| Job                 | Schedule    |
+|---------------------|-------------|
+| sleep + HRV + daily | daily 08:00 |
+| activities + daily  | daily 13:00 |
+| activities + daily  | daily 18:00 |
+| profile refresh     | Mon 06:00   |
+| plan regeneration   | Sun 22:00   |
+
+Schedule definitions live in `src/garmin_sync/scheduler.py`. Manual cron
+entry points are still available for testing/backfill:
+
+```bash
+uv run python -m garmin_sync.cron sleep
+uv run python -m garmin_sync.cron activities
+uv run python -m garmin_sync.cron profile
+uv run python -m garmin_sync.coach.cron
+```
 
 ## Architecture
 
