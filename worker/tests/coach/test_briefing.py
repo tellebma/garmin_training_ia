@@ -10,6 +10,7 @@ from garmin_sync.coach.briefing import (
     NextSessionAdjustment,
     ReadinessFactor,
     SuggestedSession,
+    _hard_session_guardrail_factors,
     build_coach_recommendation,
     build_next_session_adjustment,
     compute_and_cache_daily_briefing,
@@ -67,6 +68,49 @@ def test_suggest_adjustment_race_day_never_downgrades():
 
 def test_suggest_adjustment_no_planned_returns_none():
     assert suggest_adjustment(None, "caution") is None
+
+
+def test_hard_session_guardrail_requires_hard_non_race_session():
+    factors = [ReadinessFactor("hrv_low", -10, "HRV un peu basse.")]
+
+    assert _hard_session_guardrail_factors(None, factors) == []
+    assert _hard_session_guardrail_factors({"session_type": "endurance"}, factors) == []
+    assert _hard_session_guardrail_factors({"session_type": "race"}, factors) == []
+
+
+def test_hard_session_guardrail_ignores_weak_or_unrelated_signals():
+    planned = {"session_type": "intervals"}
+
+    assert _hard_session_guardrail_factors(planned, []) == []
+    assert (
+        _hard_session_guardrail_factors(
+            planned,
+            [ReadinessFactor("sleep_short", -5, "Sommeil un peu court.")],
+        )
+        == []
+    )
+    assert (
+        _hard_session_guardrail_factors(
+            planned,
+            [ReadinessFactor("resting_hr_high", -10, "FC repos élevée.")],
+        )
+        == []
+    )
+
+
+def test_hard_session_guardrail_adds_penalty_for_unfavorable_recovery_signal():
+    factors = _hard_session_guardrail_factors(
+        {"session_type": "threshold"},
+        [ReadinessFactor("tsb_negative", -8, "TSB négatif.")],
+    )
+
+    assert factors == [
+        ReadinessFactor(
+            "hard_session_guardrail",
+            -10,
+            "Séance dure prévue alors qu'un signal de récupération est défavorable.",
+        )
+    ]
 
 
 def test_format_explanation_md_ready_no_negatives():
