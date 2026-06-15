@@ -71,11 +71,24 @@ export interface TerrainSegmentSummary {
   avg_grade_pct: number | null
   avg_hr_bpm: number | null
   avg_speed_kmh: number | null
+  speed_variability_pct: number | null
+}
+
+export interface CardioDriftSummary {
+  signal: 'stable' | 'watch' | 'risk' | 'insufficient'
+  first_half_avg_hr_bpm: number | null
+  second_half_avg_hr_bpm: number | null
+  drift_bpm: number | null
+  drift_pct: number | null
+  first_half_avg_speed_kmh: number | null
+  second_half_avg_speed_kmh: number | null
+  speed_change_pct: number | null
 }
 
 export interface SampleCoachSummary {
   hrZones: HeartRateZoneSummary[]
   terrain: TerrainSegmentSummary[]
+  cardioDrift: CardioDriftSummary
   insights: string[]
   recommendations: string[]
 }
@@ -318,6 +331,19 @@ function avgNumber(values: number[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
+function variabilityPct(values: number[]): number | null {
+  if (values.length < 2) return null
+  const avg = avgNumber(values)
+  if (!avg || avg <= 0) return null
+  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / values.length
+  return (Math.sqrt(variance) / avg) * 100
+}
+
+function percentChange(next: number | null, prev: number | null): number | null {
+  if (next === null || prev === null || prev <= 0) return null
+  return ((next - prev) / prev) * 100
+}
+
 function hrZone(hr: number, fcMax: number): HeartRateZoneSummary['zone'] {
   const pct = hr / fcMax
   if (pct < 0.6) return 'Z1'
@@ -342,6 +368,7 @@ function emptyTerrain(): Record<TerrainSegmentSummary['terrain'], TerrainSegment
       avg_grade_pct: null,
       avg_hr_bpm: null,
       avg_speed_kmh: null,
+      speed_variability_pct: null,
     },
     Plat: {
       terrain: 'Plat',
@@ -350,6 +377,7 @@ function emptyTerrain(): Record<TerrainSegmentSummary['terrain'], TerrainSegment
       avg_grade_pct: null,
       avg_hr_bpm: null,
       avg_speed_kmh: null,
+      speed_variability_pct: null,
     },
     Descente: {
       terrain: 'Descente',
@@ -358,6 +386,7 @@ function emptyTerrain(): Record<TerrainSegmentSummary['terrain'], TerrainSegment
       avg_grade_pct: null,
       avg_hr_bpm: null,
       avg_speed_kmh: null,
+      speed_variability_pct: null,
     },
   }
 }
@@ -432,13 +461,86 @@ function summarizeTerrain(samples: ActivitySample[]): TerrainSegmentSummary[] {
           : null,
       avg_hr_bpm: round(avgNumber(hrValues[terrain])),
       avg_speed_kmh: round(avgNumber(speedValues[terrain]), 1),
+      speed_variability_pct: round(variabilityPct(speedValues[terrain]), 1),
     }
   })
 }
 
+function samplePosition(sample: ActivitySample, index: number): number {
+  if (typeof sample.elapsed_s === 'number') return sample.elapsed_s
+  if (typeof sample.distance_m === 'number') return sample.distance_m
+  return index
+}
+
+function summarizeCardioDrift(samples: ActivitySample[]): CardioDriftSummary {
+  const positioned = samples
+    .map((sample, index) => ({ sample, position: samplePosition(sample, index) }))
+    .filter(({ sample }) => typeof sample.heart_rate_bpm === 'number')
+    .sort((a, b) => a.position - b.position)
+
+  if (positioned.length < 6) {
+    return {
+      signal: 'insufficient',
+      first_half_avg_hr_bpm: null,
+      second_half_avg_hr_bpm: null,
+      drift_bpm: null,
+      drift_pct: null,
+      first_half_avg_speed_kmh: null,
+      second_half_avg_speed_kmh: null,
+      speed_change_pct: null,
+    }
+  }
+
+  const midpoint = Math.floor(positioned.length / 2)
+  const firstHalf = positioned.slice(0, midpoint).map(({ sample }) => sample)
+  const secondHalf = positioned.slice(midpoint).map(({ sample }) => sample)
+  const firstHr = round(avgNumber(firstHalf.map((sample) => sample.heart_rate_bpm ?? 0)))
+  const secondHr = round(avgNumber(secondHalf.map((sample) => sample.heart_rate_bpm ?? 0)))
+  const firstSpeed = round(
+    avgNumber(
+      firstHalf
+        .map((sample) => sample.speed_m_s)
+        .filter((value): value is number => typeof value === 'number')
+        .map((value) => value * 3.6)
+    ),
+    1
+  )
+  const secondSpeed = round(
+    avgNumber(
+      secondHalf
+        .map((sample) => sample.speed_m_s)
+        .filter((value): value is number => typeof value === 'number')
+        .map((value) => value * 3.6)
+    ),
+    1
+  )
+  const driftBpm = firstHr !== null && secondHr !== null ? round(secondHr - firstHr) : null
+  const driftPct = round(percentChange(secondHr, firstHr), 1)
+  const speedChangePct = round(percentChange(secondSpeed, firstSpeed), 1)
+  let signal: CardioDriftSummary['signal'] = 'stable'
+
+  if (driftBpm !== null && driftBpm >= 8 && (speedChangePct ?? 0) <= 5) {
+    signal = 'risk'
+  } else if (driftBpm !== null && driftBpm >= 5 && (speedChangePct ?? 0) <= 8) {
+    signal = 'watch'
+  }
+
+  return {
+    signal,
+    first_half_avg_hr_bpm: firstHr,
+    second_half_avg_hr_bpm: secondHr,
+    drift_bpm: driftBpm,
+    drift_pct: driftPct,
+    first_half_avg_speed_kmh: firstSpeed,
+    second_half_avg_speed_kmh: secondSpeed,
+    speed_change_pct: speedChangePct,
+  }
+}
+
 function sampleInsights(
   zones: HeartRateZoneSummary[],
-  terrain: TerrainSegmentSummary[]
+  terrain: TerrainSegmentSummary[],
+  cardioDrift: CardioDriftSummary
 ): Pick<SampleCoachSummary, 'insights' | 'recommendations'> {
   const insights: string[] = []
   const recommendations: string[] = []
@@ -446,6 +548,9 @@ function sampleInsights(
     .filter((zone) => zone.zone === 'Z4' || zone.zone === 'Z5')
     .reduce((sum, zone) => sum + zone.percent, 0)
   const climb = terrain.find((item) => item.terrain === 'Montée')
+  const irregularTerrain = terrain
+    .filter((item) => item.distance_m >= 200 && (item.speed_variability_pct ?? 0) >= 18)
+    .sort((a, b) => (b.speed_variability_pct ?? 0) - (a.speed_variability_pct ?? 0))[0]
 
   if (highIntensity >= 35) {
     insights.push(`Temps cardio élevé : ${highIntensity.toFixed(1)}% des points en Z4/Z5.`)
@@ -459,6 +564,22 @@ function sampleInsights(
     )
     recommendations.push(
       'Dans les prochaines montées, ralentis tôt pour éviter de transformer la sortie en séance seuil.'
+    )
+  }
+  if (cardioDrift.signal === 'risk' || cardioDrift.signal === 'watch') {
+    insights.push(
+      `Dérive cardio : +${String(cardioDrift.drift_bpm ?? 0)} bpm en seconde moitié pour ${String(cardioDrift.speed_change_pct ?? 0)}% de vitesse.`
+    )
+    recommendations.push(
+      'Sur une séance comparable, pars plus bas en intensité et garde une marge cardio jusqu’à mi-parcours.'
+    )
+  }
+  if (irregularTerrain) {
+    insights.push(
+      `Pacing irrégulier sur ${irregularTerrain.terrain.toLowerCase()} : ${String(irregularTerrain.speed_variability_pct ?? 0)}% de variabilité vitesse.`
+    )
+    recommendations.push(
+      `Travaille la régularité sur ${irregularTerrain.terrain.toLowerCase()} : accélérations plus courtes, relances contrôlées et effort plus lissé.`
     )
   }
   if (insights.length === 0)
@@ -529,6 +650,7 @@ export function summarizeActivitySamples(
 ): SampleCoachSummary {
   const hrZones = summarizeHrZones(samples, fcMax)
   const terrain = summarizeTerrain(samples)
-  const { insights, recommendations } = sampleInsights(hrZones, terrain)
-  return { hrZones, terrain, insights, recommendations }
+  const cardioDrift = summarizeCardioDrift(samples)
+  const { insights, recommendations } = sampleInsights(hrZones, terrain, cardioDrift)
+  return { hrZones, terrain, cardioDrift, insights, recommendations }
 }

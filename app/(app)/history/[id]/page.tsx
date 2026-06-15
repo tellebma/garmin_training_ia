@@ -56,10 +56,22 @@ function formatDecimal(value: number | null | undefined, suffix = ''): string {
   return `${value.toFixed(1)}${suffix}`
 }
 
+function formatSignedDecimal(value: number | null | undefined, suffix = ''): string {
+  if (value === null || value === undefined) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(1)}${suffix}`
+}
+
 function toneClass(tone: 'positive' | 'watch' | 'risk'): string {
   if (tone === 'risk') return 'border-red-500/30 bg-red-500/5'
   if (tone === 'watch') return 'border-amber-500/30 bg-amber-500/5'
   return 'border-emerald-500/30 bg-emerald-500/5'
+}
+
+function cardioDriftText(signal: 'stable' | 'watch' | 'risk' | 'insufficient'): string {
+  if (signal === 'insufficient') return 'Pas assez de points cardio pour conclure proprement.'
+  if (signal === 'stable') return 'La relation cardio / vitesse reste stable sur cette activité.'
+  return 'La seconde moitié coûte plus cher en cardio : c’est un signal à gérer sur les prochaines séances.'
 }
 
 export default async function ActivityDetailPage({ params }: ActivityDetailPageProps) {
@@ -229,7 +241,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
       )}
 
       {sampleSummary && (
-        <section className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+        <section className="grid gap-4 xl:grid-cols-[1fr_1.35fr_0.9fr]">
           <div className="bg-card rounded-lg border p-4">
             <h2 className="text-sm font-semibold">Zones cardio</h2>
             <div className="mt-4 space-y-3">
@@ -267,7 +279,8 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
                     <th className="py-2 pr-3">Distance</th>
                     <th className="py-2 pr-3">Pente</th>
                     <th className="py-2 pr-3">FC</th>
-                    <th className="py-2">Vitesse</th>
+                    <th className="py-2 pr-3">Vitesse</th>
+                    <th className="py-2">Régularité</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -277,7 +290,8 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
                       <td className="py-2 pr-3">{formatDistanceFromMeters(segment.distance_m)}</td>
                       <td className="py-2 pr-3">{formatDecimal(segment.avg_grade_pct, '%')}</td>
                       <td className="py-2 pr-3">{formatNumber(segment.avg_hr_bpm, ' bpm')}</td>
-                      <td className="py-2">{formatDecimal(segment.avg_speed_kmh, ' km/h')}</td>
+                      <td className="py-2 pr-3">{formatDecimal(segment.avg_speed_kmh, ' km/h')}</td>
+                      <td className="py-2">{formatDecimal(segment.speed_variability_pct, '%')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -288,6 +302,39 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
                 <p key={recommendation}>{recommendation}</p>
               ))}
             </div>
+          </div>
+
+          <div className="bg-card rounded-lg border p-4">
+            <h2 className="text-sm font-semibold">Dérive cardio</h2>
+            <dl className="text-muted-foreground mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt className="text-xs uppercase">FC début</dt>
+                <dd className="text-foreground">
+                  {formatNumber(sampleSummary.cardioDrift.first_half_avg_hr_bpm, ' bpm')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase">FC fin</dt>
+                <dd className="text-foreground">
+                  {formatNumber(sampleSummary.cardioDrift.second_half_avg_hr_bpm, ' bpm')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase">Écart FC</dt>
+                <dd className="text-foreground">
+                  {formatSignedDecimal(sampleSummary.cardioDrift.drift_bpm, ' bpm')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase">Vitesse</dt>
+                <dd className="text-foreground">
+                  {formatSignedDecimal(sampleSummary.cardioDrift.speed_change_pct, '%')}
+                </dd>
+              </div>
+            </dl>
+            <p className="text-muted-foreground mt-4 text-sm">
+              {cardioDriftText(sampleSummary.cardioDrift.signal)}
+            </p>
           </div>
         </section>
       )}

@@ -160,4 +160,48 @@ describe('summarizeActivitySamples', () => {
     expect(descent?.distance_m).toBe(200)
     expect(summary.recommendations.join(' ')).toMatch(/ralentis tôt/)
   })
+
+  it('detects cardio drift when heart rate rises without speed gain', () => {
+    const driftSamples: ActivitySample[] = [130, 132, 134, 136, 145, 147, 149, 151].map(
+      (heartRate, index) => ({
+        sample_index: index,
+        sample_time: null,
+        elapsed_s: index * 60,
+        distance_m: index * 180,
+        elevation_m: 100,
+        heart_rate_bpm: heartRate,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: 3,
+      })
+    )
+
+    const summary = summarizeActivitySamples(driftSamples, 190)
+
+    expect(summary.cardioDrift.signal).toBe('risk')
+    expect(summary.cardioDrift.drift_bpm).toBe(15)
+    expect(summary.cardioDrift.speed_change_pct).toBe(0)
+    expect(summary.recommendations.join(' ')).toMatch(/pars plus bas/)
+  })
+
+  it('detects irregular pacing by terrain segment', () => {
+    const irregularSamples: ActivitySample[] = [2, 5, 2, 5, 2].map((speed, index) => ({
+      sample_index: index,
+      sample_time: null,
+      elapsed_s: index * 60,
+      distance_m: index * 200,
+      elevation_m: 100 + index,
+      heart_rate_bpm: 130,
+      power_w: null,
+      cadence_rpm: null,
+      speed_m_s: speed,
+    }))
+
+    const summary = summarizeActivitySamples(irregularSamples, 190)
+    const flat = summary.terrain.find((segment) => segment.terrain === 'Plat')
+
+    expect(flat?.speed_variability_pct).toBeGreaterThan(35)
+    expect(summary.insights.join(' ')).toMatch(/Pacing irrégulier/)
+    expect(summary.recommendations.join(' ')).toMatch(/régularité/)
+  })
 })

@@ -134,8 +134,11 @@ ajustements concrets.
   des samples et segmente l'effort en montée / plat / descente avec distance, pente,
   FC moyenne et vitesse moyenne. Les recommandations coach utilisent ces signaux
   pour pointer une intensité trop élevée ou une montée prise trop haut en cardio.
-- Suite : détecter la dérive cardio et le pacing irrégulier par segment pour produire
-  des conseils encore plus proches d'un retour d'entraîneur après séance.
+- Statut V1 action 4 : la fiche activité détecte la dérive cardio entre première et
+  seconde moitié, affiche l'évolution FC/vitesse et mesure la variabilité de vitesse
+  par terrain pour signaler un pacing irrégulier.
+- Suite : relier ces signaux aux prochaines séances planifiées pour proposer un
+  ajustement concret de charge ou d'intensité après une activité coûteuse.
 
 ### P1 — Garde-fous santé/performance
 
