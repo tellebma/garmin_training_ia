@@ -138,8 +138,11 @@ ajustements concrets.
 - Statut V1 action 5 : la fiche activité relie les signaux détaillés aux prochaines
   séances planifiées et propose maintien, allègement, récupération active ou repos
   protégé selon le coût observé.
-- Suite : appliquer automatiquement ces ajustements au briefing quotidien et aux
-  régénérations de séance, avec un statut visible avant modification du plan.
+- Statut V1 action 6 : le briefing quotidien expose maintenant
+  `next_session_adjustment` avec statut visible, séance ciblée et adaptation
+  proposée avant toute modification réelle du plan.
+- Suite : appliquer ces ajustements aux régénérations de séance et ajouter une
+  action utilisateur explicite pour accepter/refuser la modification du plan.
 
 ### P1 — Garde-fous santé/performance
 

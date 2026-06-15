@@ -7,9 +7,11 @@ from garmin_sync.coach.briefing import (
     BRIEFING_CACHE_VERSION,
     CoachRecommendation,
     DailyBriefing,
+    NextSessionAdjustment,
     ReadinessFactor,
     SuggestedSession,
     build_coach_recommendation,
+    build_next_session_adjustment,
     compute_and_cache_daily_briefing,
     compute_briefing,
     derive_status,
@@ -17,6 +19,7 @@ from garmin_sync.coach.briefing import (
     get_cached_daily_briefing,
     suggest_adjustment,
 )
+from garmin_sync.coach.session_feedback import SessionFeedback
 
 
 def test_derive_status_thresholds():
@@ -141,6 +144,57 @@ def _empty_review():
     return build_activity_review([], today=date(2026, 5, 20))
 
 
+def _no_next_adjustment() -> NextSessionAdjustment:
+    return NextSessionAdjustment(
+        status="none",
+        action="maintain",
+        title="Plan maintenu",
+        rationale="ok",
+        instruction="Suis la séance prévue.",
+        target_session=None,
+    )
+
+
+def test_build_next_session_adjustment_uses_readiness_suggestion():
+    adjustment = build_next_session_adjustment(
+        planned_session={"sport": "run", "session_type": "intervals"},
+        suggested_session=SuggestedSession("run", "threshold", "Allégé : intervals -> threshold."),
+        activity_review=_empty_review(),
+        session_feedback=None,
+    )
+
+    assert adjustment.status == "suggested"
+    assert adjustment.action == "ease"
+    assert adjustment.suggested_session_type == "threshold"
+    assert adjustment.target_session is not None
+
+
+def test_build_next_session_adjustment_replaces_hard_session_after_risky_feedback():
+    adjustment = build_next_session_adjustment(
+        planned_session={"sport": "run", "session_type": "intervals"},
+        suggested_session=None,
+        activity_review=_empty_review(),
+        session_feedback=build_session_feedback_for_test(severity="risk"),
+    )
+
+    assert adjustment.status == "suggested"
+    assert adjustment.action == "replace_with_recovery"
+    assert adjustment.suggested_session_type == "recovery"
+
+
+def build_session_feedback_for_test(severity="risk"):
+    return SessionFeedback(
+        activity_date="2026-05-19",
+        sport="run",
+        planned_sport="run",
+        planned_session_type="threshold",
+        verdict="too_intense",
+        severity=severity,
+        message="Séance plus intense que prévu : évite d'empiler une autre séance dure.",
+        readiness_impact=-10,
+    )
+
+
 @patch("garmin_sync.coach.briefing.get_admin_client")
 def test_compute_briefing_ready_with_good_signals(mock_db_fn):
     """All signals fine -> ready status, score = baseline (no penalties applied)."""
@@ -161,6 +215,7 @@ def test_compute_briefing_ready_with_good_signals(mock_db_fn):
     assert b.planned_session is not None
     assert b.activity_review.activities_7d == 0
     assert b.coach_recommendation.action == "maintain"
+    assert b.next_session_adjustment.status == "none"
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -180,6 +235,8 @@ def test_compute_briefing_caution_with_low_hrv(mock_db_fn):
     assert b.status == "rest_advised"
     assert b.suggested_session is not None
     assert b.suggested_session.session_type == "rest"
+    assert b.next_session_adjustment.status == "suggested"
+    assert b.next_session_adjustment.suggested_session_type == "rest"
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -193,6 +250,7 @@ def test_compute_briefing_no_data_returns_ready_default(mock_db_fn):
     assert b.readiness_score == BASELINE_SCORE
     assert b.planned_session is None
     assert b.suggested_session is None
+    assert b.next_session_adjustment.status == "none"
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -210,6 +268,7 @@ def test_compute_briefing_tsb_very_negative_pushes_to_rest(mock_db_fn):
     assert b.status == "caution"
     assert b.suggested_session is not None
     assert b.suggested_session.session_type == "endurance"
+    assert b.next_session_adjustment.status == "suggested"
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -254,6 +313,7 @@ def test_compute_briefing_activity_load_spike_affects_readiness(mock_db_fn):
     assert b.last_session_feedback is not None
     assert b.last_session_feedback.verdict == "too_intense"
     assert b.coach_recommendation.action in {"caution", "ease"}
+    assert b.next_session_adjustment.status == "suggested"
 
 
 def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
@@ -273,6 +333,7 @@ def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
             rationale="ok",
             instruction="Z2 facile.",
         ),
+        next_session_adjustment=_no_next_adjustment(),
     )
     d = b.to_dict()
     assert d["readiness_score"] == 55
@@ -282,6 +343,7 @@ def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
     assert d["activity_review"]["lookback_days"] == 90
     assert d["last_session_feedback"] is None
     assert d["coach_recommendation"]["action"] == "ease"
+    assert d["next_session_adjustment"]["action"] == "maintain"
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
@@ -330,6 +392,7 @@ def test_compute_and_cache_daily_briefing_upserts_payload(mock_db_fn, mock_compu
             rationale="ok",
             instruction="Reste facile.",
         ),
+        next_session_adjustment=_no_next_adjustment(),
     )
     db = MagicMock()
     mock_db_fn.return_value = db

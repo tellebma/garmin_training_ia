@@ -63,6 +63,20 @@ describe('BriefingCard', () => {
         rationale: 'Le cumul recent demande une seance plus facile.',
         instruction: 'Rester en endurance fondamentale.',
       },
+      next_session_adjustment: {
+        status: 'suggested',
+        action: 'replace_with_recovery',
+        title: 'Remplacer la séance dure',
+        rationale: 'La derniere seance etait plus intense que prevu.',
+        instruction: 'Passer en récupération active avant de reprendre le plan.',
+        target_session: {
+          sport: 'run',
+          session_type: 'intervals',
+          target_duration_s: 3600,
+          target_tss: 75,
+        },
+        suggested_session_type: 'recovery',
+      },
     }
 
     render(<BriefingCard briefing={briefing} />)
@@ -71,11 +85,14 @@ describe('BriefingCard', () => {
     expect(screen.getByText(/Vigilance · 72\/100/)).toBeTruthy()
     expect(screen.getByText('Alleger la journee')).toBeTruthy()
     expect(screen.getByText('Retour post-séance')).toBeTruthy()
-    expect(screen.getByText(/plus intense que prevu/)).toBeTruthy()
+    expect(screen.getAllByText(/plus intense que prevu/)).toHaveLength(2)
     expect(screen.getByText('Revue des activités')).toBeTruthy()
     expect(screen.getByText(/4 activités · 430 TSS · 1200 m D\+/)).toBeTruthy()
     expect(screen.getByText('La charge hebdo monte vite.')).toBeTruthy()
     expect(screen.getByText('Adaptation proposée')).toBeTruthy()
     expect(screen.getByText('Raccourcir la seance et rester facile.')).toBeTruthy()
+    expect(screen.getByText('Remplacer la séance dure')).toBeTruthy()
+    expect(screen.getByText(/intervals/)).toBeTruthy()
+    expect(screen.getByText(/recovery/)).toBeTruthy()
   })
 })
