@@ -91,6 +91,29 @@ def test_ensure_sessions_generates_for_each_pending(mock_db, mock_gen):
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_skips_rest_days(mock_db, mock_gen):
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [
+        {
+            "id": "rest-1",
+            "sport": "rest",
+            "session_type": "rest",
+            "target_duration_s": 0,
+            "target_tss": 0,
+            "phase": "base",
+            "date": "2026-05-21",
+        }
+    ]
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result == {"generated_count": 0, "failed_count": 0, "skipped_count": 1}
+    mock_gen.assert_not_called()
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
 def test_ensure_sessions_continues_on_error(mock_db, mock_gen):
     db = MagicMock()
     mock_db.return_value = db
@@ -219,6 +242,29 @@ def test_regenerate_session_updates_existing(mock_db, mock_gen):
     result = regenerate_session(user_id="u1", session_id="s1")
     assert result["status"] == "ok"
     mock_gen.assert_called_once()
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_regenerate_session_skips_rest_day(mock_db, mock_gen):
+    db = MagicMock()
+    mock_db.return_value = db
+    session_lookup = db.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value  # noqa: E501
+    session_lookup.data = {
+        "id": "rest-1",
+        "user_id": "u1",
+        "sport": "rest",
+        "session_type": "rest",
+        "target_duration_s": 0,
+        "target_tss": 0,
+        "phase": "base",
+        "date": "2026-05-25",
+    }
+
+    result = regenerate_session(user_id="u1", session_id="rest-1")
+
+    assert result == {"status": "ok", "workout": None, "skipped": True}
+    mock_gen.assert_not_called()
 
 
 @patch("garmin_sync.coach.sessions.get_admin_client")

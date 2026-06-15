@@ -42,6 +42,31 @@ ajustements concrets.
 - Statut V1 : le briefing expose `coach_recommendation` avec une action claire
   (`maintain`, `ease`, `rest`, `caution`), un rationnel et une consigne terrain.
 
+### P0 — Structure réaliste des séances générées
+
+- Corriger les règles d'échauffement et de retour au calme pour qu'elles soient
+  proportionnelles à la durée, au sport et au type de séance.
+- Ne jamais générer un workout structuré pour un jour de repos : repos = pas
+  d'échauffement, pas de corps de séance, pas de retour au calme.
+- Éviter les séances où échauffement + retour au calme prennent une part excessive
+  du temps total. Exemple à corriger : 45min vélo avec 15min échauffement, 18min
+  de travail réel et 12min retour au calme.
+- Définir des bornes coach :
+  - récupération courte : échauffement minimal ou progressif intégré au bloc facile ;
+  - endurance : bloc principal majoritaire ;
+  - seuil/intervalles : échauffement suffisant, mais le travail ciblé reste central ;
+  - long : échauffement/retour au calme inclus dans la progressivité, pas isolés de
+    façon artificielle.
+- Ajouter une validation post-LLM côté worker : durée totale proche de la cible,
+  ratio minimum de travail principal, et rejet/réparation des structures absurdes.
+- Adapter le prompt OpenAI et les tests `workout_schema` / `openai_client`.
+- Critère coach : une séance doit ressembler à ce qu'un entraîneur ferait faire sur
+  le terrain, pas à un découpage fixe imposé par le format JSON.
+- Statut V1 : le worker ignore les jours de repos et les séances sans durée positive,
+  le prompt LLM interdit les découpages fixes irréalistes, et `Workout` rejette les
+  séances dont le corps principal représente moins de 55% ou dont la durée totale
+  s'éloigne trop de la cible.
+
 ### P1 — Détection des signaux de progression et stagnation
 
 - Suivre l'évolution de FTP/VMA/FC max estimée, allure à FC constante, puissance

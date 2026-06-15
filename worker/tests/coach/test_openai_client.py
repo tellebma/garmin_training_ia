@@ -151,7 +151,7 @@ def test_prompt_includes_race_context(mock_get_client):
     parsed = MagicMock(
         model_dump=lambda: {
             "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
-            "main": [{"duration_s": 1800, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "main": [{"duration_s": 2400, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
             "cooldown": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
             "summary_md": "ok",
             "technical_focus": None,
@@ -168,6 +168,9 @@ def test_prompt_includes_race_context(mock_get_client):
     assert "triathlon" in user_msg
     assert "12 semaines" in user_msg
     assert "350m" in user_msg
+    system_msg = call_args.kwargs["messages"][0]["content"]
+    assert "au moins 55%" in system_msg
+    assert "Ne génère jamais de workout" in system_msg
 
 
 @patch("garmin_sync.coach.openai_client._get_client")
@@ -177,7 +180,7 @@ def test_prompt_includes_activity_review_context(mock_get_client):
     parsed = MagicMock(
         model_dump=lambda: {
             "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
-            "main": [{"duration_s": 1800, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "main": [{"duration_s": 2400, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
             "cooldown": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
             "summary_md": "ok",
             "technical_focus": None,
@@ -196,3 +199,33 @@ def test_prompt_includes_activity_review_context(mock_get_client):
     assert "240 TSS" in user_msg
     assert "Charge récente" in user_msg
     assert "Garde une marge" in user_msg
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_generate_workout_rejects_unrealistic_structure(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    parsed = MagicMock(
+        model_dump=lambda: {
+            "warmup": {"duration_s": 900, "target": {"label": "Z1", "rpe": 2}, "notes": None},
+            "main": [{"duration_s": 1080, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "cooldown": {"duration_s": 720, "target": {"label": "Z1", "rpe": 2}, "notes": None},
+            "summary_md": "Trop peu de corps de séance.",
+            "technical_focus": None,
+        }
+    )
+    mock_client.beta.chat.completions.parse.return_value.choices = [
+        MagicMock(message=MagicMock(parsed=parsed))
+    ]
+
+    with pytest.raises(OpenAIError, match="unrealistic workout"):
+        generate_workout_for_session(
+            session={
+                **_session(),
+                "sport": "bike",
+                "session_type": "endurance",
+                "target_duration_s": 2700,
+            },
+            athlete=_athlete_full(),
+            race_context=_race_context(),
+        )
