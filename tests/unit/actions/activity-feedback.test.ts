@@ -76,6 +76,17 @@ describe('saveActivityFeedback', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 
+  it('returns an activity lookup error', async () => {
+    maybeSingle.mockResolvedValueOnce({ data: null, error: { message: 'activity lookup failed' } })
+    const { saveActivityFeedback } = await import('@/app/actions/activity-feedback')
+
+    await expect(saveActivityFeedback(validInput)).resolves.toEqual({
+      success: false,
+      error: 'activity lookup failed',
+    })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
   it('upserts normalized feedback and invalidates coach views', async () => {
     const { saveActivityFeedback } = await import('@/app/actions/activity-feedback')
     const result = await saveActivityFeedback(validInput)
