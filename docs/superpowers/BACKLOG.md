@@ -11,6 +11,24 @@ sportif, pas seulement d'un générateur de séances. Le système doit observer
 l'historique, identifier les tendances, expliquer les risques et proposer des
 ajustements concrets.
 
+### P0 — Recommandations sportives sourcées et auditables
+
+- Formaliser un référentiel de règles coach avec niveau de confiance, domaine
+  d'application et sources scientifiques ou consensus d'entraînement.
+- Séparer clairement les recommandations robustes (progressivité de charge,
+  alternance intensité/récupération, sommeil/HRV comme signal de prudence) des
+  hypothèses à faible confiance.
+- Ajouter dans le worker une trace `evidence_key` ou `rule_id` sur les décisions
+  importantes : allègement, repos conseillé, garde-fou séance dure, progression
+  hebdomadaire limitée.
+- Côté UI, afficher une explication simple plutôt qu'une citation académique brute :
+  "on protège la récupération car charge + HRV sont défavorables".
+- Critère coach : toute recommandation impactant charge, intensité ou repos doit
+  être justifiable par une règle lisible et reliée à une source ou un principe
+  d'entraînement reconnu.
+- Suite : créer `docs/superpowers/specs/coach-evidence.md` avec les règles V1,
+  leurs sources, leurs seuils et leurs limites.
+
 ### P0 — Revue des activités précédentes avant recommandation — V1 livrée
 
 - Analyser les 7, 28 et 90 derniers jours avant de générer ou ajuster une séance.
@@ -188,6 +206,22 @@ ajustements concrets.
 - Permettre à l'utilisateur de comprendre pourquoi une séance est allégée ou déplacée.
 
 ## Qualité / plateforme
+
+### P0 — Identité numérique et style graphique coach
+
+- Définir une identité visuelle stable : personnalité de marque, ton éditorial,
+  palette, typographies, iconographie, densité d'information, états d'alerte et
+  style des graphiques.
+- Orienter l'app vers une expérience "coach de performance" : sobre, précise,
+  crédible, orientée décision, avec des signaux visuels clairs pour charge,
+  récupération, progression et risque.
+- Produire un document `docs/superpowers/DESIGN.md` servant de référence avant tout
+  ajout UI : composants, couleurs sémantiques, cartes, badges, graphiques,
+  wording et règles responsive.
+- Harmoniser `/today`, `/history/[id]`, `/plan`, `/profile`, `/stats` autour de ce
+  langage visuel pour éviter une accumulation de blocs fonctionnels sans identité.
+- Critère produit : l'utilisateur doit reconnaître une application de coaching
+  sportif sérieuse, pas un dashboard générique Garmin-like.
 
 ### P0 — Cache et chargement rapide du briefing quotidien
 
