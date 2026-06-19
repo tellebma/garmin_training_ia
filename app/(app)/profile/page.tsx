@@ -98,6 +98,74 @@ function normalizePlannedSession(decision: CoachAdjustmentDecisionRow) {
   return plannedSession
 }
 
+function CoachDecisionStatusBadge({
+  decision,
+}: Readonly<{ decision: CoachAdjustmentDecisionRow['decision'] }>) {
+  const accepted = decision === 'accepted'
+  return (
+    <span
+      className={
+        accepted
+          ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400'
+          : 'bg-muted text-muted-foreground rounded-full px-3 py-1 text-xs font-medium'
+      }
+    >
+      {accepted ? 'Acceptée' : 'Ignorée'}
+    </span>
+  )
+}
+
+function CoachDecisionItem({ decision }: Readonly<{ decision: CoachAdjustmentDecisionRow }>) {
+  const plannedSession = normalizePlannedSession(decision)
+  return (
+    <li className="space-y-2 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">
+            {formatSport(plannedSession?.sport ?? null)} ·{' '}
+            {formatDate(plannedSession?.date ?? null)}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {formatSessionType(decision.original_session_type)} →{' '}
+            {formatSessionType(decision.suggested_session_type)}
+          </p>
+        </div>
+        <CoachDecisionStatusBadge decision={decision.decision} />
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Décision enregistrée le {formatDateTime(decision.created_at)}
+      </p>
+    </li>
+  )
+}
+
+function CoachAdjustmentDecisionsSection({
+  decisions,
+}: Readonly<{ decisions: CoachAdjustmentDecisionRow[] }>) {
+  return (
+    <section className="space-y-3 rounded-lg border p-6">
+      <div>
+        <h2 className="text-lg font-semibold">Décisions coach</h2>
+        <p className="text-muted-foreground text-sm">
+          Historique des adaptations proposées par le coach et de tes choix.
+        </p>
+      </div>
+
+      {decisions.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          Aucune adaptation acceptée ou ignorée pour le moment.
+        </p>
+      ) : (
+        <ul className="divide-y rounded-lg border">
+          {decisions.map((decision) => (
+            <CoachDecisionItem key={decision.id} decision={decision} />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export default async function ProfilePage() {
   const userId = await requireOnboarded()
 
@@ -238,55 +306,7 @@ export default async function ProfilePage() {
       <RaceEditForm initial={raceInitial} />
       <PerfEditForm initial={perfInitial} />
       <DispoEditForm initial={dispoInitial} />
-
-      <section className="space-y-3 rounded-lg border p-6">
-        <div>
-          <h2 className="text-lg font-semibold">Décisions coach</h2>
-          <p className="text-muted-foreground text-sm">
-            Historique des adaptations proposées par le coach et de tes choix.
-          </p>
-        </div>
-
-        {(adjustmentDecisions ?? []).length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            Aucune adaptation acceptée ou ignorée pour le moment.
-          </p>
-        ) : (
-          <ul className="divide-y rounded-lg border">
-            {(adjustmentDecisions ?? []).map((decision) => {
-              const plannedSession = normalizePlannedSession(decision)
-              return (
-                <li key={decision.id} className="space-y-2 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {formatSport(plannedSession?.sport ?? null)} ·{' '}
-                        {formatDate(plannedSession?.date ?? null)}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {formatSessionType(decision.original_session_type)} →{' '}
-                        {formatSessionType(decision.suggested_session_type)}
-                      </p>
-                    </div>
-                    <span
-                      className={
-                        decision.decision === 'accepted'
-                          ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400'
-                          : 'bg-muted text-muted-foreground rounded-full px-3 py-1 text-xs font-medium'
-                      }
-                    >
-                      {decision.decision === 'accepted' ? 'Acceptée' : 'Ignorée'}
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground text-xs">
-                    Décision enregistrée le {formatDateTime(decision.created_at)}
-                  </p>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </section>
+      <CoachAdjustmentDecisionsSection decisions={adjustmentDecisions ?? []} />
 
       <SignOutButton />
     </div>
