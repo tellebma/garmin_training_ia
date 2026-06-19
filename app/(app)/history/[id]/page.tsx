@@ -18,7 +18,8 @@ import { formatDistanceFromMeters, formatDuration, formatTSS } from '@/lib/dashb
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
-import type { PlannedSession, Sport } from '@/lib/dashboard/types'
+import type { ActivityFeedbackDto, PlannedSession, Sport } from '@/lib/dashboard/types'
+import { ActivityFeedbackForm } from './activity-feedback-form'
 
 export const revalidate = 300
 
@@ -97,53 +98,63 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
     new Date(activity.start_time).getTime() - 90 * 86_400_000
   ).toISOString()
 
-  const [plannedRes, similarRes, samplesRes, profileRes, upcomingRes] = await Promise.all([
-    supabase
-      .from('planned_sessions')
-      .select(
-        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes'
-      )
-      .eq('user_id', userId)
-      .eq('date', activityDate)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('activities')
-      .select(
-        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
-      )
-      .eq('user_id', userId)
-      .eq('sport', activity.sport)
-      .neq('id', activity.id)
-      .gte('start_time', ninetyDaysAgo)
-      .order('start_time', { ascending: false })
-      .limit(12),
-    supabase
-      .from('activity_samples')
-      .select(
-        'sample_index, sample_time, elapsed_s, distance_m, elevation_m, heart_rate_bpm, power_w, cadence_rpm, speed_m_s'
-      )
-      .eq('user_id', userId)
-      .eq('garmin_activity_id', activity.garmin_activity_id)
-      .order('sample_index', { ascending: true })
-      .limit(2000),
-    supabase.from('athlete_profiles').select('fc_max_bpm').eq('user_id', userId).maybeSingle(),
-    supabase
-      .from('planned_sessions')
-      .select(
-        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes'
-      )
-      .eq('user_id', userId)
-      .gt('date', activityDate)
-      .order('date', { ascending: true })
-      .limit(3),
-  ])
+  const [plannedRes, similarRes, samplesRes, profileRes, upcomingRes, feedbackRes] =
+    await Promise.all([
+      supabase
+        .from('planned_sessions')
+        .select(
+          'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes'
+        )
+        .eq('user_id', userId)
+        .eq('date', activityDate)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('activities')
+        .select(
+          'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
+        )
+        .eq('user_id', userId)
+        .eq('sport', activity.sport)
+        .neq('id', activity.id)
+        .gte('start_time', ninetyDaysAgo)
+        .order('start_time', { ascending: false })
+        .limit(12),
+      supabase
+        .from('activity_samples')
+        .select(
+          'sample_index, sample_time, elapsed_s, distance_m, elevation_m, heart_rate_bpm, power_w, cadence_rpm, speed_m_s'
+        )
+        .eq('user_id', userId)
+        .eq('garmin_activity_id', activity.garmin_activity_id)
+        .order('sample_index', { ascending: true })
+        .limit(2000),
+      supabase.from('athlete_profiles').select('fc_max_bpm').eq('user_id', userId).maybeSingle(),
+      supabase
+        .from('planned_sessions')
+        .select(
+          'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes'
+        )
+        .eq('user_id', userId)
+        .gt('date', activityDate)
+        .order('date', { ascending: true })
+        .limit(3),
+      supabase
+        .from('activity_feedback')
+        .select(
+          'activity_id, rpe, fatigue, soreness, pain, mood, perceived_difficulty, pain_area, comment, updated_at'
+        )
+        .eq('user_id', userId)
+        .eq('activity_id', activity.id)
+        .maybeSingle(),
+    ])
 
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
   const samples: ActivitySample[] = samplesRes.data ?? []
   const upcomingSessions: PlannedSession[] = upcomingRes.data ?? []
+  const activityFeedback: ActivityFeedbackDto | null = feedbackRes.data ?? null
   const profileData = profileRes.data as { fc_max_bpm?: unknown } | null
   const profileFcMax = typeof profileData?.fc_max_bpm === 'number' ? profileData.fc_max_bpm : null
   const fcMax: number | null = profileFcMax ?? activity.hr_max ?? null
@@ -200,6 +211,12 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
           </div>
         </div>
       </section>
+
+      <ActivityFeedbackForm
+        activityId={activity.id}
+        durationSeconds={activity.duration_s}
+        initialFeedback={activityFeedback}
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile icon={Timer} label="Durée" value={formatDuration(activity.duration_s)} />
