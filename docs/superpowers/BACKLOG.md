@@ -11,6 +11,51 @@ sportif, pas seulement d'un générateur de séances. Le système doit observer
 l'historique, identifier les tendances, expliquer les risques et proposer des
 ajustements concrets.
 
+### EPIC E9 — Cockpit de performance et suivi longitudinal
+
+**Priorité : P0 — Statut : en cours**
+
+Regrouper les données Garmin, le plan et le ressenti de l'athlète dans un cockpit
+qui répond chaque semaine à quatre questions : qu'est-ce qui a été réalisé,
+comment la charge a été assimilée, où l'athlète progresse et quelle décision
+prendre ensuite.
+
+- **E9.1 P0 — Cockpit hebdomadaire** : prévu vs réalisé, charge, durée, distance,
+  dénivelé, assiduité, répartition par zones et équilibre intensité/récupération.
+- **E9.2 P0 — Feedback subjectif** : RPE post-séance, fatigue, douleurs,
+  courbatures et humeur ; calcul de charge session-RPE et comparaison entre
+  difficulté prévue et ressentie.
+- **E9.3 P1 — Récupération individualisée** : tendances HRV, FC au repos,
+  sommeil, stress et Body Battery comparées à la baseline personnelle, avec
+  fraîcheur et niveau de confiance des données.
+- **E9.4 P1 — Progression par discipline** : efficacité allure/FC en course,
+  puissance/FC et FTP à vélo, performance en montée, métriques natation et
+  détection de progression, stagnation ou charge mal assimilée.
+- **E9.5 P1 — Analyse avancée d'activité** : tours/intervalles, temps en zones,
+  puissance normalisée, IF/VI, D+/D-, carte GPS et métriques Garmin spécialisées
+  lorsqu'elles sont disponibles.
+- **E9.6 P2 — Préparation objectif** : adéquation de l'entraînement aux exigences
+  de la course, évolution de la préparation, stratégie de pacing et priorités de
+  la semaine.
+
+Statut incrément 1 :
+
+- E9.1 V1 : `/stats` devient un cockpit filtrable sur 7, 28 et 90 jours et par
+  discipline, avec prévu/réalisé, assiduité, durée, TSS, activités hors plan,
+  détail hebdomadaire et lecture coach déterministe.
+- E9.2 V1 : migration RLS `activity_feedback`, saisie post-séance du RPE, fatigue,
+  courbatures, douleur, humeur et difficulté perçue, plus calcul session-RPE et
+  agrégation dans le cockpit.
+- Suite immédiate : consommer le feedback subjectif dans le briefing et les
+  ajustements, puis ajouter les baselines de récupération E9.3.
+
+Garde-fous : aucune métrique isolée ne doit être présentée comme un diagnostic ou
+une prédiction de blessure. Les recommandations combinent charge externe, charge
+interne, tendance individuelle et ressenti, tout en indiquant les données absentes.
+
+Spec et critères d'acceptation :
+`docs/superpowers/specs/2026-06-19-e9-performance-cockpit-design.md`.
+
 ### P0 — Recommandations sportives sourcées et auditables
 
 - Formaliser un référentiel de règles coach avec niveau de confiance, domaine

@@ -78,3 +78,18 @@ export interface HrvDto {
   hrv_status: string | null
   hrv_weekly_avg: number | null
 }
+
+export type PerceivedDifficulty = 'easier' | 'as_expected' | 'harder'
+
+export interface ActivityFeedbackDto {
+  activity_id: string
+  rpe: number
+  fatigue: number | null
+  soreness: number | null
+  pain: number | null
+  mood: number | null
+  perceived_difficulty: PerceivedDifficulty | null
+  pain_area: string | null
+  comment: string | null
+  updated_at: string
+}
