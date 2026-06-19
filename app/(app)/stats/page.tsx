@@ -1,4 +1,4 @@
-// app/(app)/stats/page.tsx
+import Link from 'next/link'
 import { Activity as ActivityIcon, HeartPulse, Moon } from 'lucide-react'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
@@ -6,113 +6,367 @@ import { ChartCard } from '../_components/chart-card'
 import { EmptyState } from '../_components/empty-state'
 import { BanisterChart } from '../_components/charts/banister-chart'
 import { HrvTrendChart } from '../_components/charts/hrv-trend-chart'
+import { PlannedActualChart } from '../_components/charts/planned-actual-chart'
 import { SleepTrendChart } from '../_components/charts/sleep-trend-chart'
-import { WeeklyVolumeChart } from '../_components/charts/weekly-volume-chart'
-import { computeWeeklyVolume } from '@/lib/dashboard/weekly-volume'
-import type { ActivityRowDto, BanisterPoint, HrvDto, SleepDto } from '@/lib/dashboard/types'
+import {
+  computePerformanceCockpit,
+  type CockpitSport,
+  type CoachSignalTone,
+} from '@/lib/dashboard/performance-cockpit'
+import { cn } from '@/lib/utils'
+import type {
+  ActivityFeedbackDto,
+  ActivityRowDto,
+  BanisterPoint,
+  HrvDto,
+  PlannedSession,
+  SleepDto,
+} from '@/lib/dashboard/types'
 
-// Stats sont dérivées des syncs Garmin (cron daily 5h UTC). Cache 1h
-// pour éviter de re-frapper Supabase à chaque ouverture / navigation.
-export const revalidate = 3600
+export const revalidate = 300
 
-export default async function StatsPage() {
+const ranges = [7, 28, 90] as const
+const sports: readonly { value: CockpitSport | 'all'; label: string }[] = [
+  { value: 'all', label: 'Tous' },
+  { value: 'swim', label: 'Natation' },
+  { value: 'bike', label: 'Vélo' },
+  { value: 'run', label: 'Course' },
+  { value: 'brick', label: 'Enchaîné' },
+]
+
+interface Props {
+  readonly searchParams: Promise<{ range?: string; sport?: string }>
+}
+
+function parseRange(value: string | undefined): (typeof ranges)[number] {
+  const parsed = Number(value)
+  return ranges.includes(parsed as (typeof ranges)[number]) ? (parsed as 7 | 28 | 90) : 28
+}
+
+function parseSport(value: string | undefined): CockpitSport | 'all' {
+  return sports.some((sport) => sport.value === value) ? (value as CockpitSport | 'all') : 'all'
+}
+
+function formatMinutes(value: number): string {
+  const hours = Math.floor(value / 60)
+  const minutes = value % 60
+  if (hours === 0) return `${String(minutes)} min`
+  if (minutes === 0) return `${String(hours)} h`
+  return `${String(hours)} h ${String(minutes).padStart(2, '0')}`
+}
+
+function ratioLabel(actual: number, planned: number): string {
+  if (planned <= 0) return actual > 0 ? 'Hors plan' : 'Aucune cible'
+  return `${String(Math.round((actual / planned) * 100))}% de la cible`
+}
+
+function signalClass(tone: CoachSignalTone): string {
+  if (tone === 'positive') return 'border-emerald-500/35 bg-emerald-500/5'
+  if (tone === 'watch') return 'border-amber-500/40 bg-amber-500/5'
+  return 'border-border bg-muted/30'
+}
+
+function sportLabel(sport: CockpitSport): string {
+  return sports.find((item) => item.value === sport)?.label ?? 'Autre'
+}
+
+function filterHref(range: number, sport: CockpitSport | 'all'): string {
+  return `/stats?range=${String(range)}&sport=${sport}`
+}
+
+function progressPercent(actual: number, planned: number): number {
+  if (planned > 0) return Math.min(100, Math.round((actual / planned) * 100))
+  return actual > 0 ? 100 : 0
+}
+
+export default async function StatsPage({ searchParams }: Props) {
   const userId = await requireOnboarded()
   const supabase = await createClient()
+  const params = await searchParams
+  const range = parseRange(params.range)
+  const selectedSport = parseSport(params.sport)
+  const now = new Date()
+  const startDate = new Date(now.getTime() - (range - 1) * 86_400_000).toISOString().slice(0, 10)
+  const today = now.toISOString().slice(0, 10)
 
-  // Server component runs once per request — Date.now() is deterministic here.
-  /* eslint-disable react-hooks/purity */
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
-  const twelveWeeksAgo = new Date(Date.now() - 84 * 86_400_000).toISOString().slice(0, 10)
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
-  /* eslint-enable react-hooks/purity */
-
-  const [banisterRes, activitiesRes, hrvRes, sleepRes] = await Promise.all([
-    supabase
-      .from('daily_banister_state')
-      .select('date, ctl, atl, tsb')
-      .eq('user_id', userId)
-      .gte('date', ninetyDaysAgo)
-      .order('date', { ascending: true }),
-    supabase
-      .from('activities')
-      .select(
-        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
-      )
-      .eq('user_id', userId)
-      .gte('start_time', twelveWeeksAgo),
-    supabase
-      .from('hrv')
-      .select('date, hrv_rmssd, hrv_status, hrv_weekly_avg')
-      .eq('user_id', userId)
-      .gte('date', thirtyDaysAgo)
-      .order('date', { ascending: true }),
-    supabase
-      .from('sleep')
-      .select('date, sleep_score, sleep_duration_s')
-      .eq('user_id', userId)
-      .gte('date', thirtyDaysAgo)
-      .order('date', { ascending: true }),
-  ])
+  const [banisterRes, activitiesRes, plannedRes, feedbackRes, hrvRes, sleepRes] = await Promise.all(
+    [
+      supabase
+        .from('daily_banister_state')
+        .select('date, ctl, atl, tsb')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .order('date', { ascending: true }),
+      supabase
+        .from('activities')
+        .select(
+          'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
+        )
+        .eq('user_id', userId)
+        .gte('start_time', `${startDate}T00:00:00Z`)
+        .lte('start_time', `${today}T23:59:59Z`),
+      supabase
+        .from('planned_sessions')
+        .select(
+          'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes'
+        )
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .lte('date', today),
+      supabase
+        .from('activity_feedback')
+        .select(
+          'activity_id, rpe, fatigue, soreness, pain, mood, perceived_difficulty, pain_area, comment, updated_at'
+        )
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+        .limit(500),
+      supabase
+        .from('hrv')
+        .select('date, hrv_rmssd, hrv_status, hrv_weekly_avg')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .order('date', { ascending: true }),
+      supabase
+        .from('sleep')
+        .select('date, sleep_score, sleep_duration_s')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .order('date', { ascending: true }),
+    ]
+  )
 
   const banister = (banisterRes.data ?? []) as BanisterPoint[]
   const activities = (activitiesRes.data ?? []) as ActivityRowDto[]
+  const plannedSessions = (plannedRes.data ?? []) as PlannedSession[]
+  const feedback = (feedbackRes.data ?? []) as ActivityFeedbackDto[]
   const hrv = (hrvRes.data ?? []) as HrvDto[]
   const sleep = (sleepRes.data ?? []) as SleepDto[]
-  const weeklyVolume = computeWeeklyVolume(activities, 12)
+  const cockpit = computePerformanceCockpit({
+    activities,
+    plannedSessions,
+    feedback,
+    days: range,
+    reference: now,
+    sport: selectedSport,
+  })
+  const adherenceLabel =
+    cockpit.adherencePercent === null ? '—' : `${String(cockpit.adherencePercent)}%`
+  const rpeLabel = cockpit.averageRpe === null ? '—' : `${cockpit.averageRpe.toFixed(1)}/10`
+  const feedbackLabel =
+    cockpit.feedbackCount > 0
+      ? `${String(cockpit.sessionRpeLoad)} u.a. sur ${String(cockpit.feedbackCount)} séance(s)`
+      : 'Ajoute ton RPE après une activité'
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Statistiques</h1>
+    <div className="space-y-8">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-muted-foreground text-sm">Suivi longitudinal</p>
+          <h1 className="text-2xl font-semibold">Cockpit de performance</h1>
+        </div>
+        <nav aria-label="Période d’analyse" className="flex gap-1 rounded-md border p-1">
+          {ranges.map((days) => (
+            <Link
+              key={days}
+              href={filterHref(days, selectedSport)}
+              aria-current={range === days ? 'page' : undefined}
+              className={cn(
+                'rounded px-3 py-1.5 text-sm font-medium transition-colors',
+                range === days ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
+              )}
+            >
+              {days} j
+            </Link>
+          ))}
+        </nav>
       </header>
 
-      <ChartCard title="Forme (90 jours)" description="CTL fitness · ATL fatigue · TSB forme">
-        {banister.length >= 14 ? (
+      <nav aria-label="Filtrer par discipline" className="flex gap-2 overflow-x-auto pb-1">
+        {sports.map((sport) => (
+          <Link
+            key={sport.value}
+            href={filterHref(range, sport.value)}
+            aria-current={selectedSport === sport.value ? 'page' : undefined}
+            className={cn(
+              'shrink-0 rounded-md border px-3 py-1.5 text-sm transition-colors',
+              selectedSport === sport.value
+                ? 'border-foreground bg-foreground text-background'
+                : 'hover:bg-accent'
+            )}
+          >
+            {sport.label}
+          </Link>
+        ))}
+      </nav>
+
+      <section className={cn('rounded-md border p-4', signalClass(cockpit.coachSignal.tone))}>
+        <p className="text-muted-foreground text-xs font-medium uppercase">Lecture coach</p>
+        <h2 className="mt-1 text-base font-semibold">{cockpit.coachSignal.title}</h2>
+        <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
+          {cockpit.coachSignal.summary}
+        </p>
+      </section>
+
+      <section aria-labelledby="execution-title">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 id="execution-title" className="text-lg font-semibold">
+              Exécution du plan
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              Du {startDate} au {today}
+            </p>
+          </div>
+          {cockpit.extraActivities > 0 && (
+            <p className="text-muted-foreground text-xs">
+              +{cockpit.extraActivities} activité{cockpit.extraActivities > 1 ? 's' : ''} hors plan
+            </p>
+          )}
+        </div>
+
+        <dl className="mt-4 grid border-y sm:grid-cols-2 lg:grid-cols-4">
+          <div className="py-4 sm:pr-4 lg:border-r">
+            <dt className="text-muted-foreground text-xs uppercase">Assiduité</dt>
+            <dd className="mt-1 text-2xl font-semibold">{adherenceLabel}</dd>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {cockpit.completedSessions}/{cockpit.plannedSessions} séances réalisées
+            </p>
+          </div>
+          <div className="border-t py-4 sm:border-t-0 sm:pl-4 lg:border-r lg:pr-4">
+            <dt className="text-muted-foreground text-xs uppercase">Durée</dt>
+            <dd className="mt-1 text-2xl font-semibold">
+              {formatMinutes(cockpit.actualDurationMin)}
+            </dd>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {ratioLabel(cockpit.actualDurationMin, cockpit.plannedDurationMin)}
+            </p>
+          </div>
+          <div className="border-t py-4 sm:pr-4 lg:border-t-0 lg:border-r lg:pl-4">
+            <dt className="text-muted-foreground text-xs uppercase">Charge TSS</dt>
+            <dd className="mt-1 text-2xl font-semibold">{cockpit.actualTss}</dd>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {ratioLabel(cockpit.actualTss, cockpit.plannedTss)}
+            </p>
+          </div>
+          <div className="border-t py-4 sm:pl-4 lg:border-t-0">
+            <dt className="text-muted-foreground text-xs uppercase">Ressenti</dt>
+            <dd className="mt-1 text-2xl font-semibold">{rpeLabel}</dd>
+            <p className="text-muted-foreground mt-1 text-xs">{feedbackLabel}</p>
+          </div>
+        </dl>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.65fr_1fr]">
+        <div>
+          <div className="mb-3">
+            <h2 className="text-base font-semibold">Durée prévue et réalisée</h2>
+            <p className="text-muted-foreground text-sm">Comparaison hebdomadaire en minutes</p>
+          </div>
+          {cockpit.weekly.some(
+            (week) => week.actualDurationMin > 0 || week.plannedDurationMin > 0
+          ) ? (
+            <PlannedActualChart data={cockpit.weekly} />
+          ) : (
+            <EmptyState
+              icon={ActivityIcon}
+              title="Aucune séance sur cette période"
+              description="Le cockpit se remplira après la prochaine activité ou mise à jour du plan."
+            />
+          )}
+        </div>
+
+        <div>
+          <div className="mb-3">
+            <h2 className="text-base font-semibold">Par discipline</h2>
+            <p className="text-muted-foreground text-sm">Durée réalisée par rapport à la cible</p>
+          </div>
+          {cockpit.disciplines.length > 0 ? (
+            <div className="divide-y border-y">
+              {cockpit.disciplines.map((discipline) => {
+                const percent = progressPercent(
+                  discipline.actualDurationMin,
+                  discipline.plannedDurationMin
+                )
+                return (
+                  <div key={discipline.sport} className="py-3">
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="font-medium">{sportLabel(discipline.sport)}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {formatMinutes(discipline.actualDurationMin)} /{' '}
+                        {formatMinutes(discipline.plannedDurationMin)}
+                      </span>
+                    </div>
+                    <div className="bg-muted mt-2 h-1.5 overflow-hidden rounded">
+                      <div
+                        className="bg-chart-2 h-full rounded"
+                        style={{ width: `${String(percent)}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-muted-foreground border-y py-6 text-sm">
+              Aucune discipline à comparer sur cette période.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section aria-labelledby="load-title" className="space-y-4">
+        <div>
+          <h2 id="load-title" className="text-lg font-semibold">
+            Charge et forme
+          </h2>
+          <p className="text-muted-foreground text-sm">CTL fitness, ATL fatigue et TSB forme</p>
+        </div>
+        {banister.length >= 7 ? (
           <BanisterChart data={banister} />
         ) : (
           <EmptyState
             icon={ActivityIcon}
-            title="Pas encore d'historique"
-            description="Reviens dans 1-2 semaines."
+            title="Historique de charge insuffisant"
+            description="Quelques jours supplémentaires sont nécessaires pour lire la tendance."
           />
         )}
-      </ChartCard>
+      </section>
 
-      <ChartCard title="Volume hebdomadaire" description="12 dernières semaines (min)">
-        {activities.length > 0 ? (
-          <WeeklyVolumeChart data={weeklyVolume} />
-        ) : (
-          <EmptyState
-            icon={ActivityIcon}
-            title="Pas encore d'activités"
-            description="Connecte Garmin et attends le prochain sync."
-          />
-        )}
-      </ChartCard>
-
-      <ChartCard title="HRV (30 jours)" description="Variabilité cardiaque nocturne">
-        {hrv.length > 0 ? (
-          <HrvTrendChart data={hrv} />
-        ) : (
-          <EmptyState
-            icon={HeartPulse}
-            title="HRV non disponible"
-            description="Ta montre Garmin ne renvoie pas de HRV."
-          />
-        )}
-      </ChartCard>
-
-      <ChartCard title="Sommeil (30 jours)" description="Score Garmin (objectif ≥ 80)">
-        {sleep.length > 0 ? (
-          <SleepTrendChart data={sleep} />
-        ) : (
-          <EmptyState
-            icon={Moon}
-            title="Sommeil non disponible"
-            description="Aucune donnée sleep synchronisée."
-          />
-        )}
-      </ChartCard>
+      <section aria-labelledby="recovery-title">
+        <div className="mb-4">
+          <h2 id="recovery-title" className="text-lg font-semibold">
+            Récupération
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            Tendances physiologiques, à interpréter avec ton ressenti
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ChartCard title="HRV" description={`${String(range)} derniers jours`}>
+            {hrv.length > 0 ? (
+              <HrvTrendChart data={hrv} />
+            ) : (
+              <EmptyState
+                icon={HeartPulse}
+                title="HRV non disponible"
+                description="Ta montre ne renvoie pas cette mesure."
+              />
+            )}
+          </ChartCard>
+          <ChartCard title="Sommeil" description={`${String(range)} derniers jours`}>
+            {sleep.length > 0 ? (
+              <SleepTrendChart data={sleep} />
+            ) : (
+              <EmptyState
+                icon={Moon}
+                title="Sommeil non disponible"
+                description="Aucune donnée de sommeil synchronisée."
+              />
+            )}
+          </ChartCard>
+        </div>
+      </section>
     </div>
   )
 }
