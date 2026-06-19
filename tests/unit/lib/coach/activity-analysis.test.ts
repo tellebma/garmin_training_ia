@@ -166,6 +166,55 @@ describe('buildActivityCoachAnalysis', () => {
     expect(analysis.tone).toBe('watch')
     expect(analysis.insights.join(' ')).toMatch(/activités similaires/)
   })
+
+  it('handles an activity without planned session or load metrics', () => {
+    const sparseActivity: ActivityDetail = {
+      ...baseActivity,
+      duration_s: null,
+      tss: null,
+      elevation_gain_m: null,
+      hr_avg: null,
+      power_avg: null,
+    }
+
+    const analysis = buildActivityCoachAnalysis({
+      activity: sparseActivity,
+      plannedSession: null,
+      similar: summarizeSimilarActivities([]),
+    })
+
+    expect(analysis.tone).toBe('positive')
+    expect(analysis.chartData.every((point) => point.planned === null)).toBe(true)
+  })
+
+  it.each([
+    ['running', 'run'],
+    ['cycling', 'bike'],
+    ['swimming', 'swim'],
+  ] as const)('recognizes Garmin sport alias %s as planned %s', (activitySport, plannedSport) => {
+    const analysis = buildActivityCoachAnalysis({
+      activity: { ...baseActivity, sport: activitySport },
+      plannedSession: { ...planned, sport: plannedSport },
+      similar: summarizeSimilarActivities([baseActivity]),
+    })
+
+    expect(analysis.title).not.toBe('Séance différente du plan')
+  })
+
+  it('does not add climb pacing advice for a non-endurance sport', () => {
+    const analysis = buildActivityCoachAnalysis({
+      activity: {
+        ...baseActivity,
+        sport: 'strength_training',
+        elevation_gain_m: 500,
+        hr_avg: 170,
+      },
+      plannedSession: null,
+      similar: summarizeSimilarActivities([]),
+    })
+
+    expect(analysis.recommendations.join(' ')).not.toMatch(/prochaines montées/)
+  })
 })
 
 describe('summarizeActivitySamples', () => {
@@ -280,6 +329,81 @@ describe('summarizeActivitySamples', () => {
     expect(flat?.speed_variability_pct).toBeGreaterThan(35)
     expect(summary.insights.join(' ')).toMatch(/Pacing irrégulier/)
     expect(summary.recommendations.join(' ')).toMatch(/régularité/)
+  })
+
+  it('returns stable defaults when no usable samples are available', () => {
+    const summary = summarizeActivitySamples([], null)
+
+    expect(summary.cardioDrift.signal).toBe('insufficient')
+    expect(summary.hrZones.every((zone) => zone.percent === 0)).toBe(true)
+    expect(summary.insights).toContain('Les samples ne montrent pas de dérive majeure à corriger.')
+    expect(summary.recommendations).toContain(
+      'Garde cette régularité et surveille surtout les sensations le lendemain.'
+    )
+  })
+
+  it('detects a moderate cardio drift as watch using distance ordering', () => {
+    const watchSamples: ActivitySample[] = [130, 130, 130, 136, 136, 136].map(
+      (heartRate, index) => ({
+        sample_index: index,
+        sample_time: null,
+        elapsed_s: null,
+        distance_m: index * 200,
+        elevation_m: null,
+        heart_rate_bpm: heartRate,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: 3,
+      })
+    )
+
+    const summary = summarizeActivitySamples(watchSamples, 190)
+
+    expect(summary.cardioDrift.signal).toBe('watch')
+    expect(summary.cardioDrift.drift_bpm).toBe(6)
+  })
+
+  it('ignores malformed or non-progressing terrain samples', () => {
+    const malformed: ActivitySample[] = [
+      {
+        sample_index: 0,
+        sample_time: null,
+        elapsed_s: null,
+        distance_m: null,
+        elevation_m: null,
+        heart_rate_bpm: null,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: null,
+      },
+      {
+        sample_index: 1,
+        sample_time: null,
+        elapsed_s: null,
+        distance_m: 0,
+        elevation_m: 100,
+        heart_rate_bpm: 120,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: 0,
+      },
+      {
+        sample_index: 2,
+        sample_time: null,
+        elapsed_s: null,
+        distance_m: 0,
+        elevation_m: 101,
+        heart_rate_bpm: 121,
+        power_w: null,
+        cadence_rpm: null,
+        speed_m_s: 0,
+      },
+    ]
+
+    const summary = summarizeActivitySamples(malformed, 190)
+
+    expect(summary.terrain.every((segment) => segment.distance_m === 0)).toBe(true)
+    expect(summary.cardioDrift.signal).toBe('insufficient')
   })
 })
 
