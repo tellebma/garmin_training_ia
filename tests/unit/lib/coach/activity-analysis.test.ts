@@ -6,6 +6,7 @@ import {
   summarizeSimilarActivities,
   type ActivityDetail,
   type ActivitySample,
+  type SampleCoachSummary,
 } from '@/lib/coach/activity-analysis'
 import type { PlannedSession } from '@/lib/dashboard/types'
 
@@ -225,6 +226,74 @@ describe('buildNextSessionAdjustment', () => {
     target_duration_s: 2400,
     target_tss: 25,
   }
+
+  const stableSummary: SampleCoachSummary = {
+    hrZones: [
+      { zone: 'Z1', label: 'Récupération', samples: 10, percent: 20 },
+      { zone: 'Z2', label: 'Endurance', samples: 40, percent: 80 },
+      { zone: 'Z3', label: 'Tempo', samples: 0, percent: 0 },
+      { zone: 'Z4', label: 'Seuil', samples: 0, percent: 0 },
+      { zone: 'Z5', label: 'Très intense', samples: 0, percent: 0 },
+    ],
+    terrain: [],
+    cardioDrift: {
+      signal: 'stable',
+      first_half_avg_hr_bpm: 135,
+      second_half_avg_hr_bpm: 136,
+      drift_bpm: 1,
+      drift_pct: 0.7,
+      first_half_avg_speed_kmh: 10,
+      second_half_avg_speed_kmh: 10,
+      speed_change_pct: 0,
+    },
+    insights: [],
+    recommendations: [],
+  }
+
+  it('keeps the plan when detailed activity data is unavailable', () => {
+    const adjustment = buildNextSessionAdjustment(null, [nextHardSession])
+
+    expect(adjustment.action).toBe('maintain')
+    expect(adjustment.targetSession?.id).toBe('next-hard')
+  })
+
+  it('protects rest when no future training session is planned', () => {
+    const restSession: PlannedSession = {
+      ...planned,
+      id: 'next-rest',
+      date: '2026-06-15',
+      sport: 'rest',
+      session_type: 'rest',
+      target_duration_s: 0,
+      target_tss: 0,
+    }
+
+    const adjustment = buildNextSessionAdjustment(stableSummary, [restSession])
+
+    expect(adjustment.action).toBe('protect_rest')
+    expect(adjustment.targetSession).toBeNull()
+  })
+
+  it('reduces the intention of a hard session after one load signal', () => {
+    const oneSignalSummary: SampleCoachSummary = {
+      ...stableSummary,
+      hrZones: stableSummary.hrZones.map((zone) =>
+        zone.zone === 'Z4' ? { ...zone, samples: 20, percent: 40 } : zone
+      ),
+    }
+
+    const adjustment = buildNextSessionAdjustment(oneSignalSummary, [nextHardSession])
+
+    expect(adjustment.action).toBe('ease')
+    expect(adjustment.title).toBe('Réduire l’intention')
+  })
+
+  it('maintains the next session when detailed signals are stable', () => {
+    const adjustment = buildNextSessionAdjustment(stableSummary, [nextHardSession])
+
+    expect(adjustment.action).toBe('maintain')
+    expect(adjustment.title).toBe('Suite cohérente')
+  })
 
   it('replaces a hard next session after multiple costly signals', () => {
     const costlySamples: ActivitySample[] = [130, 132, 134, 136, 165, 168, 170, 172].map(
