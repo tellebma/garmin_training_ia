@@ -61,6 +61,72 @@ describe('ActivityFeedbackForm', () => {
     expect(screen.getByLabelText('Zone concernée')).toBeTruthy()
   })
 
+  it('saves detailed subjective feedback', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityFeedbackForm
+        activityId="8f9dce34-c156-4b0f-90c2-ee55acb1d4b0"
+        durationSeconds={2700}
+        initialFeedback={null}
+      />
+    )
+
+    const fatigueGroup = screen.getByRole('group', { name: /Fatigue/ })
+    await user.click(within(fatigueGroup).getByRole('button', { name: '4' }))
+    await user.click(within(fatigueGroup).getByRole('button', { name: '4' }))
+    await user.click(within(fatigueGroup).getByRole('button', { name: '3' }))
+    await user.click(
+      within(screen.getByRole('group', { name: /Courbatures/ })).getByRole('button', {
+        name: '2',
+      })
+    )
+    await user.click(
+      within(screen.getByRole('group', { name: /Douleur ou gêne/ })).getByRole('button', {
+        name: '1',
+      })
+    )
+    await user.click(
+      within(screen.getByRole('group', { name: /Humeur/ })).getByRole('button', { name: '5' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Plus difficile' }))
+    await user.type(screen.getByLabelText('Zone concernée'), 'mollet gauche')
+    await user.type(screen.getByLabelText(/Note libre/), 'Fatigue sur la fin')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    await waitFor(() => {
+      expect(saveActivityFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fatigue: 3,
+          soreness: 2,
+          pain: 1,
+          mood: 5,
+          perceivedDifficulty: 'harder',
+          painArea: 'mollet gauche',
+          comment: 'Fatigue sur la fin',
+        })
+      )
+    })
+  })
+
+  it('announces a save failure', async () => {
+    const user = userEvent.setup()
+    saveActivityFeedback.mockResolvedValueOnce({ success: false, error: 'db unavailable' })
+    render(
+      <ActivityFeedbackForm
+        activityId="8f9dce34-c156-4b0f-90c2-ee55acb1d4b0"
+        durationSeconds={null}
+        initialFeedback={null}
+      />
+    )
+
+    expect(screen.queryByText(/Charge ressentie/)).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Enregistrement impossible. Réessaie dans un instant.'
+    )
+  })
+
   it('loads and updates an existing feedback', () => {
     render(
       <ActivityFeedbackForm

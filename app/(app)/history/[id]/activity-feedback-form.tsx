@@ -133,7 +133,7 @@ export function ActivityFeedbackForm({
         )}
       </div>
 
-      <form className="mt-5 space-y-5" onSubmit={submit}>
+      <form id="activity-feedback-form" className="mt-5 space-y-5" onSubmit={submit}>
         <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr_1fr]">
           <ScaleControl
             label="Effort global (RPE)"
@@ -242,13 +242,14 @@ export function ActivityFeedbackForm({
             {submitLabel(pending, initialFeedback !== null)}
           </Button>
           {status === 'saved' && (
-            <p
-              role="status"
+            <output
+              htmlFor="activity-feedback-form"
+              aria-live="polite"
               className="text-muted-foreground inline-flex items-center gap-1 text-sm"
             >
               <Check className="text-emerald-600" size={16} />
               Ressenti enregistré
-            </p>
+            </output>
           )}
           {status === 'error' && (
             <p role="alert" className="text-destructive text-sm">
