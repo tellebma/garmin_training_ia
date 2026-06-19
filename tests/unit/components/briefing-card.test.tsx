@@ -1,11 +1,22 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BriefingCard } from '@/app/(app)/_components/briefing-card'
+import { NextSessionAdjustmentActions } from '@/app/(app)/_components/next-session-adjustment-actions'
+import { applySessionAdjustment, ignoreSessionAdjustment } from '@/app/actions/sessions'
 import type { DailyBriefing } from '@/lib/coach/briefing-types'
+
+vi.mock('@/app/actions/sessions', () => ({
+  applySessionAdjustment: vi.fn(),
+  ignoreSessionAdjustment: vi.fn(),
+}))
+
+const applyMock = vi.mocked(applySessionAdjustment)
+const ignoreMock = vi.mocked(ignoreSessionAdjustment)
 
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
 })
 
 describe('BriefingCard', () => {
@@ -63,6 +74,21 @@ describe('BriefingCard', () => {
         rationale: 'Le cumul recent demande une seance plus facile.',
         instruction: 'Rester en endurance fondamentale.',
       },
+      next_session_adjustment: {
+        status: 'suggested',
+        action: 'replace_with_recovery',
+        title: 'Remplacer la séance dure',
+        rationale: 'La derniere seance etait plus intense que prevu.',
+        instruction: 'Passer en récupération active avant de reprendre le plan.',
+        target_session: {
+          id: 'session-1',
+          sport: 'run',
+          session_type: 'intervals',
+          target_duration_s: 3600,
+          target_tss: 75,
+        },
+        suggested_session_type: 'recovery',
+      },
     }
 
     render(<BriefingCard briefing={briefing} />)
@@ -71,11 +97,54 @@ describe('BriefingCard', () => {
     expect(screen.getByText(/Vigilance · 72\/100/)).toBeTruthy()
     expect(screen.getByText('Alleger la journee')).toBeTruthy()
     expect(screen.getByText('Retour post-séance')).toBeTruthy()
-    expect(screen.getByText(/plus intense que prevu/)).toBeTruthy()
+    expect(screen.getAllByText(/plus intense que prevu/)).toHaveLength(2)
     expect(screen.getByText('Revue des activités')).toBeTruthy()
     expect(screen.getByText(/4 activités · 430 TSS · 1200 m D\+/)).toBeTruthy()
     expect(screen.getByText('La charge hebdo monte vite.')).toBeTruthy()
     expect(screen.getByText('Adaptation proposée')).toBeTruthy()
     expect(screen.getByText('Raccourcir la seance et rester facile.')).toBeTruthy()
+    expect(screen.getByText('Remplacer la séance dure')).toBeTruthy()
+    expect(screen.getByText(/intervals/)).toBeTruthy()
+    expect(screen.getByText(/recovery/)).toBeTruthy()
+    expect(screen.getByText('Accepter')).toBeTruthy()
+    expect(screen.getByText('Ignorer')).toBeTruthy()
+  })
+})
+
+describe('NextSessionAdjustmentActions', () => {
+  it('applies the suggested adjustment and confirms success', async () => {
+    applyMock.mockResolvedValue({ success: true, data: { status: 'ok' } })
+
+    render(<NextSessionAdjustmentActions sessionId="session-1" suggestedSessionType="recovery" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Accepter' }))
+
+    await waitFor(() => {
+      expect(applyMock).toHaveBeenCalledWith('session-1', 'recovery')
+      expect(screen.getByText('Ajustement appliqué.')).toBeTruthy()
+    })
+  })
+
+  it('ignores the suggestion and confirms the decision', async () => {
+    ignoreMock.mockResolvedValue({ success: true, data: { status: 'ok' } })
+
+    render(<NextSessionAdjustmentActions sessionId="session-2" suggestedSessionType="endurance" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ignorer' }))
+
+    await waitFor(() => {
+      expect(ignoreMock).toHaveBeenCalledWith('session-2', 'endurance')
+      expect(screen.getByText('Suggestion ignorée pour le moment.')).toBeTruthy()
+    })
+  })
+
+  it('shows the action error and keeps the controls available', async () => {
+    applyMock.mockResolvedValue({ success: false, error: 'session_not_found' })
+
+    render(<NextSessionAdjustmentActions sessionId="missing" suggestedSessionType="recovery" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Accepter' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('session_not_found')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Accepter' })).toBeTruthy()
+    })
   })
 })

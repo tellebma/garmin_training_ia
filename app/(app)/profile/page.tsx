@@ -3,6 +3,10 @@ import { SignOutButton } from '@/components/auth/sign-out-button'
 import { Button } from '@/components/ui/button'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import {
+  CoachAdjustmentDecisionsSection,
+  type CoachAdjustmentDecisionRow,
+} from './_components/coach-adjustment-decisions-section'
 import { PersoEditForm } from './_components/perso-edit-form'
 import { RaceEditForm } from './_components/race-edit-form'
 import { PerfEditForm } from './_components/perf-edit-form'
@@ -60,28 +64,38 @@ export default async function ProfilePage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: race }, { data: garmin }] = await Promise.all([
-    supabase
-      .from('athlete_profiles')
-      .select(
-        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_synced_at, available_days, hours_per_week, sports_strengths'
-      )
-      .eq('user_id', userId)
-      .single<AthleteProfileRow>(),
-    supabase
-      .from('race_goals')
-      .select('race_date, discipline, name, location, target_time_seconds, legs')
-      .eq('user_id', userId)
-      .eq('is_primary', true)
-      .maybeSingle<RaceGoalRow>(),
-    supabase
-      .from('garmin_credentials')
-      .select(
-        'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
-      )
-      .eq('user_id', userId)
-      .maybeSingle<GarminCredentialsRow>(),
-  ])
+  const [{ data: profile }, { data: race }, { data: garmin }, { data: adjustmentDecisions }] =
+    await Promise.all([
+      supabase
+        .from('athlete_profiles')
+        .select(
+          'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, garmin_synced_at, available_days, hours_per_week, sports_strengths'
+        )
+        .eq('user_id', userId)
+        .single<AthleteProfileRow>(),
+      supabase
+        .from('race_goals')
+        .select('race_date, discipline, name, location, target_time_seconds, legs')
+        .eq('user_id', userId)
+        .eq('is_primary', true)
+        .maybeSingle<RaceGoalRow>(),
+      supabase
+        .from('garmin_credentials')
+        .select(
+          'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
+        )
+        .eq('user_id', userId)
+        .maybeSingle<GarminCredentialsRow>(),
+      supabase
+        .from('coach_adjustment_decisions')
+        .select(
+          'id, planned_session_id, original_session_type, suggested_session_type, decision, source, created_at, planned_sessions(date, sport, session_type)'
+        )
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10)
+        .overrideTypes<CoachAdjustmentDecisionRow[], { merge: false }>(),
+    ])
 
   const garminConnected = garmin !== null
   const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
@@ -182,6 +196,7 @@ export default async function ProfilePage() {
       <RaceEditForm initial={raceInitial} />
       <PerfEditForm initial={perfInitial} />
       <DispoEditForm initial={dispoInitial} />
+      <CoachAdjustmentDecisionsSection decisions={adjustmentDecisions ?? []} />
 
       <SignOutButton />
     </div>

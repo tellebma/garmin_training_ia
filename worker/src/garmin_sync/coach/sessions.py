@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
+from garmin_sync.coach.briefing import build_next_session_adjustment
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
 from garmin_sync.supabase_client import get_admin_client
 
@@ -87,10 +88,27 @@ def _activity_review_note(activity_review: ActivityReview) -> str:
     return " Revue coach récente : " + " ".join(insights)
 
 
+def _next_session_adjustment_note(session: dict[str, Any], activity_review: ActivityReview) -> str:
+    adjustment = build_next_session_adjustment(
+        planned_session=session,
+        suggested_session=None,
+        activity_review=activity_review,
+        session_feedback=None,
+    )
+    if adjustment.status != "suggested":
+        return ""
+    return (
+        " Ajustement coach proposé avant génération : "
+        f"{adjustment.title}. {adjustment.rationale} {adjustment.instruction}"
+    )
+
+
 def _session_with_activity_review_note(
     session: dict[str, Any], activity_review: ActivityReview
 ) -> dict[str, Any]:
-    note = _activity_review_note(activity_review)
+    note = _activity_review_note(activity_review) + _next_session_adjustment_note(
+        session, activity_review
+    )
     if not note:
         return session
     return {

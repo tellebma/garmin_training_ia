@@ -24,6 +24,26 @@ export interface CoachRecommendation {
   instruction: string
 }
 
+export type PlanAdjustmentAction = 'maintain' | 'ease' | 'replace_with_recovery' | 'protect_rest'
+
+export interface NextSessionAdjustment {
+  status: 'none' | 'suggested'
+  action: PlanAdjustmentAction
+  title: string
+  rationale: string
+  instruction: string
+  target_session: {
+    id?: string
+    date?: string
+    sport?: string
+    session_type?: string
+    target_duration_s?: number | null
+    target_tss?: number | null
+    phase?: string
+  } | null
+  suggested_session_type: string | null
+}
+
 export type ActivityInsightSeverity = 'positive' | 'watch' | 'risk'
 
 export interface ActivityInsight {
@@ -76,6 +96,7 @@ export interface DailyBriefing {
   activity_review: ActivityReview
   last_session_feedback: SessionFeedback | null
   coach_recommendation: CoachRecommendation
+  next_session_adjustment: NextSessionAdjustment
 }
 
 export type BriefingResponse =

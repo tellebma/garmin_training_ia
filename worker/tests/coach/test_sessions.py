@@ -165,7 +165,7 @@ def test_ensure_sessions_passes_activity_review_to_generation(mock_db, mock_gen,
         {
             "id": "s1",
             "sport": "run",
-            "session_type": "endurance",
+            "session_type": "intervals",
             "target_duration_s": 3000,
             "target_tss": 50,
             "phase": "base",
@@ -211,6 +211,8 @@ def test_ensure_sessions_passes_activity_review_to_generation(mock_db, mock_gen,
     assert call_kwargs["race_context"]["activity_review"]["activities_7d"] == 2
     assert "coach_context" in call_kwargs["session"]
     assert "Charge récente" in call_kwargs["session"]["coach_context"]
+    assert "Ajustement coach proposé" in call_kwargs["session"]["coach_context"]
+    assert "baisse l'intensité" in call_kwargs["session"]["coach_context"]
 
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
