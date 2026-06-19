@@ -49,6 +49,15 @@ describe('getDailyBriefing', () => {
         rationale: 'ok',
         instruction: 'Reste dans les zones.',
       },
+      next_session_adjustment: {
+        status: 'none',
+        action: 'maintain',
+        title: 'Plan maintenu',
+        rationale: 'ok',
+        instruction: 'Suis la séance prévue.',
+        target_session: null,
+        suggested_session_type: null,
+      },
     })
     const { getDailyBriefing } = await import('@/app/actions/briefing')
     const r = await getDailyBriefing()

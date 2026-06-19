@@ -42,6 +42,17 @@ def fake_garmin_client() -> MagicMock:
         "dateWeightList": [{"calendarDate": "2026-05-15", "weight": 70000}],
         "totalAverage": {},
     }
+    client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {
+                "metrics": [
+                    {"key": "sumElapsedDuration", "value": 0},
+                    {"key": "sumDistance", "value": 0},
+                    {"key": "directHeartRate", "value": 140},
+                ]
+            }
+        ]
+    }
     return client
 
 
@@ -63,7 +74,55 @@ def test_sync_user_inserts_each_table(
 
     # 5 tables touched
     tables_touched = {call.args[0] for call in fake_admin_client.table.call_args_list}
-    assert tables_touched >= {"activities", "daily_metrics", "sleep", "hrv", "body_composition"}
+    assert tables_touched >= {
+        "activities",
+        "activity_samples",
+        "daily_metrics",
+        "sleep",
+        "hrv",
+        "body_composition",
+    }
+
+
+def test_sync_user_fetches_missing_activity_samples(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    fake_garmin_client.get_activity_details.assert_called_once_with("1")
+    sample_table = fake_admin_client.table.return_value
+    upsert_calls = sample_table.upsert.call_args_list
+    assert any(
+        call.kwargs.get("on_conflict") == "user_id,garmin_activity_id,sample_index"
+        for call in upsert_calls
+    )
+
+
+def test_sync_user_skips_existing_activity_samples(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    table = fake_admin_client.table.return_value
+    table.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = [
+        {"garmin_activity_id": 1}
+    ]
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    fake_garmin_client.get_activity_details.assert_not_called()
 
 
 def test_sync_user_continues_when_one_endpoint_fails(

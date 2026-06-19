@@ -119,7 +119,9 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         <>
           <div className="rounded-lg border">
             {activities.map((a) => (
-              <ActivityRow key={a.id} activity={a} className="px-3" />
+              <Link key={a.id} href={`/history/${a.id}`} className="block">
+                <ActivityRow activity={a} className="px-3" />
+              </Link>
             ))}
           </div>
           <div className="flex items-center justify-between">

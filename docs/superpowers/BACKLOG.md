@@ -11,6 +11,24 @@ sportif, pas seulement d'un générateur de séances. Le système doit observer
 l'historique, identifier les tendances, expliquer les risques et proposer des
 ajustements concrets.
 
+### P0 — Recommandations sportives sourcées et auditables
+
+- Formaliser un référentiel de règles coach avec niveau de confiance, domaine
+  d'application et sources scientifiques ou consensus d'entraînement.
+- Séparer clairement les recommandations robustes (progressivité de charge,
+  alternance intensité/récupération, sommeil/HRV comme signal de prudence) des
+  hypothèses à faible confiance.
+- Ajouter dans le worker une trace `evidence_key` ou `rule_id` sur les décisions
+  importantes : allègement, repos conseillé, garde-fou séance dure, progression
+  hebdomadaire limitée.
+- Côté UI, afficher une explication simple plutôt qu'une citation académique brute :
+  "on protège la récupération car charge + HRV sont défavorables".
+- Critère coach : toute recommandation impactant charge, intensité ou repos doit
+  être justifiable par une règle lisible et reliée à une source ou un principe
+  d'entraînement reconnu.
+- Suite : créer `docs/superpowers/specs/coach-evidence.md` avec les règles V1,
+  leurs sources, leurs seuils et leurs limites.
+
 ### P0 — Revue des activités précédentes avant recommandation — V1 livrée
 
 - Analyser les 7, 28 et 90 derniers jours avant de générer ou ajuster une séance.
@@ -121,6 +139,44 @@ ajustements concrets.
   l'objectif initial.
 - Critère coach : l'utilisateur doit comprendre si l'activité l'a fait progresser,
   l'a fatigué inutilement, ou doit modifier la prochaine séance.
+- Statut V1 : les activités de `/history` sont ouvrables via `/history/[id]`.
+  La fiche affiche les métriques disponibles, une analyse coach déterministe,
+  des recommandations pour les prochaines séances, la comparaison à la séance
+  planifiée du même jour et une comparaison graphique avec les activités similaires.
+- Statut V1 action 2 : le worker récupère les détails Garmin manquants via
+  `get_activity_details`, stocke les samples dans `activity_samples`, et la fiche
+  activité affiche les courbes temporelles quand les samples sont disponibles.
+- Statut V1 action 3 : la fiche activité calcule désormais les zones cardio à partir
+  des samples et segmente l'effort en montée / plat / descente avec distance, pente,
+  FC moyenne et vitesse moyenne. Les recommandations coach utilisent ces signaux
+  pour pointer une intensité trop élevée ou une montée prise trop haut en cardio.
+- Statut V1 action 4 : la fiche activité détecte la dérive cardio entre première et
+  seconde moitié, affiche l'évolution FC/vitesse et mesure la variabilité de vitesse
+  par terrain pour signaler un pacing irrégulier.
+- Statut V1 action 5 : la fiche activité relie les signaux détaillés aux prochaines
+  séances planifiées et propose maintien, allègement, récupération active ou repos
+  protégé selon le coût observé.
+- Statut V1 action 6 : le briefing quotidien expose maintenant
+  `next_session_adjustment` avec statut visible, séance ciblée et adaptation
+  proposée avant toute modification réelle du plan.
+- Statut V1 action 7 : les générations et régénérations de séance reçoivent le
+  signal d'ajustement coach dans leur contexte LLM pour produire une séance plus
+  facile quand les activités récentes rendent une séance dure risquée.
+- Statut V1 action 8 : le briefing affiche des actions Accepter / Ignorer. La séance
+  stockée n'est modifiée qu'après acceptation utilisateur, avec effacement du workout
+  existant pour relancer une génération cohérente.
+- Statut V1 action 9 : les acceptations/refus sont persistés dans
+  `coach_adjustment_decisions`, et le briefing ne repropose plus le même ajustement
+  pour une séance déjà traitée.
+- Statut V1 action 10 : le profil expose maintenant l'historique des dernières
+  décisions coach acceptées ou ignorées, avec la séance concernée, l'adaptation
+  proposée et la date d'enregistrement.
+- Statut V1 action 11 : le briefing applique un garde-fou explicite quand une
+  séance dure tombe sur un signal de récupération défavorable (HRV, sommeil, TSB,
+  charge récente ou feedback de séance), ce qui pousse l'ajustement vers une séance
+  allégée avant d'empiler de l'intensité.
+- Suite : enrichir ces garde-fous avec une analyse de progression hebdomadaire par
+  discipline, en particulier pour limiter les hausses trop rapides en course à pied.
 
 ### P1 — Garde-fous santé/performance
 
@@ -150,6 +206,22 @@ ajustements concrets.
 - Permettre à l'utilisateur de comprendre pourquoi une séance est allégée ou déplacée.
 
 ## Qualité / plateforme
+
+### P0 — Identité numérique et style graphique coach
+
+- Définir une identité visuelle stable : personnalité de marque, ton éditorial,
+  palette, typographies, iconographie, densité d'information, états d'alerte et
+  style des graphiques.
+- Orienter l'app vers une expérience "coach de performance" : sobre, précise,
+  crédible, orientée décision, avec des signaux visuels clairs pour charge,
+  récupération, progression et risque.
+- Produire un document `docs/superpowers/DESIGN.md` servant de référence avant tout
+  ajout UI : composants, couleurs sémantiques, cartes, badges, graphiques,
+  wording et règles responsive.
+- Harmoniser `/today`, `/history/[id]`, `/plan`, `/profile`, `/stats` autour de ce
+  langage visuel pour éviter une accumulation de blocs fonctionnels sans identité.
+- Critère produit : l'utilisateur doit reconnaître une application de coaching
+  sportif sérieuse, pas un dashboard générique Garmin-like.
 
 ### P0 — Cache et chargement rapide du briefing quotidien
 

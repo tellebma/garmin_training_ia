@@ -4,6 +4,7 @@ import type {
   DailyBriefing,
   ReadinessStatus,
 } from '@/lib/coach/briefing-types'
+import { NextSessionAdjustmentActions } from './next-session-adjustment-actions'
 
 const STATUS_LABEL: Record<ReadinessStatus, string> = {
   ready: 'En forme',
@@ -42,6 +43,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
     activity_review,
     last_session_feedback,
     coach_recommendation,
+    next_session_adjustment,
   } = briefing
   const insights = activity_review.insights.slice(0, 4)
   return (
@@ -86,6 +88,32 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
               </>
             )}
           </p>
+        </div>
+      )}
+      {next_session_adjustment.status === 'suggested' && (
+        <div className="bg-background mt-3 rounded-md border p-3 text-sm">
+          <p className="text-foreground font-medium">{next_session_adjustment.title}</p>
+          <p className="text-muted-foreground mt-1">{next_session_adjustment.rationale}</p>
+          <p className="text-foreground mt-2">{next_session_adjustment.instruction}</p>
+          {next_session_adjustment.target_session && (
+            <p className="text-muted-foreground mt-2 text-xs">
+              Cible :{' '}
+              <span className="text-foreground font-semibold">
+                {next_session_adjustment.target_session.sport ?? 'séance'}
+              </span>{' '}
+              · {next_session_adjustment.target_session.session_type ?? 'à ajuster'}
+              {next_session_adjustment.suggested_session_type && (
+                <> -&gt; {next_session_adjustment.suggested_session_type}</>
+              )}
+            </p>
+          )}
+          {next_session_adjustment.target_session?.id &&
+            next_session_adjustment.suggested_session_type && (
+              <NextSessionAdjustmentActions
+                sessionId={next_session_adjustment.target_session.id}
+                suggestedSessionType={next_session_adjustment.suggested_session_type}
+              />
+            )}
         </div>
       )}
       {insights.length > 0 && (

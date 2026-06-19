@@ -186,3 +186,33 @@ jobs:
             | jq -r '.component.measures[0].value // "0"') # gitleaks:allow
           echo "Global coverage: ${COVERAGE}%"
           awk -v c="$COVERAGE" 'BEGIN { exit (c+0 < 90) ? 1 : 0 }'
+
+  tag-main:
+    name: Tag validated main build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, typecheck, test-unit, test-worker, build, audit, secrets, no-emoji, sonarqube]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create and push build tag
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' package.json)
+          SHORT_SHA=${SHA:0:7}
+          TAG="main-v${VERSION}-build.${RUN_NUMBER}"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Validated main build ${SHORT_SHA}"
+          git push origin "$TAG"
+          echo "Created tag: $TAG"

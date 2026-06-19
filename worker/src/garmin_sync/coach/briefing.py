@@ -17,6 +17,8 @@ from garmin_sync.supabase_client import get_admin_client
 
 Status = Literal["ready", "caution", "rest_advised"]
 RecommendationAction = Literal["maintain", "ease", "rest", "caution"]
+PlanAdjustmentAction = Literal["maintain", "ease", "replace_with_recovery", "protect_rest"]
+PlanAdjustmentStatus = Literal["none", "suggested"]
 
 # Reused by the per-table loaders below to type-narrow the Supabase response.
 type _RowT = dict[str, Any] | None
@@ -25,7 +27,7 @@ type _RowT = dict[str, Any] | None
 READY_MIN = 70
 CAUTION_MIN = 40
 BASELINE_SCORE = 80
-BRIEFING_CACHE_VERSION = "daily-briefing:v1"
+BRIEFING_CACHE_VERSION = "daily-briefing:v3"
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +80,30 @@ class CoachRecommendation:
 
 
 @dataclass(frozen=True)
+class NextSessionAdjustment:
+    """Visible plan adjustment suggestion before any plan mutation."""
+
+    status: PlanAdjustmentStatus
+    action: PlanAdjustmentAction
+    title: str
+    rationale: str
+    instruction: str
+    target_session: dict[str, Any] | None
+    suggested_session_type: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "action": self.action,
+            "title": self.title,
+            "rationale": self.rationale,
+            "instruction": self.instruction,
+            "target_session": self.target_session,
+            "suggested_session_type": self.suggested_session_type,
+        }
+
+
+@dataclass(frozen=True)
 class DailyBriefing:
     """Full briefing payload returned by /coach/daily-briefing."""
 
@@ -91,6 +117,7 @@ class DailyBriefing:
     activity_review: ActivityReview
     last_session_feedback: SessionFeedback | None
     coach_recommendation: CoachRecommendation
+    next_session_adjustment: NextSessionAdjustment
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -117,6 +144,7 @@ class DailyBriefing:
                 self.last_session_feedback.to_dict() if self.last_session_feedback else None
             ),
             "coach_recommendation": self.coach_recommendation.to_dict(),
+            "next_session_adjustment": self.next_session_adjustment.to_dict(),
         }
 
 
@@ -312,6 +340,216 @@ def build_coach_recommendation(
     )
 
 
+def _hard_session(session: dict[str, Any] | None) -> bool:
+    if not session:
+        return False
+    return str(session.get("session_type") or "") in {"threshold", "intervals", "long", "race"}
+
+
+def _hard_session_guardrail_factors(
+    planned_session: dict[str, Any] | None,
+    factors: list[ReadinessFactor],
+) -> list[ReadinessFactor]:
+    """Add a coach guardrail when a hard session meets unfavorable recovery signals."""
+    if not _hard_session(planned_session):
+        return []
+    if str((planned_session or {}).get("session_type") or "") == "race":
+        return []
+
+    unfavorable = [
+        factor
+        for factor in factors
+        if factor.impact <= -8
+        and factor.name.startswith(
+            (
+                "hrv_",
+                "sleep_",
+                "tsb_",
+                "body_battery_",
+                "activity_",
+                "session_feedback_",
+            )
+        )
+    ]
+    if not unfavorable:
+        return []
+
+    return [
+        ReadinessFactor(
+            "hard_session_guardrail",
+            -10,
+            "Séance dure prévue alors qu'un signal de récupération est défavorable.",
+        )
+    ]
+
+
+def _adjustment_from_readiness_suggestion(
+    planned_session: dict[str, Any],
+    suggested_session: SuggestedSession | None,
+) -> NextSessionAdjustment | None:
+    if not suggested_session:
+        return None
+    action: PlanAdjustmentAction = (
+        "protect_rest" if suggested_session.session_type == "rest" else "ease"
+    )
+    return NextSessionAdjustment(
+        status="suggested",
+        action=action,
+        title="Ajustement proposé avant modification du plan",
+        rationale=suggested_session.note,
+        instruction="Valide l'adaptation seulement si les sensations confirment la fatigue.",
+        target_session=planned_session,
+        suggested_session_type=suggested_session.session_type,
+    )
+
+
+def _adjustment_from_session_feedback(
+    planned_session: dict[str, Any],
+    planned_type: str,
+    session_feedback: SessionFeedback | None,
+) -> NextSessionAdjustment | None:
+    if not session_feedback or session_feedback.severity != "risk":
+        return None
+    if planned_type == "rest":
+        return NextSessionAdjustment(
+            status="suggested",
+            action="protect_rest",
+            title="Repos à protéger",
+            rationale=session_feedback.message,
+            instruction=(
+                "Ne compense pas l'activité précédente : garde ce repos comme une séance utile."
+            ),
+            target_session=planned_session,
+            suggested_session_type="rest",
+        )
+    if not _hard_session(planned_session):
+        return None
+    return NextSessionAdjustment(
+        status="suggested",
+        action="replace_with_recovery",
+        title="Remplacer la séance dure",
+        rationale=session_feedback.message,
+        instruction=(
+            "Passe en endurance facile ou récupération active, puis reprends le plan ensuite."
+        ),
+        target_session=planned_session,
+        suggested_session_type="recovery",
+    )
+
+
+def _ease_hard_session_adjustment(
+    *,
+    planned_session: dict[str, Any],
+    planned_type: str,
+    rationale: str,
+) -> NextSessionAdjustment:
+    return NextSessionAdjustment(
+        status="suggested",
+        action="ease",
+        title="Réduire l'intention de séance",
+        rationale=rationale,
+        instruction="Garde la séance, mais baisse l'intensité cible et conserve une marge cardio.",
+        target_session=planned_session,
+        suggested_session_type=_DOWNGRADE_ONE_LEVEL.get(planned_type, planned_type),
+    )
+
+
+def _adjustment_from_recent_signals(
+    planned_session: dict[str, Any],
+    planned_type: str,
+    activity_review: ActivityReview,
+    session_feedback: SessionFeedback | None,
+) -> NextSessionAdjustment | None:
+    if not _hard_session(planned_session):
+        return None
+    risk_insight = next((i for i in activity_review.insights if i.severity == "risk"), None)
+    if risk_insight:
+        return _ease_hard_session_adjustment(
+            planned_session=planned_session,
+            planned_type=planned_type,
+            rationale=risk_insight.message,
+        )
+    if session_feedback and session_feedback.severity == "watch":
+        return _ease_hard_session_adjustment(
+            planned_session=planned_session,
+            planned_type=planned_type,
+            rationale=session_feedback.message,
+        )
+    return None
+
+
+def build_next_session_adjustment(
+    *,
+    planned_session: dict[str, Any] | None,
+    suggested_session: SuggestedSession | None,
+    activity_review: ActivityReview,
+    session_feedback: SessionFeedback | None,
+) -> NextSessionAdjustment:
+    """Suggest how to adapt today's planned session before changing the plan."""
+    if not planned_session:
+        return NextSessionAdjustment(
+            status="none",
+            action="maintain",
+            title="Pas d'ajustement de plan",
+            rationale="Aucune séance planifiée à ajuster aujourd'hui.",
+            instruction="Garde les recommandations générales du coach.",
+            target_session=None,
+        )
+
+    planned_type = str(planned_session.get("session_type") or "unknown")
+
+    for adjustment in (
+        _adjustment_from_readiness_suggestion(planned_session, suggested_session),
+        _adjustment_from_session_feedback(planned_session, planned_type, session_feedback),
+        _adjustment_from_recent_signals(
+            planned_session, planned_type, activity_review, session_feedback
+        ),
+    ):
+        if adjustment:
+            return adjustment
+
+    return NextSessionAdjustment(
+        status="none",
+        action="maintain",
+        title="Plan maintenu",
+        rationale="Aucun signal ne justifie de modifier la séance du jour.",
+        instruction="Suis la séance prévue et surveille les sensations.",
+        target_session=planned_session,
+    )
+
+
+def _no_repeated_adjustment(planned_session: dict[str, Any] | None) -> NextSessionAdjustment:
+    return NextSessionAdjustment(
+        status="none",
+        action="maintain",
+        title="Ajustement déjà traité",
+        rationale="Cette proposition a déjà été acceptée ou ignorée.",
+        instruction="Le coach ne repropose pas le même ajustement pour cette séance.",
+        target_session=planned_session,
+    )
+
+
+def _load_adjustment_decision(
+    db: Any,
+    user_id: str,
+    adjustment: NextSessionAdjustment,
+) -> dict[str, Any] | None:
+    target_id = (adjustment.target_session or {}).get("id")
+    suggested_type = adjustment.suggested_session_type
+    if adjustment.status != "suggested" or not target_id or not suggested_type:
+        return None
+    resp = (
+        db.table("coach_adjustment_decisions")
+        .select("decision")
+        .eq("user_id", user_id)
+        .eq("planned_session_id", str(target_id))
+        .eq("suggested_session_type", suggested_type)
+        .maybe_single()
+        .execute()
+    )
+    return cast(_RowT, resp.data if resp else None)
+
+
 def format_explanation_md(factors: list[ReadinessFactor], status: Status) -> str:
     """Build a short FR markdown explanation from the factors."""
     negatives = [f for f in factors if f.impact < 0]
@@ -503,6 +741,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     factors.extend(_score_body_battery(daily))
     factors.extend(_activity_review_factors(activity_review))
     factors.extend(_session_feedback_factor(session_feedback))
+    factors.extend(_hard_session_guardrail_factors(planned, factors))
 
     score = BASELINE_SCORE + sum(f.impact for f in factors)
     score = max(0, min(100, score))
@@ -516,6 +755,14 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         activity_review=activity_review,
         session_feedback=session_feedback,
     )
+    next_session_adjustment = build_next_session_adjustment(
+        planned_session=planned,
+        suggested_session=suggestion,
+        activity_review=activity_review,
+        session_feedback=session_feedback,
+    )
+    if _load_adjustment_decision(db, user_id, next_session_adjustment):
+        next_session_adjustment = _no_repeated_adjustment(planned)
     explanation = format_explanation_md(factors, status)
 
     return DailyBriefing(
@@ -529,6 +776,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         activity_review=activity_review,
         last_session_feedback=session_feedback,
         coach_recommendation=coach_recommendation,
+        next_session_adjustment=next_session_adjustment,
     )
 
 
