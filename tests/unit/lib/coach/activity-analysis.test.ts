@@ -91,6 +91,81 @@ describe('buildActivityCoachAnalysis', () => {
     expect(analysis.title).toBe('Bonne activité')
     expect(analysis.insights[0]).toMatch(/Exécution cohérente/)
   })
+
+  it('protects recovery after activity on a planned rest day', () => {
+    const restDay: PlannedSession = {
+      ...planned,
+      sport: 'rest',
+      session_type: 'rest',
+      target_duration_s: 0,
+      target_tss: 0,
+    }
+
+    const analysis = buildActivityCoachAnalysis({
+      activity: baseActivity,
+      plannedSession: restDay,
+      similar: summarizeSimilarActivities([baseActivity]),
+    })
+
+    expect(analysis.tone).toBe('risk')
+    expect(analysis.title).toBe('Activité réalisée sur un jour de repos')
+    expect(analysis.recommendations.join(' ')).toMatch(/prochaine séance très facile/)
+  })
+
+  it('flags an activity performed in a different sport than planned', () => {
+    const bikePlan: PlannedSession = { ...planned, sport: 'bike' }
+
+    const analysis = buildActivityCoachAnalysis({
+      activity: baseActivity,
+      plannedSession: bikePlan,
+      similar: summarizeSimilarActivities([baseActivity]),
+    })
+
+    expect(analysis.tone).toBe('watch')
+    expect(analysis.title).toBe('Séance différente du plan')
+    expect(analysis.insights.join(' ')).toMatch(/bike prévu/)
+  })
+
+  it('warns when duration substantially exceeds the planned session', () => {
+    const analysis = buildActivityCoachAnalysis({
+      activity: { ...baseActivity, duration_s: 5000 },
+      plannedSession: planned,
+      similar: summarizeSimilarActivities([baseActivity]),
+    })
+
+    expect(analysis.tone).toBe('watch')
+    expect(analysis.insights.join(' ')).toMatch(/durée réalisée/)
+    expect(analysis.recommendations.join(' ')).toMatch(/jambes sont lourdes/)
+  })
+
+  it('recommends not compensating after a shortened session', () => {
+    const analysis = buildActivityCoachAnalysis({
+      activity: { ...baseActivity, duration_s: 1800, tss: 25 },
+      plannedSession: planned,
+      similar: summarizeSimilarActivities([baseActivity]),
+    })
+
+    expect(analysis.tone).toBe('watch')
+    expect(analysis.title).toBe('Séance écourtée')
+    expect(analysis.recommendations.join(' ')).toMatch(/Ne rattrape pas/)
+  })
+
+  it('flags unusual elevation compared with similar activities', () => {
+    const noElevationTarget: PlannedSession = { ...planned, target_elevation_gain_m: null }
+    const similar = summarizeSimilarActivities([
+      { ...baseActivity, elevation_gain_m: 180 },
+      { ...baseActivity, id: 'a2', elevation_gain_m: 220 },
+    ])
+
+    const analysis = buildActivityCoachAnalysis({
+      activity: { ...baseActivity, elevation_gain_m: 400 },
+      plannedSession: noElevationTarget,
+      similar,
+    })
+
+    expect(analysis.tone).toBe('watch')
+    expect(analysis.insights.join(' ')).toMatch(/activités similaires/)
+  })
 })
 
 describe('summarizeActivitySamples', () => {
