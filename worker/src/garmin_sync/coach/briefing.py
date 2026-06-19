@@ -383,6 +383,101 @@ def _hard_session_guardrail_factors(
     ]
 
 
+def _adjustment_from_readiness_suggestion(
+    planned_session: dict[str, Any],
+    suggested_session: SuggestedSession | None,
+) -> NextSessionAdjustment | None:
+    if not suggested_session:
+        return None
+    action: PlanAdjustmentAction = (
+        "protect_rest" if suggested_session.session_type == "rest" else "ease"
+    )
+    return NextSessionAdjustment(
+        status="suggested",
+        action=action,
+        title="Ajustement proposé avant modification du plan",
+        rationale=suggested_session.note,
+        instruction="Valide l'adaptation seulement si les sensations confirment la fatigue.",
+        target_session=planned_session,
+        suggested_session_type=suggested_session.session_type,
+    )
+
+
+def _adjustment_from_session_feedback(
+    planned_session: dict[str, Any],
+    planned_type: str,
+    session_feedback: SessionFeedback | None,
+) -> NextSessionAdjustment | None:
+    if not session_feedback or session_feedback.severity != "risk":
+        return None
+    if planned_type == "rest":
+        return NextSessionAdjustment(
+            status="suggested",
+            action="protect_rest",
+            title="Repos à protéger",
+            rationale=session_feedback.message,
+            instruction=(
+                "Ne compense pas l'activité précédente : garde ce repos comme une séance utile."
+            ),
+            target_session=planned_session,
+            suggested_session_type="rest",
+        )
+    if not _hard_session(planned_session):
+        return None
+    return NextSessionAdjustment(
+        status="suggested",
+        action="replace_with_recovery",
+        title="Remplacer la séance dure",
+        rationale=session_feedback.message,
+        instruction=(
+            "Passe en endurance facile ou récupération active, puis reprends le plan ensuite."
+        ),
+        target_session=planned_session,
+        suggested_session_type="recovery",
+    )
+
+
+def _ease_hard_session_adjustment(
+    *,
+    planned_session: dict[str, Any],
+    planned_type: str,
+    rationale: str,
+) -> NextSessionAdjustment:
+    return NextSessionAdjustment(
+        status="suggested",
+        action="ease",
+        title="Réduire l'intention de séance",
+        rationale=rationale,
+        instruction="Garde la séance, mais baisse l'intensité cible et conserve une marge cardio.",
+        target_session=planned_session,
+        suggested_session_type=_DOWNGRADE_ONE_LEVEL.get(planned_type, planned_type),
+    )
+
+
+def _adjustment_from_recent_signals(
+    planned_session: dict[str, Any],
+    planned_type: str,
+    activity_review: ActivityReview,
+    session_feedback: SessionFeedback | None,
+) -> NextSessionAdjustment | None:
+    if not _hard_session(planned_session):
+        return None
+    risk_insight = next((i for i in activity_review.insights if i.severity == "risk"), None)
+    if risk_insight:
+        return _ease_hard_session_adjustment(
+            planned_session=planned_session,
+            planned_type=planned_type,
+            rationale=risk_insight.message,
+        )
+    if session_feedback and session_feedback.severity == "watch":
+        return _ease_hard_session_adjustment(
+            planned_session=planned_session,
+            planned_type=planned_type,
+            rationale=session_feedback.message,
+        )
+    return None
+
+
 def build_next_session_adjustment(
     *,
     planned_session: dict[str, Any] | None,
@@ -403,75 +498,15 @@ def build_next_session_adjustment(
 
     planned_type = str(planned_session.get("session_type") or "unknown")
 
-    if suggested_session:
-        action: PlanAdjustmentAction = (
-            "protect_rest" if suggested_session.session_type == "rest" else "ease"
-        )
-        return NextSessionAdjustment(
-            status="suggested",
-            action=action,
-            title="Ajustement proposé avant modification du plan",
-            rationale=suggested_session.note,
-            instruction="Valide l'adaptation seulement si les sensations confirment la fatigue.",
-            target_session=planned_session,
-            suggested_session_type=suggested_session.session_type,
-        )
-
-    if session_feedback and session_feedback.severity == "risk":
-        if planned_type == "rest":
-            return NextSessionAdjustment(
-                status="suggested",
-                action="protect_rest",
-                title="Repos à protéger",
-                rationale=session_feedback.message,
-                instruction=(
-                    "Ne compense pas l'activité précédente : garde ce repos comme une séance utile."
-                ),
-                target_session=planned_session,
-                suggested_session_type="rest",
-            )
-        if _hard_session(planned_session):
-            return NextSessionAdjustment(
-                status="suggested",
-                action="replace_with_recovery",
-                title="Remplacer la séance dure",
-                rationale=session_feedback.message,
-                instruction=(
-                    "Passe en endurance facile ou récupération active, "
-                    "puis reprends le plan ensuite."
-                ),
-                target_session=planned_session,
-                suggested_session_type="recovery",
-            )
-
-    risk_insights = [i for i in activity_review.insights if i.severity == "risk"]
-    watch_feedback = (
-        session_feedback if session_feedback and session_feedback.severity == "watch" else None
-    )
-    if _hard_session(planned_session) and risk_insights:
-        return NextSessionAdjustment(
-            status="suggested",
-            action="ease",
-            title="Réduire l'intention de séance",
-            rationale=risk_insights[0].message,
-            instruction=(
-                "Garde la séance, mais baisse l'intensité cible et conserve une marge cardio."
-            ),
-            target_session=planned_session,
-            suggested_session_type=_DOWNGRADE_ONE_LEVEL.get(planned_type, planned_type),
-        )
-    if _hard_session(planned_session) and watch_feedback:
-        return NextSessionAdjustment(
-            status="suggested",
-            action="ease",
-            title="Réduire l'intention de séance",
-            rationale=watch_feedback.message,
-            instruction=(
-                "Garde la séance, mais baisse l'intensité cible et conserve une marge cardio."
-            ),
-            target_session=planned_session,
-            suggested_session_type=_DOWNGRADE_ONE_LEVEL.get(planned_type, planned_type),
-        )
+    for adjustment in (
+        _adjustment_from_readiness_suggestion(planned_session, suggested_session),
+        _adjustment_from_session_feedback(planned_session, planned_type, session_feedback),
+        _adjustment_from_recent_signals(
+            planned_session, planned_type, activity_review, session_feedback
+        ),
+    ):
+        if adjustment:
+            return adjustment
 
     return NextSessionAdjustment(
         status="none",

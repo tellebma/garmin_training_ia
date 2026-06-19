@@ -232,6 +232,43 @@ def test_build_next_session_adjustment_replaces_hard_session_after_risky_feedbac
     assert adjustment.suggested_session_type == "recovery"
 
 
+def test_build_next_session_adjustment_protects_rest_after_risky_feedback():
+    adjustment = build_next_session_adjustment(
+        planned_session={"sport": "rest", "session_type": "rest"},
+        suggested_session=None,
+        activity_review=_empty_review(),
+        session_feedback=build_session_feedback_for_test(severity="risk"),
+    )
+
+    assert adjustment.status == "suggested"
+    assert adjustment.action == "protect_rest"
+    assert adjustment.suggested_session_type == "rest"
+
+
+def test_build_next_session_adjustment_ignores_risky_feedback_for_easy_session():
+    adjustment = build_next_session_adjustment(
+        planned_session={"sport": "run", "session_type": "endurance"},
+        suggested_session=None,
+        activity_review=_empty_review(),
+        session_feedback=build_session_feedback_for_test(severity="risk"),
+    )
+
+    assert adjustment.status == "none"
+
+
+def test_build_next_session_adjustment_eases_hard_session_after_watch_feedback():
+    adjustment = build_next_session_adjustment(
+        planned_session={"sport": "bike", "session_type": "threshold"},
+        suggested_session=None,
+        activity_review=_empty_review(),
+        session_feedback=build_session_feedback_for_test(severity="watch"),
+    )
+
+    assert adjustment.status == "suggested"
+    assert adjustment.action == "ease"
+    assert adjustment.suggested_session_type == "endurance"
+
+
 @patch("garmin_sync.coach.briefing.get_admin_client")
 def test_compute_briefing_hides_adjustment_already_ignored(mock_db_fn):
     db = _mock_db_with(
