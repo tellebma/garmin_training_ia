@@ -44,6 +44,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
     last_session_feedback,
     coach_recommendation,
     next_session_adjustment,
+    is_rest_day,
   } = briefing
   const insights = activity_review.insights.slice(0, 4)
   return (
@@ -65,12 +66,23 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
         </span>
       </div>
       <p className="text-foreground text-sm whitespace-pre-wrap">{explanation_md}</p>
-      <div className="bg-background mt-3 rounded-md border p-3 text-sm">
-        <p className="text-foreground font-medium">{coach_recommendation.title}</p>
-        <p className="text-muted-foreground mt-1">{coach_recommendation.rationale}</p>
-        <p className="text-foreground mt-2">{coach_recommendation.instruction}</p>
-      </div>
-      {last_session_feedback && (
+      {is_rest_day ? (
+        <div className="bg-background mt-3 rounded-md border p-3 text-sm">
+          <p className="text-foreground font-medium">Jour de repos 🛌</p>
+          <p className="text-muted-foreground mt-1">
+            Pas de séance aujourd&rsquo;hui. La récupération fait partie de l&rsquo;entraînement :
+            c&rsquo;est là que ton corps assimile la charge. Écoute tes sensations et reviens frais
+            demain.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-background mt-3 rounded-md border p-3 text-sm">
+          <p className="text-foreground font-medium">{coach_recommendation.title}</p>
+          <p className="text-muted-foreground mt-1">{coach_recommendation.rationale}</p>
+          <p className="text-foreground mt-2">{coach_recommendation.instruction}</p>
+        </div>
+      )}
+      {!is_rest_day && last_session_feedback && (
         <div
           className={cn(
             'mt-3 rounded-md border p-3 text-sm',
@@ -90,7 +102,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
           </p>
         </div>
       )}
-      {next_session_adjustment.status === 'suggested' && (
+      {!is_rest_day && next_session_adjustment.status === 'suggested' && (
         <div className="bg-background mt-3 rounded-md border p-3 text-sm">
           <p className="text-foreground font-medium">{next_session_adjustment.title}</p>
           <p className="text-muted-foreground mt-1">{next_session_adjustment.rationale}</p>
@@ -141,7 +153,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
           </ul>
         </div>
       )}
-      {suggested_session && (
+      {!is_rest_day && suggested_session && (
         <div className="bg-background mt-3 rounded-md border p-3 text-sm">
           <p className="text-foreground font-medium">Adaptation proposée</p>
           <p className="text-muted-foreground mt-1">{suggested_session.note}</p>

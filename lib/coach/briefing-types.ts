@@ -97,6 +97,7 @@ export interface DailyBriefing {
   last_session_feedback: SessionFeedback | null
   coach_recommendation: CoachRecommendation
   next_session_adjustment: NextSessionAdjustment
+  is_rest_day?: boolean
 }
 
 export type BriefingResponse =
