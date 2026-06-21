@@ -1,3 +1,4 @@
+import { BedDouble } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type {
   ActivityInsightSeverity,
@@ -68,7 +69,10 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
       <p className="text-foreground text-sm whitespace-pre-wrap">{explanation_md}</p>
       {is_rest_day ? (
         <div className="bg-background mt-3 rounded-md border p-3 text-sm">
-          <p className="text-foreground font-medium">Jour de repos 🛌</p>
+          <p className="text-foreground flex items-center gap-1.5 font-medium">
+            <BedDouble className="size-4 shrink-0" aria-hidden />
+            Jour de repos
+          </p>
           <p className="text-muted-foreground mt-1">
             Pas de séance aujourd&rsquo;hui. La récupération fait partie de l&rsquo;entraînement :
             c&rsquo;est là que ton corps assimile la charge. Écoute tes sensations et reviens frais

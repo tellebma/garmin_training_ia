@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Bike, Footprints, Waves, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,10 +24,10 @@ const DAY_LABEL: Record<(typeof DAYS)[number], string> = {
   sun: 'Dim',
 }
 
-const SPORT_ICON: Record<'swim' | 'bike' | 'run', string> = {
-  swim: '🏊',
-  bike: '🚴',
-  run: '🏃',
+const SPORT_ICON: Record<'swim' | 'bike' | 'run', LucideIcon> = {
+  swim: Waves,
+  bike: Bike,
+  run: Footprints,
 }
 
 export function DispoEditForm({ initial }: Readonly<Props>) {
@@ -189,11 +190,15 @@ export function DispoEditForm({ initial }: Readonly<Props>) {
             séance(s) + {preview.restDays} repos.
           </p>
           <ul className="text-muted-foreground space-y-0.5 text-xs">
-            {preview.disciplines.map((d) => (
-              <li key={d.sport}>
-                {SPORT_ICON[d.sport]} {d.sport} endurance ~{d.enduranceMinLabel}
-              </li>
-            ))}
+            {preview.disciplines.map((d) => {
+              const Icon = SPORT_ICON[d.sport]
+              return (
+                <li key={d.sport} className="flex items-center gap-1.5">
+                  <Icon className="size-3.5 shrink-0" aria-hidden />
+                  <span className="capitalize">{d.sport}</span> endurance ~{d.enduranceMinLabel}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
