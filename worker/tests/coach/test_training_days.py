@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 from garmin_sync.coach.training_days import (
     assign_sports,
     athlete_level,
@@ -73,7 +75,7 @@ def test_assign_sports_no_back_to_back_run():
         training_idx=days, sports_in_race=["swim", "bike", "run"], level="intermediate"
     )
     ordered = [assignment[d] for d in days]
-    for a, b in zip(ordered, ordered[1:]):
+    for a, b in pairwise(ordered):
         assert not (a == "run" and b == "run")
 
 
