@@ -304,9 +304,12 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
     assert max_long_tss > max_endurance_tss
 
 
-def test_build_week_sessions_bike_takes_longer_than_run_at_same_tss() -> None:
-    """For the same TSS, bike duration must exceed run duration (different TSS/h)."""
-    from garmin_sync.coach.planner import _training_day_session
+def test_build_week_sessions_bike_longer_than_run_and_tss_consistent() -> None:
+    """Bike endurance clamps up to its realistic floor (>= 90min) while run endurance
+    caps lower, so bike runs longer. target_tss is re-derived from the clamped
+    duration, so each session stays internally consistent (and the two no longer
+    share the same TSS — realistic durations take precedence over the raw budget)."""
+    from garmin_sync.coach.planner import _training_day_session, _tss_per_hour
 
     bike_session = _training_day_session(
         day=date.today(),
@@ -330,8 +333,12 @@ def test_build_week_sessions_bike_takes_longer_than_run_at_same_tss() -> None:
         weekly_elevation_by_sport={},
         sport_elevation_weight_total={},
     )
-    assert bike_session["target_tss"] == run_session["target_tss"]  # same TSS
     assert bike_session["target_duration_s"] > run_session["target_duration_s"]
+    for s in (bike_session, run_session):
+        expected = round(
+            s["target_duration_s"] / 3600 * _tss_per_hour(s["sport"], s["session_type"]), 2
+        )
+        assert s["target_tss"] == expected
 
 
 def test_compute_elevation_per_sport_sums_legs() -> None:
@@ -402,9 +409,11 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         assert not s.get("target_elevation_gain_m")
 
 
-def test_build_week_sessions_weekly_tss_sums_close_to_budget() -> None:
-    """The sum of session TSS across the week should land within ~5% of weekly_tss."""
-    from garmin_sync.coach.planner import _build_week_sessions
+def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
+    """After duration clamping, each session's target_tss is re-derived from its
+    target_duration_s, so the two stay internally consistent. The weekly budget is
+    intentionally no longer exactly conserved (realistic durations take precedence)."""
+    from garmin_sync.coach.planner import _build_week_sessions, _tss_per_hour
 
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
@@ -422,9 +431,13 @@ def test_build_week_sessions_weekly_tss_sums_close_to_budget() -> None:
         race_date=today + timedelta(days=365),
         race_sport="run",
     )
-    total = sum(s["target_tss"] or 0 for s in sessions)
-    # Allow ±5% rounding slack from session-weight normalization
-    assert 399 <= total <= 441, f"expected ~420 TSS, got {total}"
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    assert training
+    for s in training:
+        expected = round(
+            s["target_duration_s"] / 3600 * _tss_per_hour(s["sport"], s["session_type"]), 2
+        )
+        assert s["target_tss"] == expected
 
 
 def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:

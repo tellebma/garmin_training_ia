@@ -295,6 +295,11 @@ def _training_day_session(
     per_day_tss = sport_tss * weight / total_weight
     duration_s = int(per_day_tss * 3600 / _tss_per_hour(sport, stype))
     duration_s = clamp_duration_to_bounds(sport, stype, phase, duration_s)
+    # Re-derive the TSS from the (possibly clamped) duration so duration, TSS and
+    # intensity stay internally consistent — the LLM prompt and the prévu/réalisé
+    # comparisons read target_tss, and a stale pre-clamp value would force the
+    # intensity up. Trade-off: the weekly TSS budget is no longer exactly conserved.
+    per_day_tss = duration_s / 3600 * _tss_per_hour(sport, stype)
 
     target_elevation: int | None = None
     weekly_dplus = weekly_elevation_by_sport.get(sport, 0)
