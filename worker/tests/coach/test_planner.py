@@ -519,3 +519,10 @@ def test_level3_build_allows_threshold_not_intervals() -> None:
 def test_advanced_peak_allows_intervals() -> None:
     types = pick_session_types_for_phase("peak", max_level=5)
     assert "intervals" in types
+
+
+def test_weekly_tss_floor_scales_with_hours() -> None:
+    from garmin_sync.coach.planner import weekly_tss_floor_from_hours
+
+    assert weekly_tss_floor_from_hours(8) == 360
+    assert weekly_tss_floor_from_hours(None) == 0

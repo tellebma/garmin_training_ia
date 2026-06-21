@@ -169,21 +169,21 @@ _SESSION_TYPE_WEIGHT: dict[str, float] = {
 #   - Swim Z2:           sTSS ~55-65 (skill-limited)
 #   - Intervals/threshold: IF 0.85-0.95+ -> 75-95 TSS/h
 _TSS_PER_HOUR: dict[tuple[str, str], float] = {
-    ("bike", "endurance"): 45.0,
-    ("bike", "long"): 50.0,
-    ("bike", "threshold"): 75.0,
-    ("bike", "intervals"): 85.0,
-    ("bike", "recovery"): 25.0,
-    ("run", "endurance"): 55.0,
-    ("run", "long"): 60.0,
-    ("run", "threshold"): 80.0,
-    ("run", "intervals"): 95.0,
-    ("run", "recovery"): 35.0,
-    ("swim", "endurance"): 60.0,
-    ("swim", "long"): 65.0,
-    ("swim", "threshold"): 80.0,
-    ("swim", "intervals"): 90.0,
-    ("swim", "recovery"): 40.0,
+    ("bike", "endurance"): 40.0,
+    ("bike", "long"): 45.0,
+    ("bike", "threshold"): 72.0,
+    ("bike", "intervals"): 82.0,
+    ("bike", "recovery"): 22.0,
+    ("run", "endurance"): 48.0,
+    ("run", "long"): 52.0,
+    ("run", "threshold"): 75.0,
+    ("run", "intervals"): 90.0,
+    ("run", "recovery"): 30.0,
+    ("swim", "endurance"): 50.0,
+    ("swim", "long"): 55.0,
+    ("swim", "threshold"): 72.0,
+    ("swim", "intervals"): 85.0,
+    ("swim", "recovery"): 35.0,
     ("brick", "endurance"): 65.0,
     ("brick", "long"): 65.0,
 }
@@ -192,6 +192,18 @@ _TSS_PER_HOUR_DEFAULT = 50.0
 
 def _tss_per_hour(sport: str, stype: str) -> float:
     return _TSS_PER_HOUR.get((sport, stype), _TSS_PER_HOUR_DEFAULT)
+
+
+# TSS/h moyen pondéré d'une semaine type (Z2 dominant) pour ancrer le volume
+# sur les heures déclarées, indépendamment du CTL lissé.
+_AVG_WEEKLY_TSS_PER_HOUR = 45.0
+
+
+def weekly_tss_floor_from_hours(hours_per_week: float | None) -> int:
+    """Volume hebdo plancher dérivé des heures déclarées (avant ramp)."""
+    if not hours_per_week:
+        return 0
+    return round(hours_per_week * _AVG_WEEKLY_TSS_PER_HOUR)
 
 
 # Minimum per-sport race elevation gain (m) below which we don't bother training
@@ -581,7 +593,10 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     all_sessions: list[dict[str, Any]] = []
     for offset, phase in phases:
         ramp = _ramp_rate_for_week(offset, phase)
-        weekly_tss = today_state.ctl * 7 * ramp
+        base_weekly = max(
+            today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
+        )
+        weekly_tss = base_weekly * ramp
         if offset == 0:
             weekly_tss *= first_week_tss_multiplier
         is_last = offset == weeks_count - 1
