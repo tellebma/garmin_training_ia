@@ -114,9 +114,7 @@ def validate_workout_for_session(workout: Workout, session: dict[str, object]) -
             f"workout duration {total}s is too short for {stype} (floor {caps.floor_s}s)"
         )
     if workout.warmup.duration_s > caps.warmup_max_s:
-        raise ValueError(
-            f"warmup {workout.warmup.duration_s}s exceeds cap {caps.warmup_max_s}s"
-        )
+        raise ValueError(f"warmup {workout.warmup.duration_s}s exceeds cap {caps.warmup_max_s}s")
     if workout.cooldown.duration_s > caps.cooldown_max_s:
         raise ValueError(
             f"cooldown {workout.cooldown.duration_s}s exceeds cap {caps.cooldown_max_s}s"

@@ -42,9 +42,7 @@ def repos_min(level: Level, phase: str) -> int:
     return max(level_floor, phase_floor)
 
 
-def training_days_count(
-    *, n_available: int, hours: float | None, level: Level, phase: str
-) -> int:
+def training_days_count(*, n_available: int, hours: float | None, level: Level, phase: str) -> int:
     """Nombre effectif de jours d'entrainement (>= 0, garantit le plancher repos)."""
     return max(
         0,
