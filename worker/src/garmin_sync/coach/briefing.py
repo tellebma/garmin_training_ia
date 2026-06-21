@@ -118,6 +118,7 @@ class DailyBriefing:
     last_session_feedback: SessionFeedback | None
     coach_recommendation: CoachRecommendation
     next_session_adjustment: NextSessionAdjustment
+    is_rest_day: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -145,6 +146,7 @@ class DailyBriefing:
             ),
             "coach_recommendation": self.coach_recommendation.to_dict(),
             "next_session_adjustment": self.next_session_adjustment.to_dict(),
+            "is_rest_day": self.is_rest_day,
         }
 
 
@@ -777,6 +779,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         last_session_feedback=session_feedback,
         coach_recommendation=coach_recommendation,
         next_session_adjustment=next_session_adjustment,
+        is_rest_day=str((planned or {}).get("session_type") or "") == "rest",
     )
 
 
