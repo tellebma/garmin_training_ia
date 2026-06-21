@@ -55,3 +55,52 @@ def training_days_count(
             7 - repos_min(level, phase),
         ),
     )
+
+
+def run_cap(level: Level) -> int:
+    """Jours course max/semaine (impact traumatisant)."""
+    return {"beginner": 2, "intermediate": 3, "advanced": 4}[level]
+
+
+def select_training_days(*, available_idx: set[int], count: int) -> set[int]:
+    """Choisit `count` jours parmi les dispo en les espaçant le plus possible."""
+    days = sorted(available_idx)
+    if count <= 0:
+        return set()
+    if count >= len(days):
+        return set(days)
+    step = len(days) / count
+    picked = {days[min(len(days) - 1, round(i * step))] for i in range(count)}
+    i = 0
+    while len(picked) < count and i < len(days):
+        picked.add(days[i])
+        i += 1
+    return set(sorted(picked)[:count])
+
+
+def assign_sports(
+    *, training_idx: list[int], sports_in_race: list[str], level: Level
+) -> dict[int, str]:
+    """Assigne un sport à chaque jour d'entraînement.
+
+    Règles : jamais deux jours "run" consécutifs, cap course par niveau, surplus
+    reporté sur les autres sports (faible impact).
+    """
+    if not sports_in_race:
+        return dict.fromkeys(sorted(training_idx), "run")
+    ordered = sorted(training_idx)
+    non_run = [s for s in sports_in_race if s != "run"] or ["cross"]
+    cap = run_cap(level) if "run" in sports_in_race else 0
+    assignment: dict[int, str] = {}
+    run_used = 0
+    prev: str | None = None
+    for rotation, day in enumerate(ordered):
+        candidate = sports_in_race[rotation % len(sports_in_race)]
+        blocked_run = candidate == "run" and (prev == "run" or run_used >= cap)
+        if blocked_run:
+            candidate = non_run[(rotation + 1) % len(non_run)]
+        if candidate == "run":
+            run_used += 1
+        assignment[day] = candidate
+        prev = candidate
+    return assignment

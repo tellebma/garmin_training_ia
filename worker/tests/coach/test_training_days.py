@@ -1,8 +1,11 @@
 from garmin_sync.coach.training_days import (
+    assign_sports,
     athlete_level,
     cap_niveau,
     cap_volume,
     repos_min,
+    run_cap,
+    select_training_days,
     training_days_count,
 )
 
@@ -42,3 +45,39 @@ def test_training_days_count_beginner_7avail_4h():
 
 def test_training_days_count_never_below_one_rest():
     assert training_days_count(n_available=7, hours=12, level="advanced", phase="build") <= 6
+
+
+def test_select_spreads_days():
+    chosen = select_training_days(available_idx={0, 1, 2, 3, 4, 5, 6}, count=5)
+    assert len(chosen) == 5
+    assert chosen <= {0, 1, 2, 3, 4, 5, 6}
+
+
+def test_select_count_zero_returns_empty():
+    assert select_training_days(available_idx={0, 2, 4}, count=0) == set()
+
+
+def test_select_count_ge_available_returns_all():
+    assert select_training_days(available_idx={0, 2, 4}, count=9) == {0, 2, 4}
+
+
+def test_run_cap_by_level():
+    assert run_cap("beginner") == 2
+    assert run_cap("intermediate") == 3
+    assert run_cap("advanced") == 4
+
+
+def test_assign_sports_no_back_to_back_run():
+    days = [0, 1, 2, 3, 4]
+    assignment = assign_sports(
+        training_idx=days, sports_in_race=["swim", "bike", "run"], level="intermediate"
+    )
+    ordered = [assignment[d] for d in days]
+    for a, b in zip(ordered, ordered[1:]):
+        assert not (a == "run" and b == "run")
+
+
+def test_assign_sports_respects_run_cap():
+    days = [0, 1, 2, 3, 4, 5]
+    assignment = assign_sports(training_idx=days, sports_in_race=["run"], level="beginner")
+    assert sum(1 for s in assignment.values() if s == "run") <= run_cap("beginner")
