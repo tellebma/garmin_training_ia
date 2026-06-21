@@ -38,19 +38,14 @@ def distribute_weekly_tss_by_sport(
 ) -> dict[str, float]:
     """Distribute weekly TSS target between sports.
 
-    Weak sport (score 1-2) -> +20% relative share.
-    Strong sport (score 4-5) -> -10% relative share.
-    Normalised so the sum equals weekly_tss.
+    Niveau par discipline (1-5) module la part : faible (1) ~+25%, fort (5) ~-15%,
+    interpolation linéaire. Normalisé pour que la somme égale weekly_tss.
     """
     weights: dict[str, float] = {}
     for s in sports_in_race:
         score = sports_strengths.get(s, 3)
-        if score <= 2:
-            weights[s] = 1.20
-        elif score >= 4:
-            weights[s] = 0.90
-        else:
-            weights[s] = 1.0
+        # modulation continue : niveau 1 -> 1.25, niveau 3 -> 1.0, niveau 5 -> 0.85.
+        weights[s] = 1.25 - (score - 1) * 0.10
     total_w = sum(weights.values())
     return {s: round(weekly_tss * w / total_w, 2) for s, w in weights.items()}
 

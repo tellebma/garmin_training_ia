@@ -17,6 +17,26 @@ from garmin_sync.coach.planner import (
 )
 
 
+def test_weak_sport_gets_more_volume_than_strong_continuous() -> None:
+    out = distribute_weekly_tss_by_sport(
+        weekly_tss=300,
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 5, "run": 3},
+    )
+    assert round(sum(out.values()), 1) == 300.0
+    assert out["swim"] > out["run"] > out["bike"]
+
+
+def test_level_2_and_1_differ() -> None:
+    a = distribute_weekly_tss_by_sport(
+        weekly_tss=200, sports_in_race=["swim", "bike"], sports_strengths={"swim": 1, "bike": 3}
+    )
+    b = distribute_weekly_tss_by_sport(
+        weekly_tss=200, sports_in_race=["swim", "bike"], sports_strengths={"swim": 2, "bike": 3}
+    )
+    assert a["swim"] > b["swim"]
+
+
 def test_distribute_weekly_tss_no_sports_strengths_returns_equal_share() -> None:
     """Triathlon with sports_strengths all=3 -> equal share between swim/bike/run."""
     sports_in_race = ["swim", "bike", "run"]
