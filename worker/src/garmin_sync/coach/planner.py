@@ -14,7 +14,14 @@ from garmin_sync.coach.banister import (
     compute_banister_history,
     estimate_initial_ctl_from_profile,
 )
+from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
+from garmin_sync.coach.training_days import (
+    assign_sports,
+    athlete_level,
+    select_training_days,
+    training_days_count,
+)
 from garmin_sync.coach.tss import compute_tss
 from garmin_sync.supabase_client import get_admin_client
 
@@ -258,13 +265,11 @@ def compute_elevation_per_sport(legs: list[dict[str, Any]]) -> dict[str, int]:
 def _training_day_session(
     *,
     day: date,
-    day_idx: int,
     phase: Phase,
     week_offset: int,
-    types_for_phase: list[str],
-    sports_in_race: list[str],
+    stype: str,
+    sport: str,
     tss_by_sport: dict[str, float],
-    used_types: list[str],
     sport_weight_total: dict[str, float],
     weekly_elevation_by_sport: dict[str, int],
     sport_elevation_weight_total: dict[str, float],
@@ -275,21 +280,21 @@ def _training_day_session(
     This keeps the weekly TSS budget intact while letting "long" sessions get more
     volume than e.g. "recovery".
 
+    The session type and sport are decided upstream (single-pass day plan) so the
+    weight tallies and the emitted sessions never diverge. Durations are clamped to
+    realistic per (sport, type, phase) bounds.
+
     target_elevation_gain_m is populated only when the sport has a meaningful
     weekly D+ target (set by the caller via weekly_elevation_by_sport). Same
     redistribution scheme as TSS, but with a separate weight table (long heavy,
     intervals zero — intervals are typically track-based).
     """
-    stype = _pick_session_type(
-        day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
-    )
-    used_types.append(stype)
-    sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
     sport_tss = tss_by_sport.get(sport, 0)
     weight = _SESSION_TYPE_WEIGHT.get(stype, 1.0)
     total_weight = max(0.5, sport_weight_total.get(sport, 1.0))
     per_day_tss = sport_tss * weight / total_weight
     duration_s = int(per_day_tss * 3600 / _tss_per_hour(sport, stype))
+    duration_s = clamp_duration_to_bounds(sport, stype, phase, duration_s)
 
     target_elevation: int | None = None
     weekly_dplus = weekly_elevation_by_sport.get(sport, 0)
@@ -311,66 +316,48 @@ def _training_day_session(
     }
 
 
-def _precompute_sport_weights(
+def _build_training_day_plan(
     *,
     week_start: date,
-    available_idx: set[int],
-    sports_in_race: list[str],
+    training_idx: set[int],
+    sport_by_day: dict[int, str],
     types_for_phase: list[str],
     is_last_week: bool,
     race_date: date,
-) -> dict[str, float]:
-    """Walk the upcoming 7 days once to tally each sport's total session weight.
+) -> dict[int, tuple[str, str]]:
+    """Single-pass day plan: weekday index -> (sport, session_type).
 
-    Mirrors the assignment logic in _build_week_sessions / _pick_session_type
-    so the TSS distribution in _training_day_session sums back to sport_tss.
+    Walks the 7 days in order so `_pick_session_type`'s used_types history is
+    consistent with the emission loop. Only days selected as training days
+    (and not the race day) get an entry. Both the weight tallies and the emitted
+    sessions derive from this map, so they can never diverge.
     """
-    sport_weight: dict[str, float] = dict.fromkeys(sports_in_race, 0.0)
+    plan: dict[int, tuple[str, str]] = {}
     used_types: list[str] = []
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
         if is_last_week and day == race_date:
             continue
-        if day_idx not in available_idx:
+        if day_idx not in training_idx:
             continue
         stype = _pick_session_type(
             day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
         )
         used_types.append(stype)
-        sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
-        sport_weight[sport] = sport_weight.get(sport, 0.0) + _SESSION_TYPE_WEIGHT.get(stype, 1.0)
-    return sport_weight
+        sport = sport_by_day.get(day_idx, "run")
+        plan[day_idx] = (sport, stype)
+    return plan
 
 
-def _precompute_elevation_weights(
-    *,
-    week_start: date,
-    available_idx: set[int],
-    sports_in_race: list[str],
-    types_for_phase: list[str],
-    is_last_week: bool,
-    race_date: date,
+def _tally_sport_weights(
+    plan: dict[int, tuple[str, str]], weight_table: dict[str, float]
 ) -> dict[str, float]:
-    """Tally elevation-weight per sport for the week, using _ELEVATION_SESSION_WEIGHT."""
-    sport_weight: dict[str, float] = dict.fromkeys(sports_in_race, 0.0)
-    used_types: list[str] = []
-    for offset in range(7):
-        day = week_start + timedelta(days=offset)
-        day_idx = day.weekday()
-        if is_last_week and day == race_date:
-            continue
-        if day_idx not in available_idx:
-            continue
-        stype = _pick_session_type(
-            day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
-        )
-        used_types.append(stype)
-        sport = sports_in_race[day_idx % len(sports_in_race)] if sports_in_race else "run"
-        sport_weight[sport] = sport_weight.get(sport, 0.0) + _ELEVATION_SESSION_WEIGHT.get(
-            stype, 0.0
-        )
-    return sport_weight
+    """Sum a per-session-type weight per sport over the day plan."""
+    totals: dict[str, float] = {}
+    for sport, stype in plan.values():
+        totals[sport] = totals.get(sport, 0.0) + weight_table.get(stype, 0.0)
+    return totals
 
 
 def compute_weekly_elevation_targets(
@@ -402,40 +389,54 @@ def _build_week_sessions(
     sports_in_race: list[str],
     sports_strengths: dict[str, int],
     available_days: list[str],
+    hours_per_week: float | None,
     is_last_week: bool,
     race_date: date,
     race_sport: str,
     weekly_elevation_by_sport: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate one week's planned sessions."""
+    """Generate one week's planned sessions.
+
+    ``available_days`` is treated as a MASK of possible windows: the effective
+    number of training days is capped by volume/level/rest-floor
+    (``training_days_count``), the chosen days are spread out
+    (``select_training_days``), a sport is assigned per day (``assign_sports``:
+    run cap, no back-to-back run), and the resulting day plan drives both the
+    weight tallies and the emitted sessions in a single pass.
+    """
     weekly_elevation_by_sport = weekly_elevation_by_sport or {}
     sessions: list[dict[str, Any]] = []
-    types_for_phase = pick_session_types_for_phase(phase)
+
+    level = athlete_level(sports_strengths)
+    max_level = min((sports_strengths.get(s, 3) for s in sports_in_race), default=3)
+    types_for_phase = pick_session_types_for_phase(phase, max_level=max_level)
     tss_by_sport = distribute_weekly_tss_by_sport(
         weekly_tss=weekly_tss, sports_in_race=sports_in_race, sports_strengths=sports_strengths
     )
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
 
-    # First pass: tally total session-type weight per sport so the second pass
-    # can divide each sport's TSS budget proportionally (long > endurance > recovery).
-    sport_weight_total = _precompute_sport_weights(
+    # Deload weeks (every 4th, except taper) need a stricter rest floor.
+    is_deload = (week_offset + 1) % 4 == 0
+    phase_for_rest = "deload" if is_deload and phase != "taper" else phase
+    count = training_days_count(
+        n_available=len(available_idx), hours=hours_per_week, level=level, phase=phase_for_rest
+    )
+    training_idx = select_training_days(available_idx=available_idx, count=count)
+    sport_by_day = assign_sports(
+        training_idx=sorted(training_idx), sports_in_race=sports_in_race, level=level
+    )
+
+    # Single-pass day plan so weight tallies and emitted sessions never diverge.
+    day_plan = _build_training_day_plan(
         week_start=week_start,
-        available_idx=available_idx,
-        sports_in_race=sports_in_race,
+        training_idx=training_idx,
+        sport_by_day=sport_by_day,
         types_for_phase=types_for_phase,
         is_last_week=is_last_week,
         race_date=race_date,
     )
-    # Same idea for elevation, but a different per-type weight table.
-    sport_elev_weight_total = _precompute_elevation_weights(
-        week_start=week_start,
-        available_idx=available_idx,
-        sports_in_race=sports_in_race,
-        types_for_phase=types_for_phase,
-        is_last_week=is_last_week,
-        race_date=race_date,
-    )
-    used_types: list[str] = []
+    sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
+    sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
 
     for offset in range(7):
         day = week_start + timedelta(days=offset)
@@ -446,20 +447,19 @@ def _build_week_sessions(
                 _race_day_session(day=day, race_sport=race_sport, week_offset=week_offset)
             )
             continue
-        if day_idx not in available_idx:
+        if day_idx not in day_plan:
             sessions.append(_rest_day_session(day=day, phase=phase, week_offset=week_offset))
             continue
 
+        sport, stype = day_plan[day_idx]
         sessions.append(
             _training_day_session(
                 day=day,
-                day_idx=day_idx,
                 phase=phase,
                 week_offset=week_offset,
-                types_for_phase=types_for_phase,
-                sports_in_race=sports_in_race,
+                stype=stype,
+                sport=sport,
                 tss_by_sport=tss_by_sport,
-                used_types=used_types,
                 sport_weight_total=sport_weight_total,
                 weekly_elevation_by_sport=weekly_elevation_by_sport,
                 sport_elevation_weight_total=sport_elev_weight_total,
@@ -608,6 +608,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
             sports_in_race=sports_in_race,
             sports_strengths=sports_strengths,
             available_days=available_days,
+            hours_per_week=profile.get("hours_per_week"),
             is_last_week=is_last,
             race_date=race_date,
             race_sport=race_sport,

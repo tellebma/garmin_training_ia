@@ -286,6 +286,7 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
+        hours_per_week=8,
         is_last_week=False,
         race_date=today + timedelta(days=365),
         race_sport="run",
@@ -307,30 +308,24 @@ def test_build_week_sessions_bike_takes_longer_than_run_at_same_tss() -> None:
     """For the same TSS, bike duration must exceed run duration (different TSS/h)."""
     from garmin_sync.coach.planner import _training_day_session
 
-    used: list[str] = []
     bike_session = _training_day_session(
         day=date.today(),
-        day_idx=1,
         phase="base",
         week_offset=0,
-        types_for_phase=["endurance"],
-        sports_in_race=["bike"],
+        stype="endurance",
+        sport="bike",
         tss_by_sport={"bike": 50.0},
-        used_types=used,
         sport_weight_total={"bike": 1.0},
         weekly_elevation_by_sport={},
         sport_elevation_weight_total={},
     )
-    used2: list[str] = []
     run_session = _training_day_session(
         day=date.today(),
-        day_idx=1,
         phase="base",
         week_offset=0,
-        types_for_phase=["endurance"],
-        sports_in_race=["run"],
+        stype="endurance",
+        sport="run",
         tss_by_sport={"run": 50.0},
-        used_types=used2,
         sport_weight_total={"run": 1.0},
         weekly_elevation_by_sport={},
         sport_elevation_weight_total={},
@@ -386,6 +381,7 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
+        hours_per_week=8,
         is_last_week=False,
         race_date=today + timedelta(days=365),
         race_sport="run",
@@ -421,6 +417,7 @@ def test_build_week_sessions_weekly_tss_sums_close_to_budget() -> None:
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
+        hours_per_week=8,
         is_last_week=False,
         race_date=today + timedelta(days=365),
         race_sport="run",
@@ -526,3 +523,50 @@ def test_weekly_tss_floor_scales_with_hours() -> None:
 
     assert weekly_tss_floor_from_hours(8) == 360
     assert weekly_tss_floor_from_hours(None) == 0
+
+
+def _count(sessions, stype):
+    return sum(1 for s in sessions if s["session_type"] == stype)
+
+
+def test_build_week_caps_training_days_when_all_available() -> None:
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="build",
+        week_start=date(2026, 6, 22),  # Monday
+        weekly_tss=400,
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="run",
+    )
+    assert len(sessions) == 7
+    assert _count(sessions, "rest") >= 1
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    assert len(training) == 5
+
+
+def test_build_week_clamps_bike_endurance_duration() -> None:
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),
+        weekly_tss=120,
+        sports_in_race=["bike"],
+        sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        available_days=["mon", "wed", "fri"],
+        hours_per_week=6,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="bike",
+    )
+    bike_end = [s for s in sessions if s["sport"] == "bike" and s["session_type"] == "endurance"]
+    assert bike_end
+    assert all(s["target_duration_s"] >= 90 * 60 for s in bike_end)
