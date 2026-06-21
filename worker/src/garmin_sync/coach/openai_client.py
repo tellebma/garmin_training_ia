@@ -65,6 +65,13 @@ def _athlete_lines(*, athlete: dict[str, Any], sport: str) -> list[str]:
     if sport == "run":
         lines.append(f"- VMA : {vma} km/h" if vma else "- VMA : non connue")
     lines.append(f"- Niveau (1-5) : swim={swim}, bike={bike}, run={run}")
+    weak = [s for s in ("swim", "bike", "run") if isinstance(sports.get(s), int) and sports[s] <= 2]
+    if weak:
+        lines.append(
+            "- Consigne intensité : pour les disciplines faibles "
+            f"({', '.join(weak)}), privilégie l'endurance et la technique, "
+            "limite l'intensité (pas d'intervalles seuil durs)."
+        )
     return lines
 
 

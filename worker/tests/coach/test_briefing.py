@@ -471,6 +471,30 @@ def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
     assert d["last_session_feedback"] is None
     assert d["coach_recommendation"]["action"] == "ease"
     assert d["next_session_adjustment"]["action"] == "maintain"
+    assert d["is_rest_day"] is False
+
+
+def test_dailybriefing_to_dict_exposes_is_rest_day():
+    b = DailyBriefing(
+        date="2026-05-20",
+        readiness_score=80,
+        status="ready",
+        explanation_md="x",
+        factors=[],
+        planned_session={"sport": "rest", "session_type": "rest"},
+        suggested_session=None,
+        activity_review=_empty_review(),
+        last_session_feedback=None,
+        coach_recommendation=CoachRecommendation(
+            action="rest",
+            title="Repos",
+            rationale="ok",
+            instruction="Récupère.",
+        ),
+        next_session_adjustment=_no_next_adjustment(),
+        is_rest_day=True,
+    )
+    assert b.to_dict()["is_rest_day"] is True
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")

@@ -4,6 +4,69 @@ Ce fichier est la source de vérité du backlog post-MVP. Les specs détaillées
 restent dans `docs/superpowers/specs/` et les plans d'exécution dans
 `docs/superpowers/plans/`.
 
+## EPICs issus des retours owner (2026-06-21)
+
+Trois EPICs regroupent les retours de l'owner du 21/06/2026. Les items détaillés
+restent tracés dans les sections thématiques ci-dessous ; ces EPICs servent de cadrage
+et de priorisation.
+
+### EPIC E13 — Plan d'entraînement réaliste et individualisé
+
+**Priorité : P0 — Statut : à planifier**
+
+Le plan doit ressembler à ce qu'un vrai coach triathlon prescrit : séances de durée
+crédible, adaptées au niveau de l'athlète par discipline, avec mobilité et vrais jours
+de repos.
+
+- **E13.1 P0 — Séances de durée réaliste** : corriger la régression « séances trop
+  courtes ». Durées cibles par discipline / niveau / phase (base, build, peak), pas une
+  durée minimale générique. Voir « Structure réaliste des séances générées ».
+- **E13.2 P0 — Plan adaptatif par niveau de discipline** : **exploiter réellement le
+  niveau par discipline déjà saisi à l'onboarding** (aujourd'hui sous-utilisé dans les
+  recommandations) et adapter volume, charge, intensité et progression discipline par
+  discipline. Owner confirmé : fort en vélo, plus faible en natation et course à pied.
+  Voir « Adapter le plan au niveau par discipline ».
+- **E13.3 P1 — Mobilité / renforcement dans le plan** : intégrer des séances de
+  mobilité, souplesse et renfo (prehab) bien placées sans alourdir la charge.
+- **E13.4 P1 — Repos = repos** : un jour de repos est un vrai repos, sans compte rendu
+  ni structure de séance côté UI.
+
+### EPIC E14 — Visualisation pro et pédagogie des métriques
+
+**Priorité : P1 — Statut : à planifier**
+
+Élever la qualité des graphiques au niveau Garmin/Strava et rendre les métriques
+compréhensibles pour un athlète non expert.
+
+- **E14.1 P1 — Graphiques pro** : profil d'altitude, FC dans le temps, allure/vitesse,
+  puissance, cadence, zones, splits/tours, distribution d'effort — lisibles, soignés,
+  interactifs. S'appuyer sur `activity_samples`.
+- **E14.2 P1 — Carte d'activité** : afficher le tracé GPS dans `/history/[id]` avec
+  dénivelé et survol corrélé FC/allure. Recoupe E9.5 et la spec E8a.
+- **E14.3 P1 — Bulles explicatives** : infobulles sur charge (CTL), forme (TSB),
+  fatigue (ATL), HRV, TSS, zones, dérive cardio. Expliquer « c'est quoi » et « comment
+  l'utiliser pour progresser » en langage simple, plus un glossaire accessible.
+
+### EPIC E15 — Ingestion multi-source et quasi temps réel
+
+**Priorité : P1 — Statut : à planifier**
+
+Récupérer les activités plus vite sans seulement augmenter la fréquence du polling.
+
+- **E15.1 P1 — Intégration Strava** : OAuth + webhooks (push à chaque activité),
+  gratuit en usage perso. Point d'ingestion unifié quasi temps réel
+  (Garmin -> Strava -> app). Chemin recommandé.
+- **E15.2 P2 — Garmin officiel** : évaluer Garmin Health/Activity API (webhooks push) —
+  réservé au programme partenaire, validation B2B. La lib `python-garminconnect`
+  actuelle ne fait que du polling non officiel.
+- **E15.3 P1 — Sync on-demand** : déclencher une sync à l'ouverture de l'app
+  (pull-to-refresh) en plus du cron, pour réduire la latence perçue immédiatement.
+- **E15.4 P0 — Pull au connect/reconnect Garmin** : déclencher un pull des données dès
+  qu'une connexion ou reconnexion Garmin réussit. Aujourd'hui `start_connect_flow` /
+  `resume_connect_flow` renvoient `{"status":"connected"}` sans lancer de sync :
+  l'athlète connecte son compte mais ne voit aucune donnée tant que le cron n'a pas
+  tourné. Lancer une première sync (activités + métriques) après `connected`.
+
 ## Coaching sportif / performance
 
 Objectif produit : les recommandations doivent se rapprocher d'un vrai coach
@@ -129,6 +192,18 @@ Spec et critères d'acceptation :
   le prompt LLM interdit les découpages fixes irréalistes, et `Workout` rejette les
   séances dont le corps principal représente moins de 55% ou dont la durée totale
   s'éloigne trop de la cible.
+- **Régression constatée (2026-06-21, retour owner) — priorité relevée P0 bloquant** :
+  les séances générées restent systématiquement **trop courtes et irréalistes**, elles
+  ne reflètent pas une vraie séance de triathlète (ex. une sortie vélo d'endurance
+  réelle dure 1h30-3h, pas 45min). Le garde-fou 55% / écart de durée ne suffit pas.
+  - Caler les durées cibles sur des **normes réalistes par discipline, niveau et phase**
+    (base, build, peak) au lieu d'une durée minimale générique.
+  - Vérifier que la charge hebdo agrège des séances de durée crédible, pas une somme
+    de micro-séances.
+  - Étendre les tests `workout_schema` / `openai_client` avec des cas de durées
+    réalistes par discipline et phase.
+- **Repos = repos (UI)** : un jour de repos affiche un message de repos clair côté
+  briefing / `/today`, **pas un compte rendu ni une structure de séance**.
 
 ### P1 — Détection des signaux de progression et stagnation
 
@@ -145,6 +220,32 @@ Spec et critères d'acceptation :
 - Bike : puissance/FTP, D+, longues sorties, tempo/seuil, fatigue résiduelle.
 - Run : progressivité, risque blessure, intensité trop fréquente, allure/FC.
 - Brick : pertinence à l'approche de la course, charge cumulée, placement dans la semaine.
+
+### P0 — Adapter le plan au niveau par discipline (E13.2)
+
+- **Problème principal** : le niveau par discipline est déjà déclaré par l'athlète à
+  l'onboarding, mais cette métrique est **insuffisamment prise en compte** dans la
+  génération du plan et des recommandations. La première action est de la brancher
+  réellement sur le moteur (planner + prompt LLM + ajustements), pas d'inventer une
+  nouvelle donnée.
+- Croiser ce niveau déclaré avec l'historique réel (volume, allure/puissance,
+  régularité, progression) pour le confirmer/affiner.
+- Adapter la répartition de volume et de charge : sécuriser/maintenir la discipline
+  forte, investir davantage sur les disciplines faibles sans créer de surcharge.
+- Ajuster intensité et progression discipline par discipline plutôt qu'un plan uniforme.
+- Critère coach : le plan doit refléter que l'athlète n'a pas le même niveau dans les
+  trois disciplines.
+- Cas owner confirmé : fort en vélo, plus faible en natation et en course à pied.
+
+### P1 — Séances de mobilité / renforcement dans le plan (E13.3)
+
+- Intégrer des séances de mobilité, souplesse et renforcement (prévention blessure,
+  prehab), pas uniquement nage/vélo/course.
+- Les placer intelligemment : jours faciles, autour des grosses séances, en complément
+  sans alourdir la charge globale.
+- Adapter durée et contenu au niveau de l'athlète et à la phase.
+- Critère coach : un vrai plan triathlon inclut du travail de mobilité/renfo, pas
+  seulement les trois disciplines.
 
 ### P1 — Feedback post-séance — V1 livrée
 
@@ -267,6 +368,48 @@ Spec et critères d'acceptation :
   langage visuel pour éviter une accumulation de blocs fonctionnels sans identité.
 - Critère produit : l'utilisateur doit reconnaître une application de coaching
   sportif sérieuse, pas un dashboard générique Garmin-like.
+
+### P1 — Graphiques pro et carte d'activité (E14.1 / E14.2)
+
+- Élever la qualité visuelle des graphiques au niveau Garmin/Strava : profil
+  d'altitude, fréquence cardiaque dans le temps, allure/vitesse, puissance, cadence,
+  zones, splits/tours, distribution d'effort — lisibles, interactifs, soignés.
+- Afficher la carte GPS du parcours dans la fiche activité (`/history/[id]`) avec le
+  tracé, le dénivelé et un survol corrélé FC/allure si possible.
+- S'appuyer sur les samples déjà stockés (`activity_samples`) et compléter via
+  `get_activity_details` quand le tracé GPS manque.
+- Lien : recoupe E9.5 (analyse avancée d'activité) et la spec E8a parcours géolocalisés.
+- Critère produit : un athlète habitué à Garmin/Strava doit trouver les graphes au
+  moins aussi clairs et complets.
+
+### P1 — Pédagogie des métriques (bulles explicatives) (E14.3)
+
+- Ajouter des bulles/infobulles explicatives sur les graphiques et métriques clés :
+  charge (CTL), forme (TSB), fatigue (ATL), HRV, TSS, zones, dérive cardio.
+- Expliquer en langage simple « c'est quoi » et « comment l'utiliser pour progresser »
+  (ex. sur le graphe charge/forme : lire la fraîcheur et maximiser le progrès).
+- Prévoir un glossaire accessible et des micro-explications contextuelles, pas un cours
+  théorique.
+- Critère UX : un athlète non expert comprend ce qu'il regarde sans connaissance
+  préalable de la science de l'entraînement.
+
+### P1 — Ingestion quasi temps réel (Strava / Garmin officiel) (E15)
+
+- Objectif : récupérer les activités plus vite sans seulement augmenter la fréquence du
+  cron de polling.
+- Strava : API publique OAuth + webhooks (push à chaque nouvelle activité), gratuite en
+  usage perso/petit volume. Beaucoup d'athlètes poussent déjà Garmin -> Strava, donc
+  Strava peut servir de point d'ingestion unifié quasi temps réel.
+- Garmin officiel : Garmin Health/Activity API propose des webhooks push mais réservée
+  au programme partenaire (validation B2B, pas instantané). La lib actuelle
+  `python-garminconnect` est non officielle et ne fait que du polling.
+- Piste court terme sans nouvelle intégration : déclencher une sync à l'ouverture de
+  l'app (pull-to-refresh / on-demand) en plus du cron, pour réduire la latence perçue.
+- **Pull au connect/reconnect (P0, quick win)** : déclencher une sync immédiate après un
+  `connected` (connexion ou MFA réussie) dans `connect.py`. Sinon l'athlète qui vient de
+  lier son compte ne voit rien jusqu'au prochain cron. C'est le gain le plus rapide et le
+  plus visible de cet EPIC.
+- À trancher : Strava webhooks (recommandé, réaliste) vs attente du programme Garmin.
 
 ### P0 — Cache et chargement rapide du briefing quotidien
 

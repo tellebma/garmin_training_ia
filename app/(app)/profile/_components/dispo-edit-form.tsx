@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { Bike, Footprints, Waves, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveStepDispo } from '@/app/(app)/onboarding/actions'
+import { previewPlan } from '@/lib/coach/duration-preview'
 import { DAYS, DISPO_DEFAULTS, type DispoInput } from '@/lib/onboarding/schemas'
 
 interface Props {
@@ -20,6 +22,12 @@ const DAY_LABEL: Record<(typeof DAYS)[number], string> = {
   fri: 'Ven',
   sat: 'Sam',
   sun: 'Dim',
+}
+
+const SPORT_ICON: Record<'swim' | 'bike' | 'run', LucideIcon> = {
+  swim: Waves,
+  bike: Bike,
+  run: Footprints,
 }
 
 export function DispoEditForm({ initial }: Readonly<Props>) {
@@ -97,6 +105,13 @@ export function DispoEditForm({ initial }: Readonly<Props>) {
     toast.success('Sauvegardé')
   }
 
+  const hoursNum = hours ? Number.parseInt(hours, 10) : 0
+  const nAvailable = days.length
+  const preview =
+    hoursNum > 0 && nAvailable > 0
+      ? previewPlan({ nAvailable, hours: hoursNum, strengths: { swim, bike, run } })
+      : null
+
   return (
     <section className="space-y-4 rounded-lg border p-6">
       <h2 className="text-lg font-semibold">Disponibilité</h2>
@@ -166,6 +181,27 @@ export function DispoEditForm({ initial }: Readonly<Props>) {
           )
         })}
       </fieldset>
+
+      {preview && (
+        <div className="bg-muted/40 space-y-1 rounded-md border p-3 text-sm">
+          <p className="font-medium">Aperçu de tes séances types</p>
+          <p className="text-muted-foreground text-xs">
+            Tu te déclares dispo {nAvailable} jour(s) ; je programme {preview.trainingDays}{' '}
+            séance(s) + {preview.restDays} repos.
+          </p>
+          <ul className="text-muted-foreground space-y-0.5 text-xs">
+            {preview.disciplines.map((d) => {
+              const Icon = SPORT_ICON[d.sport]
+              return (
+                <li key={d.sport} className="flex items-center gap-1.5">
+                  <Icon className="size-3.5 shrink-0" aria-hidden />
+                  <span className="capitalize">{d.sport}</span> endurance ~{d.enduranceMinLabel}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="flex gap-2">
         <Button

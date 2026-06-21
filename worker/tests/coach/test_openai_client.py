@@ -4,8 +4,26 @@ import pytest
 
 from garmin_sync.coach.openai_client import (
     OpenAIError,
+    _athlete_lines,
     generate_workout_for_session,
 )
+
+
+def test_athlete_lines_warns_low_level_intensity():
+    lines = _athlete_lines(
+        athlete={"sports_strengths": {"swim": 1, "bike": 3, "run": 2}}, sport="run"
+    )
+    text = "\n".join(lines)
+    assert "1-5" in text
+    assert "intensité" in text.lower()
+
+
+def test_athlete_lines_no_intensity_warning_when_all_strong():
+    lines = _athlete_lines(
+        athlete={"sports_strengths": {"swim": 3, "bike": 4, "run": 5}}, sport="bike"
+    )
+    text = "\n".join(lines)
+    assert "Consigne intensité" not in text
 
 
 def _athlete_full():

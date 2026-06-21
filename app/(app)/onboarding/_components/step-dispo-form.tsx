@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { Bike, Footprints, Waves, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { finalizeOnboarding, saveStepDispo } from '../actions'
+import { previewPlan } from '@/lib/coach/duration-preview'
 import { DAYS, type DispoInput } from '@/lib/onboarding/schemas'
 import type { Step } from '@/lib/onboarding/steps'
 
@@ -22,6 +24,12 @@ const DAY_LABEL: Record<(typeof DAYS)[number], string> = {
   fri: 'Ven',
   sat: 'Sam',
   sun: 'Dim',
+}
+
+const SPORT_ICON: Record<'swim' | 'bike' | 'run', LucideIcon> = {
+  swim: Waves,
+  bike: Bike,
+  run: Footprints,
 }
 
 export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
@@ -63,6 +71,13 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
       void finalizeOnboarding()
     })
   }
+
+  const hoursNum = hours ? Number.parseInt(hours, 10) : 0
+  const nAvailable = days.length
+  const preview =
+    hoursNum > 0 && nAvailable > 0
+      ? previewPlan({ nAvailable, hours: hoursNum, strengths: { swim, bike, run } })
+      : null
 
   return (
     <form
@@ -150,6 +165,27 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
           )
         })}
       </fieldset>
+
+      {preview && (
+        <div className="bg-muted/40 space-y-1 rounded-md border p-3 text-sm">
+          <p className="font-medium">Aperçu de tes séances types</p>
+          <p className="text-muted-foreground text-xs">
+            Tu te déclares dispo {nAvailable} jour(s) ; je programme {preview.trainingDays}{' '}
+            séance(s) + {preview.restDays} repos.
+          </p>
+          <ul className="text-muted-foreground space-y-0.5 text-xs">
+            {preview.disciplines.map((d) => {
+              const Icon = SPORT_ICON[d.sport]
+              return (
+                <li key={d.sport} className="flex items-center gap-1.5">
+                  <Icon className="size-3.5 shrink-0" aria-hidden />
+                  <span className="capitalize">{d.sport}</span> endurance ~{d.enduranceMinLabel}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
 
       <Button type="submit" disabled={loading} className="w-full">
         {loading ? 'Finalisation...' : "Terminer l'onboarding"}

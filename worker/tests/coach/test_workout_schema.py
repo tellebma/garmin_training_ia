@@ -6,6 +6,7 @@ from garmin_sync.coach.workout_schema import (
     IntervalSet,
     IntervalTarget,
     Workout,
+    structure_caps_for_type,
     validate_workout_for_session,
 )
 
@@ -82,12 +83,18 @@ def test_workout_rejects_too_much_warmup_and_cooldown():
     target_z2 = IntervalTarget(label="Z2", rpe=4)
     target_z1 = IntervalTarget(label="Z1", rpe=2)
 
-    with pytest.raises(ValidationError):
-        Workout(
-            warmup=IntervalBlock(duration_s=900, target=target_z1),
-            main=[IntervalBlock(duration_s=1080, target=target_z2)],
-            cooldown=IntervalBlock(duration_s=720, target=target_z1),
-            summary_md="45min with too little real work",
+    # Le modèle se construit, mais la validation par type rejette une structure
+    # où l'échauffement + le retour au calme écrasent le corps principal.
+    workout = Workout(
+        warmup=IntervalBlock(duration_s=900, target=target_z1),
+        main=[IntervalBlock(duration_s=1080, target=target_z2)],
+        cooldown=IntervalBlock(duration_s=720, target=target_z1),
+        summary_md="45min with too little real work",
+    )
+
+    with pytest.raises(ValueError, match=r"exceeds cap|main work below"):
+        validate_workout_for_session(
+            workout, {"target_duration_s": 2700, "session_type": "endurance"}
         )
 
 
@@ -116,3 +123,35 @@ def test_validate_workout_for_session_rejects_duration_far_from_target():
 
     with pytest.raises(ValueError, match="too far from target"):
         validate_workout_for_session(workout, {"target_duration_s": 1800})
+
+
+def _block(dur_s, zone="Z2", rpe=4):
+    return {"duration_s": dur_s, "target": {"label": zone, "rpe": rpe}}
+
+
+def test_structure_caps_endurance():
+    caps = structure_caps_for_type("endurance")
+    assert caps.warmup_max_s == 15 * 60
+    assert caps.cooldown_max_s == 10 * 60
+    assert caps.main_min_ratio == 0.80
+
+
+def test_long_session_rejects_huge_warmup():
+    wk = Workout(
+        warmup=_block(30 * 60),
+        main=[_block(80 * 60)],
+        cooldown=_block(10 * 60),
+        summary_md="x",
+    )
+    with pytest.raises(ValueError, match="warmup"):
+        validate_workout_for_session(
+            wk, {"target_duration_s": 120 * 60, "session_type": "endurance"}
+        )
+
+
+def test_absolute_floor_rejects_too_short_endurance():
+    wk = Workout(warmup=_block(60), main=[_block(15 * 60)], cooldown=_block(60), summary_md="x")
+    with pytest.raises(ValueError, match="too short"):
+        validate_workout_for_session(
+            wk, {"target_duration_s": 17 * 60, "session_type": "endurance"}
+        )
