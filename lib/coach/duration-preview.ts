@@ -22,6 +22,9 @@ function capVolume(hours: number): number {
 }
 
 const CAP_NIVEAU: Record<Level, number> = { beginner: 4, intermediate: 5, advanced: 6 }
+// Plancher de repos par niveau uniquement. Le worker (repos_min) ajoute un plancher
+// de phase (taper/deload -> 2) absent ici : sans contexte de phase à l'onboarding,
+// l'aperçu peut afficher 1 jour d'entraînement de plus qu'une semaine de taper/deload.
 const REPOS_LEVEL: Record<Level, number> = { beginner: 2, intermediate: 1, advanced: 1 }
 
 export function trainingDaysCount(args: {
