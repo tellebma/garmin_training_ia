@@ -21,3 +21,13 @@ def test_clamp_keeps_value_inside_bounds():
 
 def test_unknown_combo_returns_value_unchanged():
     assert clamp_duration_to_bounds("brick", "intervals", "base", 30 * 60) == 30 * 60
+
+
+def test_taper_uses_peak_bounds():
+    assert duration_bounds_s("run", "endurance", "taper") == duration_bounds_s(
+        "run", "endurance", "peak"
+    )
+
+
+def test_duration_bounds_s_returns_none_for_unknown():
+    assert duration_bounds_s("brick", "intervals", "base") is None
