@@ -501,3 +501,21 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
     update_in_args, _ = tp_mock.update.return_value.in_.call_args
     assert update_in_args[0] == "id"
     assert update_in_args[1] == ["old-plan-1"]
+
+
+def test_beginner_build_has_no_hard_intervals() -> None:
+    types = pick_session_types_for_phase("build", max_level=1)
+    assert "threshold" not in types
+    assert "intervals" not in types
+    assert "endurance" in types
+
+
+def test_level3_build_allows_threshold_not_intervals() -> None:
+    types = pick_session_types_for_phase("build", max_level=3)
+    assert "threshold" in types
+    assert "intervals" not in types
+
+
+def test_advanced_peak_allows_intervals() -> None:
+    types = pick_session_types_for_phase("peak", max_level=5)
+    assert "intervals" in types

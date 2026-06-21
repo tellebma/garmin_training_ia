@@ -50,16 +50,33 @@ def distribute_weekly_tss_by_sport(
     return {s: round(weekly_tss * w / total_w, 2) for s, w in weights.items()}
 
 
-def pick_session_types_for_phase(phase: Phase) -> list[str]:
-    """Return the canonical set of session types for a given phase."""
+_HARD_TYPES_BY_LEVEL: dict[int, set[str]] = {
+    1: set(),
+    2: set(),
+    3: {"threshold"},
+    4: {"threshold", "intervals"},
+    5: {"threshold", "intervals"},
+}
+
+
+def pick_session_types_for_phase(phase: Phase, *, max_level: int = 5) -> list[str]:
+    """Return the canonical set of session types for a given phase.
+
+    `max_level` (1-5) borne l'intensité : un niveau faible retire les types durs
+    (threshold/intervals) au profit d'endurance/recovery.
+    """
     if phase == "base":
-        return ["endurance", "long", "recovery"]
-    if phase == "build":
-        return ["endurance", "threshold", "long"]
-    if phase == "peak":
-        return ["intervals", "endurance", "long"]
-    # taper
-    return ["endurance", "recovery"]
+        base = ["endurance", "long", "recovery"]
+    elif phase == "build":
+        base = ["endurance", "threshold", "long"]
+    elif phase == "peak":
+        base = ["intervals", "endurance", "long"]
+    else:  # taper
+        base = ["endurance", "recovery"]
+
+    allowed_hard = _HARD_TYPES_BY_LEVEL.get(max_level, {"threshold", "intervals"})
+    filtered = [t for t in base if t not in {"threshold", "intervals"} or t in allowed_hard]
+    return filtered or ["endurance"]
 
 
 def _ramp_rate_for_week(week_offset: int, phase: Phase) -> float:
