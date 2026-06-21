@@ -89,7 +89,7 @@ def assign_sports(
     if not sports_in_race:
         return dict.fromkeys(sorted(training_idx), "run")
     ordered = sorted(training_idx)
-    non_run = [s for s in sports_in_race if s != "run"] or ["cross"]
+    non_run = [s for s in sports_in_race if s != "run"] or ["rest"]
     cap = run_cap(level) if "run" in sports_in_race else 0
     assignment: dict[int, str] = {}
     run_used = 0
