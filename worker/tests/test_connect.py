@@ -105,7 +105,10 @@ def test_cooldown_is_per_user() -> None:
 
     with patch("garmin_sync.connect.login_with_credentials") as fake_login:
         fake_login.side_effect = [GarminRateLimitError("slow down"), '{"oauth": "ok"}']
-        with patch("garmin_sync.connect._persist_tokens"):
+        with (
+            patch("garmin_sync.connect._persist_tokens"),
+            patch("garmin_sync.connect._trigger_initial_sync"),
+        ):
             res_a = start_connect_flow(user_id="userA", email="a@b.c", password="p")
             res_b = start_connect_flow(user_id="userB", email="a@b.c", password="p")
 
@@ -125,6 +128,7 @@ def test_successful_connect_clears_cooldown() -> None:
     with (
         patch("garmin_sync.connect.login_with_credentials") as fake_login,
         patch("garmin_sync.connect._persist_tokens"),
+        patch("garmin_sync.connect._trigger_initial_sync"),
     ):
         fake_login.return_value = '{"oauth": "ok"}'
         # Simulate the cooldown was wiped on expiry, then succeed
@@ -226,6 +230,7 @@ def test_resume_connect_flow_returns_connected_and_persists_tokens() -> None:
     with (
         patch("garmin_sync.connect.submit_mfa_code", return_value='{"oauth": "fresh"}'),
         patch("garmin_sync.connect._persist_tokens") as persist_mock,
+        patch("garmin_sync.connect._trigger_initial_sync"),
     ):
         result = resume_connect_flow(user_id="u1", challenge_id="cid_ok", code="123456")
 
@@ -328,6 +333,118 @@ def test_purge_expired_removes_old_mfa_challenges() -> None:
     assert "old_cid" not in _pending_mfa
     # Sanity: the expiry threshold is the value advertised by the module
     assert _MFA_EXPIRY_S > 0
+
+
+def test_start_connect_flow_triggers_initial_sync_on_success() -> None:
+    """E15.4: a successful connect must fire a first sync so the athlete sees
+    data immediately, instead of waiting for the next cron run."""
+    from garmin_sync.connect import start_connect_flow
+
+    with (
+        patch("garmin_sync.connect.login_with_credentials", return_value='{"oauth": "ok"}'),
+        patch("garmin_sync.connect._persist_tokens"),
+        patch("garmin_sync.connect._trigger_initial_sync") as trigger,
+    ):
+        result = start_connect_flow(user_id="u1", email="a@b.c", password="p")
+
+    assert result == {"status": "connected"}
+    trigger.assert_called_once_with("u1")
+
+
+def test_start_connect_flow_does_not_trigger_sync_on_invalid_credentials() -> None:
+    from garmin_sync.connect import start_connect_flow
+    from garmin_sync.garmin_client import GarminAuthError
+
+    with (
+        patch("garmin_sync.connect.login_with_credentials", side_effect=GarminAuthError("nope")),
+        patch("garmin_sync.connect._trigger_initial_sync") as trigger,
+    ):
+        result = start_connect_flow(user_id="u1", email="a@b.c", password="wrong")
+
+    assert result["status"] == "invalid_credentials"
+    trigger.assert_not_called()
+
+
+def test_start_connect_flow_does_not_trigger_sync_on_mfa_required() -> None:
+    """MFA is not a completed connect — the sync must wait for resume."""
+    from garmin_sync.connect import start_connect_flow
+    from garmin_sync.garmin_client import GarminMFARequired
+
+    with (
+        patch(
+            "garmin_sync.connect.login_with_credentials",
+            side_effect=GarminMFARequired(challenge=object()),
+        ),
+        patch("garmin_sync.connect._trigger_initial_sync") as trigger,
+    ):
+        result = start_connect_flow(user_id="u1", email="a@b.c", password="p")
+
+    assert result["status"] == "mfa_required"
+    trigger.assert_not_called()
+
+
+def test_resume_connect_flow_triggers_initial_sync_on_success() -> None:
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+
+    _pending_mfa["cid_sync"] = (9999999999.0, "u1", object())
+
+    with (
+        patch("garmin_sync.connect.submit_mfa_code", return_value='{"oauth": "fresh"}'),
+        patch("garmin_sync.connect._persist_tokens"),
+        patch("garmin_sync.connect._trigger_initial_sync") as trigger,
+    ):
+        result = resume_connect_flow(user_id="u1", challenge_id="cid_sync", code="123456")
+
+    assert result == {"status": "connected"}
+    trigger.assert_called_once_with("u1")
+
+
+def test_resume_connect_flow_does_not_trigger_sync_on_invalid_code() -> None:
+    from garmin_sync.connect import _pending_mfa, resume_connect_flow
+    from garmin_sync.garmin_client import GarminAuthError
+
+    _pending_mfa["cid_bad_sync"] = (9999999999.0, "u1", object())
+
+    with (
+        patch("garmin_sync.connect.submit_mfa_code", side_effect=GarminAuthError("nope")),
+        patch("garmin_sync.connect._trigger_initial_sync") as trigger,
+    ):
+        result = resume_connect_flow(user_id="u1", challenge_id="cid_bad_sync", code="000000")
+
+    assert result["status"] == "invalid_code"
+    trigger.assert_not_called()
+
+
+def test_trigger_initial_sync_runs_sync_in_daemon_thread() -> None:
+    """_trigger_initial_sync must spawn a daemon thread whose target runs
+    run_sync_for_user for the given user — non-blocking for the HTTP response."""
+    from garmin_sync.connect import _trigger_initial_sync
+
+    with patch("garmin_sync.connect.threading.Thread") as fake_thread:
+        _trigger_initial_sync("u1")
+
+    fake_thread.assert_called_once()
+    assert fake_thread.call_args.kwargs["daemon"] is True
+    fake_thread.return_value.start.assert_called_once()
+
+    # Running the captured target must drive the real sync for that user.
+    target = fake_thread.call_args.kwargs["target"]
+    with patch("garmin_sync.cron.run_sync_for_user") as fake_sync:
+        target()
+    fake_sync.assert_called_once_with("u1")
+
+
+def test_trigger_initial_sync_target_swallows_sync_errors() -> None:
+    """A failing first sync must never bubble up — the user stays connected and
+    the cron will retry."""
+    from garmin_sync.connect import _trigger_initial_sync
+
+    with patch("garmin_sync.connect.threading.Thread") as fake_thread:
+        _trigger_initial_sync("u1")
+
+    target = fake_thread.call_args.kwargs["target"]
+    with patch("garmin_sync.cron.run_sync_for_user", side_effect=RuntimeError("boom")):
+        target()  # must not raise
 
 
 def test_persist_tokens_upserts_encrypted_payload() -> None:

@@ -20,6 +20,7 @@ Reasons we cool down on:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from datetime import UTC, datetime
@@ -79,6 +80,30 @@ def _new_error_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
+def _trigger_initial_sync(user_id: str) -> None:
+    """Fire a first Garmin sync right after a successful connect (E15.4).
+
+    Without this, a freshly connected athlete sees no data until the next cron
+    run. We run it in a daemon thread so the HTTP ``connected`` response returns
+    immediately (a 90-day backfill can take tens of seconds). ``run_sync_for_user``
+    writes its own outcome to ``garmin_credentials.last_sync_status``, so progress
+    stays observable from the UI. It also picks the right range on its own: a
+    90-day backfill on the very first sync, a short delta on reconnects.
+
+    A failure here must never surface — the user is connected and the cron retries.
+    """
+
+    def _run() -> None:
+        try:
+            from garmin_sync.cron import run_sync_for_user
+
+            run_sync_for_user(user_id)
+        except Exception:
+            log.exception("post-connect initial sync failed for user=%s", user_id)
+
+    threading.Thread(target=_run, name=f"post-connect-sync-{user_id}", daemon=True).start()
+
+
 def start_connect_flow(*, user_id: str, email: str, password: str) -> dict[str, Any]:
     _purge_expired()
     cooled = _check_cooldown(user_id)
@@ -108,6 +133,7 @@ def start_connect_flow(*, user_id: str, email: str, password: str) -> dict[str, 
 
         _cooldowns.pop(user_id, None)
         _persist_tokens(user_id=user_id, tokens_json=tokens_json)
+        _trigger_initial_sync(user_id)
         return {"status": "connected"}
     except Exception as e:
         error_id = _new_error_id()
@@ -152,6 +178,7 @@ def resume_connect_flow(*, user_id: str, challenge_id: str, code: str) -> dict[s
 
         _cooldowns.pop(user_id, None)
         _persist_tokens(user_id=user_id, tokens_json=tokens_json)
+        _trigger_initial_sync(user_id)
         return {"status": "connected"}
     except Exception as e:
         error_id = _new_error_id()
