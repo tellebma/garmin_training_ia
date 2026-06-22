@@ -631,7 +631,8 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
             chain = m.select.return_value.eq.return_value.single.return_value.execute.return_value
             chain.data = profile
         elif table_name == "race_goals":
-            chain = m.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value
+            eqq = m.select.return_value.eq.return_value.eq.return_value
+            chain = eqq.maybe_single.return_value.execute.return_value
             chain.data = race
         elif table_name == "activities":
             sel = m.select.return_value.eq.return_value.gte.return_value.execute.return_value
