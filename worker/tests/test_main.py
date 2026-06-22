@@ -372,6 +372,39 @@ def test_daily_briefing_returns_rate_limited(mock_jwt, mock_cached, mock_rl):
     assert r.json()["status"] == "rate_limited"
 
 
+@patch("garmin_sync.coach.discipline_level.compute_discipline_levels")
+@patch("garmin_sync.coach.planner._load_today_banister_state")
+@patch("garmin_sync.main.get_admin_client")
+@patch("garmin_sync.main.verify_supabase_jwt")
+def test_discipline_levels_endpoint_ok(mock_jwt, mock_db, mock_state, mock_compute):
+    from garmin_sync.coach.discipline_level import DisciplineLevel, DisciplineLevels
+
+    mock_jwt.return_value = "user-1"
+    mock_db.return_value.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = {  # noqa: E501
+        "sports_strengths": {"swim": 2, "bike": 3, "run": 4}
+    }
+    mock_state.return_value = ({}, None, None, [])
+    mock_compute.return_value = DisciplineLevels(
+        disciplines={
+            "bike": DisciplineLevel(
+                3, 4, 1, "high", "Vélo remonté à 4 : ...", {"activities_90d": 22}
+            ),
+        }
+    )
+    client = ASGITestClient(__import__("garmin_sync.main", fromlist=["app"]).app)
+    r = client.post("/coach/discipline-levels", headers={"Authorization": "Bearer fake.jwt"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disciplines"]["bike"]["effective"] == 4
+
+
+def test_discipline_levels_requires_jwt():
+    from garmin_sync.main import app
+
+    r = ASGITestClient(app).post("/coach/discipline-levels")
+    assert r.status_code == 401
+
+
 @patch("garmin_sync.coach.rate_limit.check_or_raise")
 @patch("garmin_sync.main.verify_supabase_jwt")
 def test_regenerate_session_returns_rate_limited_status(mock_jwt, mock_rl):
