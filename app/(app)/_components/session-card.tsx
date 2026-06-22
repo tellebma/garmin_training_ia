@@ -23,6 +23,26 @@ export function SessionCard({
   showWorkout = false,
 }: Readonly<SessionCardProps>) {
   const workout = (session.workout ?? null) as Workout | null
+  const isRestDay = session.session_type === 'rest' || session.sport === 'rest'
+  if (isRestDay) {
+    return (
+      <article
+        className={cn(
+          'bg-card flex items-center gap-3 rounded-lg border p-3',
+          compact && 'p-2',
+          className
+        )}
+      >
+        <div className="bg-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-full">
+          <SportIcon sport="rest" size={compact ? 16 : 20} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-foreground text-sm font-medium">Repos</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">Récupération planifiée</p>
+        </div>
+      </article>
+    )
+  }
   return (
     <div className={cn('space-y-2', className)}>
       <article

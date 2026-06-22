@@ -552,18 +552,28 @@ def _load_adjustment_decision(
     return cast(_RowT, resp.data if resp else None)
 
 
-def format_explanation_md(factors: list[ReadinessFactor], status: Status) -> str:
+def format_explanation_md(
+    factors: list[ReadinessFactor], status: Status, is_rest_day: bool = False
+) -> str:
     """Build a short FR markdown explanation from the factors."""
     negatives = [f for f in factors if f.impact < 0]
     if not negatives:
+        if is_rest_day:
+            return (
+                "Tous les signaux sont au vert. Profite de cette journée de repos "
+                "pour bien récupérer."
+            )
         if status == "ready":
             return "Tous les signaux sont bons. Bonne séance !"
         return "Conditions correctes mais pas de données récentes pour affiner."
-    head = {
-        "ready": "Légers signaux à surveiller :",
-        "caution": "Quelques signes de fatigue :",
-        "rest_advised": "Signes de fatigue marqués :",
-    }[status]
+    if is_rest_day:
+        head = "Jour de repos, avec quelques signes de fatigue à surveiller :"
+    else:
+        head = {
+            "ready": "Légers signaux à surveiller :",
+            "caution": "Quelques signes de fatigue :",
+            "rest_advised": "Signes de fatigue marqués :",
+        }[status]
     bullets = "\n".join(f"- {f.explanation}" for f in negatives)
     return f"{head}\n\n{bullets}"
 
@@ -765,7 +775,8 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     )
     if _load_adjustment_decision(db, user_id, next_session_adjustment):
         next_session_adjustment = _no_repeated_adjustment(planned)
-    explanation = format_explanation_md(factors, status)
+    is_rest_day = str((planned or {}).get("session_type") or "") == "rest"
+    explanation = format_explanation_md(factors, status, is_rest_day=is_rest_day)
 
     return DailyBriefing(
         date=today.isoformat(),
@@ -779,7 +790,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         last_session_feedback=session_feedback,
         coach_recommendation=coach_recommendation,
         next_session_adjustment=next_session_adjustment,
-        is_rest_day=str((planned or {}).get("session_type") or "") == "rest",
+        is_rest_day=is_rest_day,
     )
 
 

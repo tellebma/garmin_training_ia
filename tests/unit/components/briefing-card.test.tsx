@@ -111,6 +111,65 @@ describe('BriefingCard', () => {
   })
 })
 
+describe('BriefingCard rest day', () => {
+  it('hides the readiness badge and activity review on a rest day', () => {
+    const briefing: DailyBriefing = {
+      date: '2026-06-22',
+      readiness_score: 88,
+      status: 'ready',
+      explanation_md: 'Tous les signaux sont au vert. Profite de cette journée de repos.',
+      factors: [],
+      planned_session: { sport: 'rest', session_type: 'rest' },
+      suggested_session: null,
+      activity_review: {
+        lookback_days: 90,
+        activities_7d: 4,
+        activities_28d: 14,
+        tss_7d: 430,
+        avg_weekly_tss_prev_21d: 280,
+        elevation_gain_7d: 1200,
+        avg_weekly_elevation_prev_21d: 700,
+        sport_counts_28d: { run: 9, bike: 5 },
+        days_since_last_activity: 1,
+        insights: [
+          {
+            name: 'load_spike',
+            severity: 'watch',
+            message: 'La charge hebdo monte vite.',
+            readiness_impact: -10,
+          },
+        ],
+      },
+      last_session_feedback: null,
+      coach_recommendation: {
+        action: 'rest',
+        title: 'Repos',
+        rationale: 'Journée de récupération planifiée.',
+        instruction: 'Repose-toi.',
+      },
+      next_session_adjustment: {
+        status: 'none',
+        action: 'maintain',
+        title: '',
+        rationale: '',
+        instruction: '',
+        target_session: null,
+        suggested_session_type: null,
+      },
+      is_rest_day: true,
+    }
+
+    render(<BriefingCard briefing={briefing} />)
+
+    // rest block is shown
+    expect(screen.getByText('Jour de repos')).toBeTruthy()
+    // readiness badge and activity review are hidden on a rest day
+    expect(screen.queryByText(/88\/100/)).toBeNull()
+    expect(screen.queryByText('Revue des activités')).toBeNull()
+    expect(screen.queryByText('La charge hebdo monte vite.')).toBeNull()
+  })
+})
+
 describe('NextSessionAdjustmentActions', () => {
   it('applies the suggested adjustment and confirms success', async () => {
     applyMock.mockResolvedValue({ success: true, data: { status: 'ok' } })

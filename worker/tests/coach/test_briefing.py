@@ -129,6 +129,23 @@ def test_format_explanation_md_caution_lists_negatives():
     assert "signes de fatigue" in md.lower()
 
 
+def test_format_explanation_md_rest_day_no_negatives_avoids_bonne_seance():
+    md = format_explanation_md([], "ready", is_rest_day=True)
+    assert "Bonne séance" not in md
+    assert "repos" in md.lower() or "récup" in md.lower()
+
+
+def test_format_explanation_md_rest_day_keeps_fatigue_bullets():
+    factors = [
+        ReadinessFactor("hrv_low", -10, "HRV un peu basse."),
+        ReadinessFactor("sleep_short", -5, "Sommeil court."),
+    ]
+    md = format_explanation_md(factors, "rest_advised", is_rest_day=True)
+    assert "HRV un peu basse" in md
+    assert "Sommeil court" in md
+    assert "Bonne séance" not in md
+
+
 def test_build_coach_recommendation_rest_advised_is_clear():
     rec = build_coach_recommendation(
         status="rest_advised",

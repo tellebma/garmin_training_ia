@@ -57,14 +57,16 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
         <h2 className="text-foreground text-sm font-semibold tracking-wide uppercase">
           Briefing du jour
         </h2>
-        <span
-          className={cn(
-            'rounded-full px-2 py-0.5 text-xs font-medium',
-            STATUS_BADGE_CLASSES[status]
-          )}
-        >
-          {STATUS_LABEL[status]} · {String(readiness_score)}/100
-        </span>
+        {!is_rest_day && (
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-xs font-medium',
+              STATUS_BADGE_CLASSES[status]
+            )}
+          >
+            {STATUS_LABEL[status]} · {String(readiness_score)}/100
+          </span>
+        )}
       </div>
       <p className="text-foreground text-sm whitespace-pre-wrap">{explanation_md}</p>
       {is_rest_day ? (
@@ -132,7 +134,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
             )}
         </div>
       )}
-      {insights.length > 0 && (
+      {!is_rest_day && insights.length > 0 && (
         <div className="mt-4 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <p className="text-foreground text-sm font-medium">Revue des activités</p>
