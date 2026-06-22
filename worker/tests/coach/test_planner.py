@@ -583,3 +583,98 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
     bike_end = [s for s in sessions if s["sport"] == "bike" and s["session_type"] == "endurance"]
     assert bike_end
     assert all(s["target_duration_s"] >= 90 * 60 for s in bike_end)
+
+
+def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> None:
+    """generate_plan must pass effective (history-adjusted) strengths
+    to _build_week_sessions, not the raw declared values."""
+    from garmin_sync.coach import planner as p_mod
+    from garmin_sync.coach.discipline_level import DisciplineLevel, DisciplineLevels
+
+    profile = {
+        "user_id": "u-eff",
+        "hours_per_week": 6,
+        "ftp_watts": 200,
+        "fc_max_bpm": 180,
+        "sports_strengths": {"swim": 3, "bike": 2, "run": 3},
+        "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
+    }
+    race = {
+        "id": "rg-eff",
+        "race_date": (date.today() + timedelta(weeks=8)).isoformat(),
+        "discipline": "triathlon",
+        "legs": [
+            {
+                "order": 1,
+                "discipline": "swim",
+                "distance_km": 1.4,
+                "elevation_gain_m": 0,
+            },
+            {
+                "order": 2,
+                "discipline": "bike",
+                "distance_km": 53,
+                "elevation_gain_m": 2200,
+            },
+            {
+                "order": 3,
+                "discipline": "run",
+                "distance_km": 8,
+                "elevation_gain_m": 200,
+            },
+        ],
+    }
+
+    def _table_router(table_name: str):
+        m = MagicMock()
+        if table_name == "athlete_profiles":
+            chain = m.select.return_value.eq.return_value.single.return_value.execute.return_value
+            chain.data = profile
+        elif table_name == "race_goals":
+            eqq = m.select.return_value.eq.return_value.eq.return_value
+            chain = eqq.maybe_single.return_value.execute.return_value
+            chain.data = race
+        elif table_name == "activities":
+            sel = m.select.return_value.eq.return_value.gte.return_value.execute.return_value
+            sel.data = []
+        elif table_name == "training_plans":
+            m.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
+            m.insert.return_value.execute.return_value.data = [{"id": "plan-eff"}]
+        elif table_name == "planned_sessions":
+            m.insert.return_value.execute.return_value.data = []
+        return m
+
+    fake_db = MagicMock()
+    fake_db.table.side_effect = _table_router
+    monkeypatch.setattr(p_mod, "get_admin_client", lambda: fake_db)
+
+    # Fake effective strengths: bike bumped 2 -> 3
+    fake_levels = DisciplineLevels(
+        disciplines={
+            "swim": DisciplineLevel(3, 3, 0, "high", "ok", {}),
+            "bike": DisciplineLevel(2, 3, 1, "high", "bumped", {}),
+            "run": DisciplineLevel(3, 3, 0, "high", "ok", {}),
+        }
+    )
+    monkeypatch.setattr(
+        p_mod,
+        "compute_discipline_levels",
+        lambda *_a, **_kw: fake_levels,
+    )
+
+    captured_kwargs: list[dict] = []
+    original_build = p_mod._build_week_sessions
+
+    def _capturing_build(**kwargs):
+        captured_kwargs.append(kwargs)
+        return original_build(**kwargs)
+
+    monkeypatch.setattr(p_mod, "_build_week_sessions", _capturing_build)
+
+    result = generate_plan("u-eff")
+    assert result["status"] == "ok"
+    assert captured_kwargs, "_build_week_sessions was never called"
+    for kw in captured_kwargs:
+        assert kw["sports_strengths"] == {"swim": 3, "bike": 3, "run": 3}, (
+            f"Expected effective strengths, got {kw['sports_strengths']}"
+        )

@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
+from garmin_sync.coach.sports import DISCIPLINE_SPORTS
+
 FeedbackSeverity = Literal["positive", "watch", "risk"]
 
 _EQUIVALENT_SPORTS: dict[str, set[str]] = {
-    "bike": {"bike", "cycling", "indoor_cycling", "mountain_biking"},
-    "run": {"run", "running", "trail_running", "treadmill_running"},
-    "swim": {"swim", "swimming", "lap_swimming", "open_water_swimming"},
+    **DISCIPLINE_SPORTS,
     "brick": {"brick", "multi_sport", "transition"},
 }
 

@@ -14,6 +14,7 @@ from garmin_sync.coach.banister import (
     compute_banister_history,
     estimate_initial_ctl_from_profile,
 )
+from garmin_sync.coach.discipline_level import compute_discipline_levels
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.training_days import (
@@ -499,12 +500,14 @@ def _compute_tss_by_date(
 
 def _load_today_banister_state(
     *, db: Any, user_id: str, profile: dict[str, Any], today: date
-) -> tuple[dict[date, float], BanisterState, ActivityReview]:
+) -> tuple[dict[date, float], BanisterState, ActivityReview, list[dict[str, Any]]]:
     """Load last 180 days of activities, derive tss_by_date and today's CTL/ATL/TSB.
 
     Cold-start (<14 days of activities): skip the 180-day decay simulation and
     use the profile estimate AS today's state directly. See cold-start regression
     test for the rationale.
+
+    Returns (tss_by_date, banister_state, activity_review, activities).
     """
     history_start = today - timedelta(days=180)
     activities = cast(
@@ -522,7 +525,12 @@ def _load_today_banister_state(
 
     if len(tss_by_date) < 14:
         init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
-        return tss_by_date, BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0), activity_review
+        return (
+            tss_by_date,
+            BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0),
+            activity_review,
+            activities,
+        )
 
     states = compute_banister_history(
         tss_by_date=tss_by_date,
@@ -531,7 +539,7 @@ def _load_today_banister_state(
         initial_ctl=0.0,
         initial_atl=0.0,
     )
-    return tss_by_date, states[-1], activity_review
+    return tss_by_date, states[-1], activity_review, activities
 
 
 def generate_plan(user_id: str) -> dict[str, Any]:
@@ -574,7 +582,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     if race_date <= today:
         return {"status": "race_in_past"}
 
-    tss_by_date, today_state, activity_review = _load_today_banister_state(
+    tss_by_date, today_state, activity_review, activities = _load_today_banister_state(
         db=db, user_id=user_id, profile=profile, today=today
     )
     first_week_tss_multiplier = compute_first_week_tss_multiplier(activity_review)
@@ -585,6 +593,9 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     sports_in_race = [leg["discipline"] for leg in race["legs"]]
     race_sport = race["legs"][0]["discipline"] if race["legs"] else "run"
     sports_strengths = profile.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
+    effective_strengths = compute_discipline_levels(
+        sports_strengths, activities, today=today
+    ).effective_strengths
     available_days = profile.get("available_days") or ["mon", "wed", "fri"]
 
     # Per-sport race D+ -> per-week target D+, gated by the sport's threshold.
@@ -611,7 +622,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
             week_start=week_start + timedelta(weeks=offset),
             weekly_tss=weekly_tss,
             sports_in_race=sports_in_race,
-            sports_strengths=sports_strengths,
+            sports_strengths=effective_strengths,
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
             is_last_week=is_last,

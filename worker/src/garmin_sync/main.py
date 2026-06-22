@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from garmin_sync.auth import AuthError, verify_shared_token, verify_supabase_jwt
 from garmin_sync.config import get_settings
 from garmin_sync.cron import run_sync_for_user
+from garmin_sync.supabase_client import get_admin_client
 
 _BEARER_PREFIX = "Bearer "
 
@@ -185,6 +186,56 @@ async def coach_generate_plan(
     except Exception as e:
         error_id = _new_error_id()
         log.exception("[%s] coach_generate_plan crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
+
+
+@router.post("/coach/discipline-levels")
+async def coach_discipline_levels(
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Return declared vs history-adjusted level per discipline for the user."""
+    user_id = _require_user_jwt(authorization)
+    try:
+        from datetime import date
+        from typing import cast
+
+        from garmin_sync.coach.discipline_level import compute_discipline_levels
+        from garmin_sync.coach.planner import _load_today_banister_state
+
+        db = get_admin_client()
+        profile: dict[str, Any] = (
+            cast(
+                "dict[str, Any]",
+                db.table("athlete_profiles")
+                .select("sports_strengths")
+                .eq("user_id", user_id)
+                .single()
+                .execute()
+                .data,
+            )
+            or {}
+        )
+        today = date.today()
+        _tss, _state, _review, activities = _load_today_banister_state(
+            db=db, user_id=user_id, profile=profile, today=today
+        )
+        declared: dict[str, int] = profile.get("sports_strengths") or {
+            "swim": 3,
+            "bike": 3,
+            "run": 3,
+        }
+        return compute_discipline_levels(declared, activities, today=today).to_dict()
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception(
+            "[%s] coach_discipline_levels crashed for user=%s",
+            error_id,
+            user_id,
+        )
         return {
             "status": "unexpected_error",
             "error_id": error_id,
