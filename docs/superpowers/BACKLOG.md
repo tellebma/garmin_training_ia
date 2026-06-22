@@ -360,6 +360,21 @@ Spec et critères d'acceptation :
 
 ## Qualité / plateforme
 
+### P1 — Skeleton & rendu progressif — V1 livrée
+
+- Objectif owner (2026-06-22) : afficher chaque information dès qu'elle est disponible
+  plutôt que d'attendre toutes les données, pour améliorer la perception de vitesse.
+- Statut V1 : primitive `Skeleton` partagée (`components/ui/skeleton.tsx`, respecte
+  `prefers-reduced-motion`) + wrapper accessible `LoadingRegion` (`role="status"`).
+  Streaming Suspense par section sur `/profile` (l'appel worker `/coach/discipline-levels`
+  15 s ne bloque plus la page), `/today` (briefing), `/stats` (corps cockpit) et
+  `/history/[id]` (analyse + samples). `loading.tsx` reconstruits (today, plan, stats,
+  history) + ajoutés (profile, history/[id], profile/garmin). Spec
+  `docs/superpowers/specs/2026-06-22-skeleton-streaming-design.md`, plan
+  `docs/superpowers/plans/2026-06-22-skeleton-streaming.md`.
+- Suite éventuelle : skeletons par section pour `/plan` et `/history` (listes) si besoin,
+  empreinte de fraîcheur pour invalider finement.
+
 ### P0 — Identité numérique et style graphique coach
 
 - Définir une identité visuelle stable : personnalité de marque, ton éditorial,

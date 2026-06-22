@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { SignOutButton } from '@/components/auth/sign-out-button'
 import { Button } from '@/components/ui/button'
@@ -7,8 +8,8 @@ import {
   CoachAdjustmentDecisionsSection,
   type CoachAdjustmentDecisionRow,
 } from './_components/coach-adjustment-decisions-section'
-import { DisciplineLevelsSection } from './_components/discipline-levels-section'
-import { workerPost } from '@/lib/worker'
+import { DisciplineLevelsLoader } from './_components/discipline-levels-loader'
+import { DisciplineLevelsSkeleton } from './_components/discipline-levels-skeleton'
 import { PersoEditForm } from './_components/perso-edit-form'
 import { RaceEditForm } from './_components/race-edit-form'
 import { PerfEditForm } from './_components/perf-edit-form'
@@ -101,22 +102,6 @@ export default async function ProfilePage() {
 
   const garminConnected = garmin !== null
   const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
-
-  // Fetch discipline levels from worker (fail soft)
-  let disciplineLevels: Record<string, unknown> = {}
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    if (session?.access_token) {
-      const res = await workerPost<{
-        disciplines?: Record<string, unknown>
-      }>('/coach/discipline-levels', {}, session.access_token, 15_000)
-      disciplineLevels = res.disciplines ?? {}
-    }
-  } catch {
-    disciplineLevels = {}
-  }
 
   // Build typed initial props for edit forms
   const persoInitial: PersonInput = {
@@ -214,7 +199,9 @@ export default async function ProfilePage() {
       <RaceEditForm initial={raceInitial} />
       <PerfEditForm initial={perfInitial} />
       <DispoEditForm initial={dispoInitial} />
-      <DisciplineLevelsSection disciplines={disciplineLevels as never} />
+      <Suspense fallback={<DisciplineLevelsSkeleton />}>
+        <DisciplineLevelsLoader />
+      </Suspense>
       <CoachAdjustmentDecisionsSection decisions={adjustmentDecisions ?? []} />
 
       <SignOutButton />

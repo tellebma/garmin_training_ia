@@ -1,4 +1,5 @@
 // app/(app)/today/page.tsx
+import { Suspense } from 'react'
 import {
   Activity as ActivityIcon,
   BatteryCharging,
@@ -23,6 +24,7 @@ import { SessionCard } from '../_components/session-card'
 import { ActivityRow } from '../_components/activity-row'
 import { BanisterChart } from '../_components/charts/banister-chart'
 import { SyncTimingsCard } from '../_components/sync-timings-card'
+import { BriefingCardSkeleton } from '../_components/skeletons/briefing-card-skeleton'
 import type { ActivityRowDto, BanisterPoint, PlannedSession, RaceGoal } from '@/lib/dashboard/types'
 
 export const revalidate = 0
@@ -83,15 +85,19 @@ function renderSessionSection(session: PlannedSession | null): React.ReactNode {
   )
 }
 
+async function BriefingLoader() {
+  const result = await getDailyBriefing().catch(() => null)
+  const briefing = result?.success ? result.briefing : null
+  if (!briefing) return null
+  return <BriefingCard briefing={briefing} />
+}
+
 export default async function TodayPage() {
   const userId = await requireOnboarded()
 
   // Fire-and-forget — don't block the render. If the worker is down,
   // we still display whatever workout already exists.
   void ensureGeneratedSessions(7).catch(() => undefined)
-
-  // Start early, then await with the rest of the page data.
-  const briefingPromise = getDailyBriefing().catch(() => null)
 
   const supabase = await createClient()
   const now = new Date()
@@ -102,7 +108,6 @@ export default async function TodayPage() {
   const ninetyDaysAgo = isoDate(new Date(now.getTime() - 90 * 86_400_000))
 
   const [
-    briefingResult,
     sessionRes,
     dailyRes,
     sleepRes,
@@ -112,7 +117,6 @@ export default async function TodayPage() {
     raceRes,
     garminCredsRes,
   ] = await Promise.all([
-    briefingPromise,
     supabase
       .from('planned_sessions')
       .select(
@@ -175,7 +179,6 @@ export default async function TodayPage() {
       .maybeSingle(),
   ])
 
-  const briefing = briefingResult?.success ? briefingResult.briefing : null
   const session = sessionRes.data as PlannedSession | null
   const daily = dailyRes.data
   const sleep = sleepRes.data
@@ -227,7 +230,9 @@ export default async function TodayPage() {
         lastProfileSyncAt={lastProfileSyncAt}
       />
 
-      {briefing && <BriefingCard briefing={briefing} />}
+      <Suspense fallback={<BriefingCardSkeleton />}>
+        <BriefingLoader />
+      </Suspense>
 
       <section>
         <div className="mb-2 flex items-center justify-between">

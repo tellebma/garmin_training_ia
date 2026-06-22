@@ -1,14 +1,18 @@
-// app/(app)/plan/loading.tsx
+import { Skeleton } from '@/components/ui/skeleton'
+import { LoadingRegion } from '../_components/skeletons/loading-region'
+
 export default function PlanLoading() {
   return (
-    <div className="space-y-6">
-      <div className="bg-muted/50 h-8 w-48 animate-pulse rounded" />
-      <div className="bg-muted/50 h-10 w-full animate-pulse rounded" />
-      <div className="space-y-2">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="bg-muted/50 h-16 animate-pulse rounded-lg" />
-        ))}
+    <LoadingRegion label="Chargement du plan">
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <div className="space-y-2">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+          ))}
+        </div>
       </div>
-    </div>
+    </LoadingRegion>
   )
 }

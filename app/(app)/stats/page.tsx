@@ -1,7 +1,9 @@
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { Activity as ActivityIcon, HeartPulse, Moon } from 'lucide-react'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import { CockpitSkeleton } from '../_components/skeletons/cockpit-skeleton'
 import { ChartCard } from '../_components/chart-card'
 import { EmptyState } from '../_components/empty-state'
 import { BanisterChart } from '../_components/charts/banister-chart'
@@ -79,12 +81,16 @@ function progressPercent(actual: number, planned: number): number {
   return actual > 0 ? 100 : 0
 }
 
-export default async function StatsPage({ searchParams }: Props) {
-  const userId = await requireOnboarded()
+async function CockpitBody({
+  userId,
+  range,
+  selectedSport,
+}: {
+  readonly userId: string
+  readonly range: (typeof ranges)[number]
+  readonly selectedSport: CockpitSport | 'all'
+}) {
   const supabase = await createClient()
-  const params = await searchParams
-  const range = parseRange(params.range)
-  const selectedSport = parseSport(params.sport)
   const now = new Date()
   const startDate = new Date(now.getTime() - (range - 1) * 86_400_000).toISOString().slice(0, 10)
   const today = now.toISOString().slice(0, 10)
@@ -159,47 +165,7 @@ export default async function StatsPage({ searchParams }: Props) {
       : 'Ajoute ton RPE après une activité'
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-muted-foreground text-sm">Suivi longitudinal</p>
-          <h1 className="text-2xl font-semibold">Cockpit de performance</h1>
-        </div>
-        <nav aria-label="Période d’analyse" className="flex gap-1 rounded-md border p-1">
-          {ranges.map((days) => (
-            <Link
-              key={days}
-              href={filterHref(days, selectedSport)}
-              aria-current={range === days ? 'page' : undefined}
-              className={cn(
-                'rounded px-3 py-1.5 text-sm font-medium transition-colors',
-                range === days ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
-              )}
-            >
-              {days} j
-            </Link>
-          ))}
-        </nav>
-      </header>
-
-      <nav aria-label="Filtrer par discipline" className="flex gap-2 overflow-x-auto pb-1">
-        {sports.map((sport) => (
-          <Link
-            key={sport.value}
-            href={filterHref(range, sport.value)}
-            aria-current={selectedSport === sport.value ? 'page' : undefined}
-            className={cn(
-              'shrink-0 rounded-md border px-3 py-1.5 text-sm transition-colors',
-              selectedSport === sport.value
-                ? 'border-foreground bg-foreground text-background'
-                : 'hover:bg-accent'
-            )}
-          >
-            {sport.label}
-          </Link>
-        ))}
-      </nav>
-
+    <>
       <section className={cn('rounded-md border p-4', signalClass(cockpit.coachSignal.tone))}>
         <p className="text-muted-foreground text-xs font-medium uppercase">Lecture coach</p>
         <h2 className="mt-1 text-base font-semibold">{cockpit.coachSignal.title}</h2>
@@ -367,6 +333,61 @@ export default async function StatsPage({ searchParams }: Props) {
           </ChartCard>
         </div>
       </section>
+    </>
+  )
+}
+
+export default async function StatsPage({ searchParams }: Props) {
+  const userId = await requireOnboarded()
+  const params = await searchParams
+  const range = parseRange(params.range)
+  const selectedSport = parseSport(params.sport)
+
+  return (
+    <div className="space-y-8">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-muted-foreground text-sm">Suivi longitudinal</p>
+          <h1 className="text-2xl font-semibold">Cockpit de performance</h1>
+        </div>
+        <nav aria-label="Période d’analyse" className="flex gap-1 rounded-md border p-1">
+          {ranges.map((days) => (
+            <Link
+              key={days}
+              href={filterHref(days, selectedSport)}
+              aria-current={range === days ? 'page' : undefined}
+              className={cn(
+                'rounded px-3 py-1.5 text-sm font-medium transition-colors',
+                range === days ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
+              )}
+            >
+              {days} j
+            </Link>
+          ))}
+        </nav>
+      </header>
+
+      <nav aria-label="Filtrer par discipline" className="flex gap-2 overflow-x-auto pb-1">
+        {sports.map((sport) => (
+          <Link
+            key={sport.value}
+            href={filterHref(range, sport.value)}
+            aria-current={selectedSport === sport.value ? 'page' : undefined}
+            className={cn(
+              'shrink-0 rounded-md border px-3 py-1.5 text-sm transition-colors',
+              selectedSport === sport.value
+                ? 'border-foreground bg-foreground text-background'
+                : 'hover:bg-accent'
+            )}
+          >
+            {sport.label}
+          </Link>
+        ))}
+      </nav>
+
+      <Suspense fallback={<CockpitSkeleton />}>
+        <CockpitBody userId={userId} range={range} selectedSport={selectedSport} />
+      </Suspense>
     </div>
   )
 }
