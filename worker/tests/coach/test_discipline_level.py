@@ -57,7 +57,7 @@ def test_downgrade_when_declared_strong_but_low_regularity_with_data() -> None:
 def test_no_level_up_when_burst_not_sustained() -> None:
     # many bike sessions but all in the last 10 days -> not sustained
     declared = {"swim": 3, "bike": 2, "run": 3}
-    burst = [_act(days_ago=i % 10, sport="cycling") for i in range(20)]
+    burst = [_act(days_ago=i % 10, sport="cycling") for i in range(26)]
     levels = compute_discipline_levels(declared, burst, today=TODAY)
     assert levels.disciplines["bike"].adjustment == 0
 
