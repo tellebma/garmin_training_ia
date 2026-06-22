@@ -1,15 +1,19 @@
-// app/(app)/today/loading.tsx
+import { Skeleton } from '@/components/ui/skeleton'
+import { LoadingRegion } from '../_components/skeletons/loading-region'
+
 export default function TodayLoading() {
   return (
-    <div className="space-y-6">
-      <div className="bg-muted/50 h-8 w-48 animate-pulse rounded" />
-      <div className="bg-muted/50 h-36 animate-pulse rounded-lg" />
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-muted/50 h-24 animate-pulse rounded-lg" />
-        <div className="bg-muted/50 h-24 animate-pulse rounded-lg" />
-        <div className="bg-muted/50 h-24 animate-pulse rounded-lg" />
+    <LoadingRegion label="Chargement de la page du jour">
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-36 w-full rounded-lg" />
+        <div className="grid grid-cols-3 gap-2">
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+        </div>
+        <Skeleton className="h-64 w-full rounded-lg" />
       </div>
-      <div className="bg-muted/50 h-64 animate-pulse rounded-lg" />
-    </div>
+    </LoadingRegion>
   )
 }
