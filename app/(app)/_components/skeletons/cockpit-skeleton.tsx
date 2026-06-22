@@ -1,17 +1,10 @@
 import { Skeleton } from '@/components/ui/skeleton'
-import { LoadingRegion } from '../_components/skeletons/loading-region'
+import { LoadingRegion } from './loading-region'
 
-export default function StatsLoading() {
+export function CockpitSkeleton() {
   return (
     <LoadingRegion label="Chargement du cockpit">
       <div className="space-y-8">
-        <div className="flex items-end justify-between">
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-8 w-64" />
-          </div>
-          <Skeleton className="h-9 w-44 rounded-md" />
-        </div>
         <Skeleton className="h-24 w-full rounded-md" />
         <div className="grid border-y sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
