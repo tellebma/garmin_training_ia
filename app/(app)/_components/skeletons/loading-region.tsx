@@ -6,8 +6,8 @@ export function LoadingRegion({
   readonly children: React.ReactNode
 }) {
   return (
-    <div role="status" aria-label={label} aria-busy>
+    <output aria-label={label} aria-busy className="block">
       {children}
-    </div>
+    </output>
   )
 }
