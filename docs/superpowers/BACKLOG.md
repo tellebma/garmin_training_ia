@@ -18,9 +18,11 @@ Le plan doit ressembler à ce qu'un vrai coach triathlon prescrit : séances de 
 crédible, adaptées au niveau de l'athlète par discipline, avec mobilité et vrais jours
 de repos.
 
-- **E13.1 P0 — Séances de durée réaliste** : corriger la régression « séances trop
-  courtes ». Durées cibles par discipline / niveau / phase (base, build, peak), pas une
-  durée minimale générique. Voir « Structure réaliste des séances générées ».
+- **E13.1 P0 — Séances de durée réaliste — V1 livrée** : la régression « séances trop
+  courtes » est corrigée. `coach/duration_bounds.py` définit des bornes plancher/plafond
+  réalistes par `(discipline, type, phase)` (base/build/peak, taper→peak) et le planner
+  clampe chaque durée dessus (`planner.py` via `clamp_duration_to_bounds`). Couvert par
+  `tests/coach/test_duration_bounds.py`. Voir « Structure réaliste des séances générées ».
 - **E13.2 P0 — Plan adaptatif par niveau de discipline** : **exploiter réellement le
   niveau par discipline déjà saisi à l'onboarding** (aujourd'hui sous-utilisé dans les
   recommandations) et adapter volume, charge, intensité et progression discipline par
@@ -61,11 +63,12 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   actuelle ne fait que du polling non officiel.
 - **E15.3 P1 — Sync on-demand** : déclencher une sync à l'ouverture de l'app
   (pull-to-refresh) en plus du cron, pour réduire la latence perçue immédiatement.
-- **E15.4 P0 — Pull au connect/reconnect Garmin** : déclencher un pull des données dès
-  qu'une connexion ou reconnexion Garmin réussit. Aujourd'hui `start_connect_flow` /
-  `resume_connect_flow` renvoient `{"status":"connected"}` sans lancer de sync :
-  l'athlète connecte son compte mais ne voit aucune donnée tant que le cron n'a pas
-  tourné. Lancer une première sync (activités + métriques) après `connected`.
+- **E15.4 P0 — Pull au connect/reconnect Garmin — V1 livrée** : `start_connect_flow` et
+  `resume_connect_flow` déclenchent désormais `_trigger_initial_sync(user_id)` après un
+  `connected`. La sync tourne dans un thread daemon (réponse `connected` immédiate, pas de
+  blocage de la Server Action) et réutilise `run_sync_for_user`, qui fait un backfill 90j au
+  premier connect et un delta court au reconnect. L'échec de sync ne casse pas le connect
+  (le cron rattrape) et le statut reste observable via `garmin_credentials.last_sync_status`.
 
 ## Coaching sportif / performance
 
@@ -192,16 +195,14 @@ Spec et critères d'acceptation :
   le prompt LLM interdit les découpages fixes irréalistes, et `Workout` rejette les
   séances dont le corps principal représente moins de 55% ou dont la durée totale
   s'éloigne trop de la cible.
-- **Régression constatée (2026-06-21, retour owner) — priorité relevée P0 bloquant** :
-  les séances générées restent systématiquement **trop courtes et irréalistes**, elles
-  ne reflètent pas une vraie séance de triathlète (ex. une sortie vélo d'endurance
-  réelle dure 1h30-3h, pas 45min). Le garde-fou 55% / écart de durée ne suffit pas.
-  - Caler les durées cibles sur des **normes réalistes par discipline, niveau et phase**
-    (base, build, peak) au lieu d'une durée minimale générique.
-  - Vérifier que la charge hebdo agrège des séances de durée crédible, pas une somme
-    de micro-séances.
-  - Étendre les tests `workout_schema` / `openai_client` avec des cas de durées
-    réalistes par discipline et phase.
+- **Régression (2026-06-21, retour owner) — corrigée (E13.1 V1)** : les séances étaient
+  systématiquement trop courtes et irréalistes (ex. sortie vélo d'endurance à 45min au lieu
+  de 1h30-3h). Corrigé via `coach/duration_bounds.py` : bornes plancher/plafond réalistes par
+  `(discipline, type, phase)` (vélo endurance base 90-180min, long base 120-210min, etc.,
+  taper→peak), clampées dans le planner par `clamp_duration_to_bounds`. Couvert par
+  `tests/coach/test_duration_bounds.py`.
+  - Suite éventuelle : vérifier que la charge hebdo agrège bien ces durées crédibles et
+    étendre les cas de tests `workout_schema` / `openai_client` par discipline et phase.
 - **Repos = repos (UI)** : un jour de repos affiche un message de repos clair côté
   briefing / `/today`, **pas un compte rendu ni une structure de séance**.
 
@@ -405,10 +406,10 @@ Spec et critères d'acceptation :
   `python-garminconnect` est non officielle et ne fait que du polling.
 - Piste court terme sans nouvelle intégration : déclencher une sync à l'ouverture de
   l'app (pull-to-refresh / on-demand) en plus du cron, pour réduire la latence perçue.
-- **Pull au connect/reconnect (P0, quick win)** : déclencher une sync immédiate après un
-  `connected` (connexion ou MFA réussie) dans `connect.py`. Sinon l'athlète qui vient de
-  lier son compte ne voit rien jusqu'au prochain cron. C'est le gain le plus rapide et le
-  plus visible de cet EPIC.
+- **Pull au connect/reconnect (P0, quick win) — V1 livrée** : `connect.py` déclenche une sync
+  immédiate (thread daemon non bloquant) après chaque `connected` (connexion ou MFA réussie)
+  via `_trigger_initial_sync`. L'athlète qui vient de lier son compte voit ses données sans
+  attendre le cron. Voir E15.4 ci-dessus.
 - À trancher : Strava webhooks (recommandé, réaliste) vs attente du programme Garmin.
 
 ### P0 — Cache et chargement rapide du briefing quotidien
