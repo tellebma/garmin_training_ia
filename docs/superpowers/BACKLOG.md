@@ -30,8 +30,12 @@ de repos.
   Voir « Adapter le plan au niveau par discipline ».
 - **E13.3 P1 — Mobilité / renforcement dans le plan** : intégrer des séances de
   mobilité, souplesse et renfo (prehab) bien placées sans alourdir la charge.
-- **E13.4 P1 — Repos = repos** : un jour de repos est un vrai repos, sans compte rendu
-  ni structure de séance côté UI.
+- **E13.4 P1 — Repos = repos — V1 livrée** : un jour de repos est un vrai repos, sans
+  compte rendu ni structure de séance côté UI. `/plan` rend le repos via une ligne sobre
+  « Repos / Récupération planifiée » (variante repos de `SessionCard`, sans durée/TSS, sans
+  bouton régénérer ni workout détaillé). La `BriefingCard` masque le badge readiness et la
+  revue d'activités les jours de repos. Côté worker, `format_explanation_md` est conscient
+  du repos et n'affiche plus « Bonne séance ! » un jour de repos. Voir « Repos = repos (UI) ».
 
 ### EPIC E14 — Visualisation pro et pédagogie des métriques
 
@@ -203,8 +207,10 @@ Spec et critères d'acceptation :
   `tests/coach/test_duration_bounds.py`.
   - Suite éventuelle : vérifier que la charge hebdo agrège bien ces durées crédibles et
     étendre les cas de tests `workout_schema` / `openai_client` par discipline et phase.
-- **Repos = repos (UI)** : un jour de repos affiche un message de repos clair côté
-  briefing / `/today`, **pas un compte rendu ni une structure de séance**.
+- **Repos = repos (UI) — V1 livrée (E13.4)** : un jour de repos affiche un message de
+  repos clair côté briefing / `/today` / `/plan`, **pas un compte rendu ni une structure de
+  séance**. Variante repos de `SessionCard` sur `/plan`, masquage badge readiness + revue
+  d'activités dans `BriefingCard`, et wording worker `format_explanation_md` adapté au repos.
 
 ### P1 — Détection des signaux de progression et stagnation
 
