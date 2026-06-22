@@ -1,6 +1,8 @@
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Flame, Gauge, HeartPulse, Mountain, Route, Timer, Zap } from 'lucide-react'
+import { ActivityDetailSkeleton } from '../../_components/skeletons/activity-detail-skeleton'
 import { ActivityComparisonChart } from '../../_components/charts/activity-comparison-chart'
 import { ActivitySamplesChart } from '../../_components/charts/activity-samples-chart'
 import { ChartCard } from '../../_components/chart-card'
@@ -93,6 +95,46 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   if (!activityData) notFound()
 
   const activity: ActivityDetail = activityData
+  const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
+
+  return (
+    <div className="space-y-6">
+      <header className="space-y-3">
+        <Link
+          href="/history"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+        >
+          <ArrowLeft size={14} />
+          Historique
+        </Link>
+        <div>
+          <p className="text-muted-foreground text-sm">
+            {new Date(activity.start_time).toLocaleDateString('fr-FR', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })}
+          </p>
+          <h1 className="text-2xl font-semibold">{sportLabel}</h1>
+        </div>
+      </header>
+
+      <Suspense fallback={<ActivityDetailSkeleton />}>
+        <ActivityDetailBody userId={userId} activity={activity} />
+      </Suspense>
+    </div>
+  )
+}
+
+async function ActivityDetailBody({
+  userId,
+  activity,
+}: {
+  readonly userId: string
+  readonly activity: ActivityDetail
+}) {
+  const supabase = await createClient()
   const activityDate = isoDate(activity.start_time)
   const ninetyDaysAgo = new Date(
     new Date(activity.start_time).getTime() - 90 * 86_400_000
@@ -162,31 +204,9 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   const analysis = buildActivityCoachAnalysis({ activity, plannedSession, similar })
   const sampleSummary = samples.length > 0 ? summarizeActivitySamples(samples, fcMax) : null
   const nextSessionAdjustment = buildNextSessionAdjustment(sampleSummary, upcomingSessions)
-  const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-3">
-        <Link
-          href="/history"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
-        >
-          <ArrowLeft size={14} />
-          Historique
-        </Link>
-        <div>
-          <p className="text-muted-foreground text-sm">
-            {new Date(activity.start_time).toLocaleDateString('fr-FR', {
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-            })}
-          </p>
-          <h1 className="text-2xl font-semibold">{sportLabel}</h1>
-        </div>
-      </header>
-
+    <>
       <section className={cn('rounded-lg border p-4', toneClass(analysis.tone))}>
         <p className="text-sm font-semibold">{analysis.title}</p>
         <p className="text-muted-foreground mt-1 text-sm">{analysis.summary}</p>
@@ -454,6 +474,6 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
         </div>
         <p className="mt-4 text-sm">{nextSessionAdjustment.recommendation}</p>
       </section>
-    </div>
+    </>
   )
 }
