@@ -403,6 +403,34 @@ def test_sync_skips_activities_upsert_when_empty(
     assert "activities" not in tables_touched
 
 
+def test_sync_writes_route_polyline_when_gps_present(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    fake_garmin_client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {"metrics": [{"key": "directLatitude", "value": 45.1},
+                         {"key": "directLongitude", "value": 4.1},
+                         {"key": "directHeartRate", "value": 140}]},
+            {"metrics": [{"key": "directLatitude", "value": 45.2},
+                         {"key": "directLongitude", "value": 4.2},
+                         {"key": "directHeartRate", "value": 142}]},
+        ]
+    }
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    activities_table = fake_admin_client.table.return_value
+    update_calls = activities_table.update.call_args_list
+    assert any("route_polyline" in call.args[0] for call in update_calls)
+
+
 def test_sync_continues_when_activities_endpoint_fails_transiently(
     fake_garmin_client: MagicMock, fake_admin_client: MagicMock
 ) -> None:

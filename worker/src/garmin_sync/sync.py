@@ -28,6 +28,7 @@ from garmin_sync.transformers.activities import transform_activity, transform_ac
 from garmin_sync.transformers.body import transform_body
 from garmin_sync.transformers.daily import transform_daily
 from garmin_sync.transformers.hrv import transform_hrv
+from garmin_sync.transformers.route import build_route_polyline
 from garmin_sync.transformers.sleep import transform_sleep
 
 log = logging.getLogger(__name__)
@@ -129,23 +130,36 @@ def _sync_missing_activity_samples(
         if activity_id in existing:
             continue
         try:
-            raw_details = client.get_activity_details(str(activity_id))
-            if not isinstance(raw_details, dict):
-                continue
-            samples = transform_activity_samples(
-                user_id=user_id,
-                garmin_activity_id=activity_id,
-                raw_details=raw_details,
-            )
-            if samples:
-                db.table("activity_samples").upsert(
-                    samples,
-                    on_conflict="user_id,garmin_activity_id,sample_index",
-                ).execute()
+            _persist_samples_and_route(db, user_id, activity_id, client)
         except _AbortSyncErrors:
             raise
         except Exception:
             log.exception("activity samples sync failed user=%s activity=%s", user_id, activity_id)
+
+
+def _persist_samples_and_route(
+    db: Any, user_id: str, activity_id: int, client: Garmin
+) -> None:
+    """Fetch activity details, upsert samples, and write the downsampled route polyline."""
+    raw_details = client.get_activity_details(str(activity_id))
+    if not isinstance(raw_details, dict):
+        return
+    samples = transform_activity_samples(
+        user_id=user_id,
+        garmin_activity_id=activity_id,
+        raw_details=raw_details,
+    )
+    if not samples:
+        return
+    db.table("activity_samples").upsert(
+        samples,
+        on_conflict="user_id,garmin_activity_id,sample_index",
+    ).execute()
+    polyline = build_route_polyline(samples)
+    if polyline is not None:
+        db.table("activities").update({"route_polyline": polyline}).eq(
+            "user_id", user_id
+        ).eq("garmin_activity_id", activity_id).execute()
 
 
 def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set[int]:
