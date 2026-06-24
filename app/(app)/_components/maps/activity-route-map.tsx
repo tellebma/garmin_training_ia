@@ -46,12 +46,16 @@ export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProp
   }, [samples])
 
   return (
-    <div
-      ref={containerRef}
-      role="group"
-      aria-label="Carte du parcours GPS de l'activité"
-      style={{ height }}
-      className="overflow-hidden rounded-md"
-    />
+    <div className="relative">
+      {/* The canvas map is not screen-reader accessible — expose a text
+          alternative and hide the visual map from assistive tech. */}
+      <span className="sr-only">Carte du parcours GPS de l&apos;activité</span>
+      <div
+        ref={containerRef}
+        aria-hidden="true"
+        style={{ height }}
+        className="overflow-hidden rounded-md"
+      />
+    </div>
   )
 }
