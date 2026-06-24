@@ -48,7 +48,7 @@ export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProp
   return (
     <div
       ref={containerRef}
-      role="img"
+      role="group"
       aria-label="Carte du parcours GPS de l'activité"
       style={{ height }}
       className="overflow-hidden rounded-md"
