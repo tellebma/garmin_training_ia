@@ -29,6 +29,8 @@ export interface ActivitySample {
   power_w: number | null
   cadence_rpm: number | null
   speed_m_s: number | null
+  latitude: number | null
+  longitude: number | null
 }
 
 export interface SimilarActivitySummary {
