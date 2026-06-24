@@ -388,7 +388,7 @@ def test_sync_skips_activities_upsert_when_empty(
     fake_garmin_client: MagicMock, fake_admin_client: MagicMock
 ) -> None:
     """If Garmin returns no activities, we should not call upsert on the
-    activities table at all."""
+    activities table at all (the backfill SELECT is OK)."""
     fake_garmin_client.get_activities_by_date.return_value = []
 
     with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
@@ -399,8 +399,13 @@ def test_sync_skips_activities_upsert_when_empty(
             end=date(2026, 5, 15),
         )
 
-    tables_touched = {call.args[0] for call in fake_admin_client.table.call_args_list}
-    assert "activities" not in tables_touched
+    # No upsert should have been called on the activities table
+    activities_table = fake_admin_client.table.return_value
+    upsert_calls = activities_table.upsert.call_args_list
+    assert not any(
+        call.kwargs.get("on_conflict") == "user_id,garmin_activity_id"
+        for call in upsert_calls
+    )
 
 
 def test_sync_writes_route_polyline_when_gps_present(
@@ -452,3 +457,33 @@ def test_sync_continues_when_activities_endpoint_fails_transiently(
     assert "activities" not in tables_touched
     # But the per-day loop still ran
     assert "daily_metrics" in tables_touched
+
+
+def test_sync_backfills_activities_missing_gps(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    # No new activities this run, but one old activity lacks a route polyline.
+    fake_garmin_client.get_activities_by_date.return_value = []
+    table = fake_admin_client.table.return_value
+    (
+        table.select.return_value.eq.return_value.is_.return_value.order.return_value.limit.return_value.execute.return_value.data
+    ) = [{"garmin_activity_id": 777}]
+    fake_garmin_client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {"metrics": [{"key": "directLatitude", "value": 45.1},
+                         {"key": "directLongitude", "value": 4.1}]},
+            {"metrics": [{"key": "directLatitude", "value": 45.2},
+                         {"key": "directLongitude", "value": 4.2}]},
+        ]
+    }
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    fake_garmin_client.get_activity_details.assert_called_once_with("777")

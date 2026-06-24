@@ -23,6 +23,7 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+from garmin_sync.config import get_settings
 from garmin_sync.supabase_client import get_admin_client
 from garmin_sync.transformers.activities import transform_activity, transform_activity_samples
 from garmin_sync.transformers.body import transform_body
@@ -103,6 +104,7 @@ def _sync_activities(
         if rows:
             db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
             _sync_missing_activity_samples(db, user_id, client, rows)
+        _sync_gps_backfill(db, user_id, client, get_settings().gps_backfill_batch)
     except _AbortSyncErrors:
         log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
         raise
@@ -182,6 +184,43 @@ def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set
         for row in rows
         if isinstance(row, dict) and row.get("garmin_activity_id") is not None
     }
+
+
+def _sync_gps_backfill(db: Any, user_id: str, client: Garmin, limit: int) -> None:
+    """Backfill GPS for already-synced activities lacking a route polyline (throttled)."""
+    if limit <= 0:
+        return
+    for activity_id in _activities_missing_gps(db, user_id, limit):
+        try:
+            _persist_samples_and_route(db, user_id, activity_id, client)
+        except _AbortSyncErrors:
+            raise
+        except Exception:
+            log.exception("gps backfill failed user=%s activity=%s", user_id, activity_id)
+
+
+def _activities_missing_gps(db: Any, user_id: str, limit: int) -> list[int]:
+    try:
+        resp = (
+            db.table("activities")
+            .select("garmin_activity_id")
+            .eq("user_id", user_id)
+            .is_("route_polyline", "null")
+            .order("start_time", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:
+        log.exception("gps backfill lookup failed user=%s", user_id)
+        return []
+    rows = resp.data if resp else None
+    if not isinstance(rows, list):
+        return []
+    return [
+        int(row["garmin_activity_id"])
+        for row in rows
+        if isinstance(row, dict) and row.get("garmin_activity_id") is not None
+    ]
 
 
 def sync_user_for_date_range(
