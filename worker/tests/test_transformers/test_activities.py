@@ -206,3 +206,33 @@ def test_transform_activity_samples_skips_rows_without_metric_signal() -> None:
     )
 
     assert rows == []
+
+
+def test_transform_activity_samples_extracts_gps() -> None:
+    raw_details = {
+        "activityDetailMetrics": [
+            {
+                "metrics": [
+                    {"key": "directHeartRate", "value": 145},
+                    {"key": "directLatitude", "value": 45.764043},
+                    {"key": "directLongitude", "value": 4.835659},
+                ]
+            }
+        ]
+    }
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=123, raw_details=raw_details)
+
+    assert rows[0]["latitude"] == 45.764043
+    assert rows[0]["longitude"] == 4.835659
+
+
+def test_transform_activity_samples_gps_null_when_absent() -> None:
+    raw_details = {
+        "activityDetailMetrics": [{"metrics": [{"key": "directHeartRate", "value": 140}]}]
+    }
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=123, raw_details=raw_details)
+
+    assert rows[0]["latitude"] is None
+    assert rows[0]["longitude"] is None
