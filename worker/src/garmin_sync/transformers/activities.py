@@ -30,6 +30,8 @@ _HR_KEYS = ("directHeartRate", "heartRate", "heartRateBpm")
 _POWER_KEYS = ("directPower", "power", "watts")
 _CADENCE_KEYS = ("directBikeCadence", "directRunCadence", "cadence", "stepsPerMinute")
 _SPEED_KEYS = ("directSpeed", "speed", "speedMetersPerSecond")
+_LAT_KEYS = ("directLatitude", "latitude")
+_LON_KEYS = ("directLongitude", "longitude")
 
 
 # Garmin returns granular sport types (e.g. "road_biking", "trail_running").
@@ -158,6 +160,8 @@ def transform_activity_samples(
                 "power_w": _to_int(_first_value(normalized, _POWER_KEYS)),
                 "cadence_rpm": _to_int(_first_value(normalized, _CADENCE_KEYS)),
                 "speed_m_s": _to_float(_first_value(normalized, _SPEED_KEYS)),
+                "latitude": _to_float(_first_value(normalized, _LAT_KEYS)),
+                "longitude": _to_float(_first_value(normalized, _LON_KEYS)),
                 "raw": sample,
             }
         )

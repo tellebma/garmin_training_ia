@@ -388,7 +388,7 @@ def test_sync_skips_activities_upsert_when_empty(
     fake_garmin_client: MagicMock, fake_admin_client: MagicMock
 ) -> None:
     """If Garmin returns no activities, we should not call upsert on the
-    activities table at all."""
+    activities table at all (the backfill SELECT is OK)."""
     fake_garmin_client.get_activities_by_date.return_value = []
 
     with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
@@ -399,8 +399,48 @@ def test_sync_skips_activities_upsert_when_empty(
             end=date(2026, 5, 15),
         )
 
-    tables_touched = {call.args[0] for call in fake_admin_client.table.call_args_list}
-    assert "activities" not in tables_touched
+    # No upsert should have been called on the activities table
+    activities_table = fake_admin_client.table.return_value
+    upsert_calls = activities_table.upsert.call_args_list
+    assert not any(
+        call.kwargs.get("on_conflict") == "user_id,garmin_activity_id" for call in upsert_calls
+    )
+
+
+def test_sync_writes_route_polyline_when_gps_present(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    fake_garmin_client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.1},
+                    {"key": "directLongitude", "value": 4.1},
+                    {"key": "directHeartRate", "value": 140},
+                ]
+            },
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.2},
+                    {"key": "directLongitude", "value": 4.2},
+                    {"key": "directHeartRate", "value": 142},
+                ]
+            },
+        ]
+    }
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    activities_table = fake_admin_client.table.return_value
+    update_calls = activities_table.update.call_args_list
+    assert any("route_polyline" in call.args[0] for call in update_calls)
 
 
 def test_sync_continues_when_activities_endpoint_fails_transiently(
@@ -424,3 +464,72 @@ def test_sync_continues_when_activities_endpoint_fails_transiently(
     assert "activities" not in tables_touched
     # But the per-day loop still ran
     assert "daily_metrics" in tables_touched
+
+
+def test_sync_writes_empty_polyline_when_no_gps(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    """An activity with samples (e.g. HR) but NO GPS points must get
+    route_polyline set to [] (the 'checked, no usable route' sentinel),
+    so _activities_missing_gps won't re-select it on every run."""
+    fake_garmin_client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {"metrics": [{"key": "directHeartRate", "value": 140}]},
+            {"metrics": [{"key": "directHeartRate", "value": 142}]},
+        ]
+    }
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    activities_table = fake_admin_client.table.return_value
+    update_calls = activities_table.update.call_args_list
+    # Must write route_polyline even though there's no GPS
+    polyline_updates = [call for call in update_calls if "route_polyline" in call.args[0]]
+    assert len(polyline_updates) >= 1, "route_polyline should be written for GPS-less activities"
+    # The sentinel value must be an empty list
+    assert polyline_updates[0].args[0]["route_polyline"] == []
+
+
+def test_sync_backfills_activities_missing_gps(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    # No new activities this run, but one old activity lacks a route polyline.
+    fake_garmin_client.get_activities_by_date.return_value = []
+    table = fake_admin_client.table.return_value
+    (
+        table.select.return_value.eq.return_value.is_.return_value.order.return_value.limit.return_value.execute.return_value.data
+    ) = [{"garmin_activity_id": 777}]
+    fake_garmin_client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.1},
+                    {"key": "directLongitude", "value": 4.1},
+                ]
+            },
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.2},
+                    {"key": "directLongitude", "value": 4.2},
+                ]
+            },
+        ]
+    }
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    fake_garmin_client.get_activity_details.assert_called_once_with("777")

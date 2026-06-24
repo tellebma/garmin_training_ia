@@ -47,3 +47,15 @@ def test_settings_openai_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     s = get_settings()
     assert s.openai_model == "gpt-4o-mini"
     assert s.openai_timeout_s == 30
+
+
+def test_gps_backfill_batch_defaults_to_8() -> None:
+    from garmin_sync.config import Settings
+
+    settings = Settings(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="x",
+        fernet_key="a" * 43 + "=",
+        worker_shared_token="t",
+    )
+    assert settings.gps_backfill_batch == 8

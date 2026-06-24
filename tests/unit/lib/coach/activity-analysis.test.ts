@@ -229,6 +229,8 @@ describe('summarizeActivitySamples', () => {
       power_w: null,
       cadence_rpm: null,
       speed_m_s: 2.5,
+      latitude: null,
+      longitude: null,
     },
     {
       sample_index: 1,
@@ -240,6 +242,8 @@ describe('summarizeActivitySamples', () => {
       power_w: null,
       cadence_rpm: null,
       speed_m_s: 2.4,
+      latitude: null,
+      longitude: null,
     },
     {
       sample_index: 2,
@@ -251,6 +255,8 @@ describe('summarizeActivitySamples', () => {
       power_w: null,
       cadence_rpm: null,
       speed_m_s: 3.1,
+      latitude: null,
+      longitude: null,
     },
     {
       sample_index: 3,
@@ -262,6 +268,8 @@ describe('summarizeActivitySamples', () => {
       power_w: null,
       cadence_rpm: null,
       speed_m_s: 3.4,
+      latitude: null,
+      longitude: null,
     },
   ]
 
@@ -299,6 +307,8 @@ describe('summarizeActivitySamples', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: 3,
+        latitude: null,
+        longitude: null,
       })
     )
 
@@ -321,6 +331,8 @@ describe('summarizeActivitySamples', () => {
       power_w: null,
       cadence_rpm: null,
       speed_m_s: speed,
+      latitude: null,
+      longitude: null,
     }))
 
     const summary = summarizeActivitySamples(irregularSamples, 190)
@@ -354,6 +366,8 @@ describe('summarizeActivitySamples', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: 3,
+        latitude: null,
+        longitude: null,
       })
     )
 
@@ -375,6 +389,8 @@ describe('summarizeActivitySamples', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: null,
+        latitude: null,
+        longitude: null,
       },
       {
         sample_index: 1,
@@ -386,6 +402,8 @@ describe('summarizeActivitySamples', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: 0,
+        latitude: null,
+        longitude: null,
       },
       {
         sample_index: 2,
@@ -397,6 +415,8 @@ describe('summarizeActivitySamples', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: 0,
+        latitude: null,
+        longitude: null,
       },
     ]
 
@@ -506,6 +526,8 @@ describe('buildNextSessionAdjustment', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: 3,
+        latitude: null,
+        longitude: null,
       })
     )
     const summary = summarizeActivitySamples(costlySamples, 190)
@@ -529,6 +551,8 @@ describe('buildNextSessionAdjustment', () => {
         power_w: null,
         cadence_rpm: null,
         speed_m_s: 3,
+        latitude: null,
+        longitude: null,
       })
     )
     const summary = summarizeActivitySamples(driftSamples, 190)

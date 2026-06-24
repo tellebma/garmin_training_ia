@@ -23,11 +23,13 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+from garmin_sync.config import get_settings
 from garmin_sync.supabase_client import get_admin_client
 from garmin_sync.transformers.activities import transform_activity, transform_activity_samples
 from garmin_sync.transformers.body import transform_body
 from garmin_sync.transformers.daily import transform_daily
 from garmin_sync.transformers.hrv import transform_hrv
+from garmin_sync.transformers.route import build_route_polyline
 from garmin_sync.transformers.sleep import transform_sleep
 
 log = logging.getLogger(__name__)
@@ -102,6 +104,7 @@ def _sync_activities(
         if rows:
             db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
             _sync_missing_activity_samples(db, user_id, client, rows)
+        _sync_gps_backfill(db, user_id, client, get_settings().gps_backfill_batch)
     except _AbortSyncErrors:
         log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
         raise
@@ -129,23 +132,40 @@ def _sync_missing_activity_samples(
         if activity_id in existing:
             continue
         try:
-            raw_details = client.get_activity_details(str(activity_id))
-            if not isinstance(raw_details, dict):
-                continue
-            samples = transform_activity_samples(
-                user_id=user_id,
-                garmin_activity_id=activity_id,
-                raw_details=raw_details,
-            )
-            if samples:
-                db.table("activity_samples").upsert(
-                    samples,
-                    on_conflict="user_id,garmin_activity_id,sample_index",
-                ).execute()
+            _persist_samples_and_route(db, user_id, activity_id, client)
         except _AbortSyncErrors:
             raise
         except Exception:
             log.exception("activity samples sync failed user=%s activity=%s", user_id, activity_id)
+
+
+def _persist_samples_and_route(db: Any, user_id: str, activity_id: int, client: Garmin) -> None:
+    """Fetch activity details, upsert samples, and write the downsampled route polyline.
+
+    ALWAYS records that GPS was checked: activities with no usable GPS get
+    ``route_polyline = []`` (empty-array sentinel) so they become non-NULL and
+    are excluded from ``_activities_missing_gps`` on subsequent runs.  A failed
+    or malformed fetch (non-dict) remains NULL and will be retried later.
+    """
+    raw_details = client.get_activity_details(str(activity_id))
+    if not isinstance(raw_details, dict):
+        return
+    samples = transform_activity_samples(
+        user_id=user_id,
+        garmin_activity_id=activity_id,
+        raw_details=raw_details,
+    )
+    if samples:
+        db.table("activity_samples").upsert(
+            samples,
+            on_conflict="user_id,garmin_activity_id,sample_index",
+        ).execute()
+    polyline = build_route_polyline(samples) if samples else None
+    # Write the polyline (real route) or [] sentinel (no usable GPS) so the
+    # activity is marked as "GPS-checked" and won't be re-selected by backfill.
+    db.table("activities").update({"route_polyline": polyline if polyline is not None else []}).eq(
+        "user_id", user_id
+    ).eq("garmin_activity_id", activity_id).execute()
 
 
 def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set[int]:
@@ -168,6 +188,43 @@ def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set
         for row in rows
         if isinstance(row, dict) and row.get("garmin_activity_id") is not None
     }
+
+
+def _sync_gps_backfill(db: Any, user_id: str, client: Garmin, limit: int) -> None:
+    """Backfill GPS for already-synced activities lacking a route polyline (throttled)."""
+    if limit <= 0:
+        return
+    for activity_id in _activities_missing_gps(db, user_id, limit):
+        try:
+            _persist_samples_and_route(db, user_id, activity_id, client)
+        except _AbortSyncErrors:
+            raise
+        except Exception:
+            log.exception("gps backfill failed user=%s activity=%s", user_id, activity_id)
+
+
+def _activities_missing_gps(db: Any, user_id: str, limit: int) -> list[int]:
+    try:
+        resp = (
+            db.table("activities")
+            .select("garmin_activity_id")
+            .eq("user_id", user_id)
+            .is_("route_polyline", "null")
+            .order("start_time", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:
+        log.exception("gps backfill lookup failed user=%s", user_id)
+        return []
+    rows = resp.data if resp else None
+    if not isinstance(rows, list):
+        return []
+    return [
+        int(row["garmin_activity_id"])
+        for row in rows
+        if isinstance(row, dict) and row.get("garmin_activity_id") is not None
+    ]
 
 
 def sync_user_for_date_range(
