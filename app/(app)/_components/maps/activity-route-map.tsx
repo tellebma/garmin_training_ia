@@ -25,7 +25,7 @@ export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProp
     const map = new maplibregl.Map({
       container,
       style: DARK_STYLE,
-      attributionControl: false,
+      attributionControl: { compact: true },
     })
 
     map.on('load', () => {
@@ -45,5 +45,13 @@ export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProp
     }
   }, [samples])
 
-  return <div ref={containerRef} style={{ height }} className="overflow-hidden rounded-md" />
+  return (
+    <div
+      ref={containerRef}
+      role="img"
+      aria-label="Carte du parcours GPS de l'activité"
+      style={{ height }}
+      className="overflow-hidden rounded-md"
+    />
+  )
 }
