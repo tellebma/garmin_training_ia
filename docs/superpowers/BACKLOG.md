@@ -360,6 +360,45 @@ Spec et critères d'acceptation :
 
 ## Qualité / plateforme
 
+### EPIC E17 — Déploiement automatisé des migrations Supabase
+
+**Priorité : P1 — Statut : à planifier**
+
+Aujourd'hui les migrations (`supabase/migrations/*.sql`) sont appliquées **à la main**
+dans le dashboard : aucune automatisation CI, pas de `config.toml`, pas de `db push`.
+Ce pas manuel est un footgun récurrent — un merge qui ajoute une migration peut partir
+en prod sans que le schéma soit à jour, cassant le worker (écriture sur colonne absente)
+ou la fiche activité. Cas vécu : la migration `20260624000000_carto_gps.sql` (livrable A
+cartes GPS) reste à appliquer manuellement après le merge de la PR #57.
+
+Objectif : un merge sur `main` qui contient une migration l'applique de façon **tracée,
+validée et reproductible**, sans abandonner le contrôle humain sur la prod.
+
+- **E17.1 P1 — Job CI `supabase db push` sur `main`** : un job GitHub Actions
+  (`supabase link --project-ref peiyrqplymdlmlpsbqzu` puis `supabase db push`, idempotent)
+  déclenché sur push `main`. Secrets à ajouter : `SUPABASE_ACCESS_TOKEN`, project-ref,
+  mot de passe DB.
+- **E17.2 P1 — Gate `production` avec required reviewer** : envelopper le job dans un
+  GitHub Environment `production` exigeant une approbation manuelle avant tout DDL.
+  Justification : pas de staging, le `db push` va *directement* en prod, on garde donc
+  un clic humain de validation.
+- **E17.3 P1 — Contrat de migration backward-compatible (expand/contract)** : documenter
+  et faire respecter que toute migration soit additive d'abord (les suppressions de colonnes
+  arrivent une version après le déploiement du code qui ne les lit plus). Neutralise la
+  **course avec le deploy Vercel** : le merge déclenche le deploy front *en parallèle* du
+  job migration, donc le nouveau code ne doit jamais lire une colonne avant qu'elle existe.
+  Les migrations actuelles respectent déjà ce contrat (toutes additives).
+- **E17.4 P2 — Smoke check post-migration + runbook** : vérification automatique que les
+  objets attendus existent après push, et procédure de rollback/correction documentée.
+- **E17.5 P2 — Génération des types Supabase post-push** : enchaîner la génération des types
+  `Database` depuis les migrations (recoupe « Générer les types Supabase » ci-dessous).
+
+Alternative légère (si jugé trop lourd pour un MVP solo) : pas de CI, mais un script
+`pnpm db:push` + rappel dans le template de PR — moins sûr, zéro secret CI à gérer.
+
+Critère : plus aucune migration oubliée ; l'application du schéma est standardisée,
+auditée et validée avant d'atteindre la prod.
+
 ### P1 — Skeleton & rendu progressif — V1 livrée
 
 - Objectif owner (2026-06-22) : afficher chaque information dès qu'elle est disponible
