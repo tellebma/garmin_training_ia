@@ -139,9 +139,7 @@ def _sync_missing_activity_samples(
             log.exception("activity samples sync failed user=%s activity=%s", user_id, activity_id)
 
 
-def _persist_samples_and_route(
-    db: Any, user_id: str, activity_id: int, client: Garmin
-) -> None:
+def _persist_samples_and_route(db: Any, user_id: str, activity_id: int, client: Garmin) -> None:
     """Fetch activity details, upsert samples, and write the downsampled route polyline.
 
     ALWAYS records that GPS was checked: activities with no usable GPS get
@@ -165,9 +163,9 @@ def _persist_samples_and_route(
     polyline = build_route_polyline(samples) if samples else None
     # Write the polyline (real route) or [] sentinel (no usable GPS) so the
     # activity is marked as "GPS-checked" and won't be re-selected by backfill.
-    db.table("activities").update(
-        {"route_polyline": polyline if polyline is not None else []}
-    ).eq("user_id", user_id).eq("garmin_activity_id", activity_id).execute()
+    db.table("activities").update({"route_polyline": polyline if polyline is not None else []}).eq(
+        "user_id", user_id
+    ).eq("garmin_activity_id", activity_id).execute()
 
 
 def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set[int]:

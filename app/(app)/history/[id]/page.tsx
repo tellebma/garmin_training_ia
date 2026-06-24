@@ -285,7 +285,10 @@ async function ActivityDetailBody({
       </ChartCard>
 
       {gpsSampleCount >= 2 && (
-        <ChartCard title="Trace GPS" description="Parcours de l'activité d'après les données Garmin.">
+        <ChartCard
+          title="Trace GPS"
+          description="Parcours de l'activité d'après les données Garmin."
+        >
           <ActivityRouteMapLazy samples={samples} />
         </ChartCard>
       )}

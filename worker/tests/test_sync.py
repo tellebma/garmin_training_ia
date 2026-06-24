@@ -403,8 +403,7 @@ def test_sync_skips_activities_upsert_when_empty(
     activities_table = fake_admin_client.table.return_value
     upsert_calls = activities_table.upsert.call_args_list
     assert not any(
-        call.kwargs.get("on_conflict") == "user_id,garmin_activity_id"
-        for call in upsert_calls
+        call.kwargs.get("on_conflict") == "user_id,garmin_activity_id" for call in upsert_calls
     )
 
 
@@ -413,12 +412,20 @@ def test_sync_writes_route_polyline_when_gps_present(
 ) -> None:
     fake_garmin_client.get_activity_details.return_value = {
         "activityDetailMetrics": [
-            {"metrics": [{"key": "directLatitude", "value": 45.1},
-                         {"key": "directLongitude", "value": 4.1},
-                         {"key": "directHeartRate", "value": 140}]},
-            {"metrics": [{"key": "directLatitude", "value": 45.2},
-                         {"key": "directLongitude", "value": 4.2},
-                         {"key": "directHeartRate", "value": 142}]},
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.1},
+                    {"key": "directLongitude", "value": 4.1},
+                    {"key": "directHeartRate", "value": 140},
+                ]
+            },
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.2},
+                    {"key": "directLongitude", "value": 4.2},
+                    {"key": "directHeartRate", "value": 142},
+                ]
+            },
         ]
     }
 
@@ -501,10 +508,18 @@ def test_sync_backfills_activities_missing_gps(
     ) = [{"garmin_activity_id": 777}]
     fake_garmin_client.get_activity_details.return_value = {
         "activityDetailMetrics": [
-            {"metrics": [{"key": "directLatitude", "value": 45.1},
-                         {"key": "directLongitude", "value": 4.1}]},
-            {"metrics": [{"key": "directLatitude", "value": 45.2},
-                         {"key": "directLongitude", "value": 4.2}]},
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.1},
+                    {"key": "directLongitude", "value": 4.1},
+                ]
+            },
+            {
+                "metrics": [
+                    {"key": "directLatitude", "value": 45.2},
+                    {"key": "directLongitude", "value": 4.2},
+                ]
+            },
         ]
     }
 
