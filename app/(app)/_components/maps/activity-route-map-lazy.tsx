@@ -10,8 +10,9 @@ const ActivityRouteMap = dynamic(
 
 interface ActivityRouteMapLazyProps {
   readonly samples: ActivitySample[]
+  readonly height?: number
 }
 
-export function ActivityRouteMapLazy({ samples }: ActivityRouteMapLazyProps) {
-  return <ActivityRouteMap samples={samples} />
+export function ActivityRouteMapLazy({ samples, height }: ActivityRouteMapLazyProps) {
+  return <ActivityRouteMap samples={samples} {...(height !== undefined && { height })} />
 }

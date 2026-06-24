@@ -47,4 +47,14 @@ describe('ActivityRouteMap', () => {
     expect(addLayer).toHaveBeenCalled()
     expect(fitBounds).toHaveBeenCalled()
   })
+
+  it('does not call addSource when all GPS samples are null', () => {
+    addSource.mockClear()
+    addLayer.mockClear()
+    fitBounds.mockClear()
+
+    render(<ActivityRouteMap samples={[sample(null, null), sample(null, null)]} />)
+    expect(addSource).not.toHaveBeenCalled()
+    expect(addLayer).not.toHaveBeenCalled()
+  })
 })

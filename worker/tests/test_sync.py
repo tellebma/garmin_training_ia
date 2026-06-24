@@ -459,6 +459,37 @@ def test_sync_continues_when_activities_endpoint_fails_transiently(
     assert "daily_metrics" in tables_touched
 
 
+def test_sync_writes_empty_polyline_when_no_gps(
+    fake_garmin_client: MagicMock, fake_admin_client: MagicMock
+) -> None:
+    """An activity with samples (e.g. HR) but NO GPS points must get
+    route_polyline set to [] (the 'checked, no usable route' sentinel),
+    so _activities_missing_gps won't re-select it on every run."""
+    fake_garmin_client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {"metrics": [{"key": "directHeartRate", "value": 140}]},
+            {"metrics": [{"key": "directHeartRate", "value": 142}]},
+        ]
+    }
+
+    with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
+        sync_user_for_date_range(
+            user_id="u1",
+            client=fake_garmin_client,
+            start=date(2026, 5, 15),
+            end=date(2026, 5, 15),
+            mode="activities_only",
+        )
+
+    activities_table = fake_admin_client.table.return_value
+    update_calls = activities_table.update.call_args_list
+    # Must write route_polyline even though there's no GPS
+    polyline_updates = [call for call in update_calls if "route_polyline" in call.args[0]]
+    assert len(polyline_updates) >= 1, "route_polyline should be written for GPS-less activities"
+    # The sentinel value must be an empty list
+    assert polyline_updates[0].args[0]["route_polyline"] == []
+
+
 def test_sync_backfills_activities_missing_gps(
     fake_garmin_client: MagicMock, fake_admin_client: MagicMock
 ) -> None:

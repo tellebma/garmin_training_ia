@@ -142,7 +142,13 @@ def _sync_missing_activity_samples(
 def _persist_samples_and_route(
     db: Any, user_id: str, activity_id: int, client: Garmin
 ) -> None:
-    """Fetch activity details, upsert samples, and write the downsampled route polyline."""
+    """Fetch activity details, upsert samples, and write the downsampled route polyline.
+
+    ALWAYS records that GPS was checked: activities with no usable GPS get
+    ``route_polyline = []`` (empty-array sentinel) so they become non-NULL and
+    are excluded from ``_activities_missing_gps`` on subsequent runs.  A failed
+    or malformed fetch (non-dict) remains NULL and will be retried later.
+    """
     raw_details = client.get_activity_details(str(activity_id))
     if not isinstance(raw_details, dict):
         return
@@ -151,17 +157,17 @@ def _persist_samples_and_route(
         garmin_activity_id=activity_id,
         raw_details=raw_details,
     )
-    if not samples:
-        return
-    db.table("activity_samples").upsert(
-        samples,
-        on_conflict="user_id,garmin_activity_id,sample_index",
-    ).execute()
-    polyline = build_route_polyline(samples)
-    if polyline is not None:
-        db.table("activities").update({"route_polyline": polyline}).eq(
-            "user_id", user_id
-        ).eq("garmin_activity_id", activity_id).execute()
+    if samples:
+        db.table("activity_samples").upsert(
+            samples,
+            on_conflict="user_id,garmin_activity_id,sample_index",
+        ).execute()
+    polyline = build_route_polyline(samples) if samples else None
+    # Write the polyline (real route) or [] sentinel (no usable GPS) so the
+    # activity is marked as "GPS-checked" and won't be re-selected by backfill.
+    db.table("activities").update(
+        {"route_polyline": polyline if polyline is not None else []}
+    ).eq("user_id", user_id).eq("garmin_activity_id", activity_id).execute()
 
 
 def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set[int]:

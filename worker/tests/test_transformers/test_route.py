@@ -26,6 +26,17 @@ def test_build_route_polyline_skips_points_without_coords() -> None:
     assert poly == [[4.1, 45.1], [4.3, 45.3]]
 
 
+def test_build_route_polyline_64_points_returns_unchanged() -> None:
+    """Exactly _MAX_ROUTE_POINTS (64) valid GPS points hit the early-return
+    branch and are returned unchanged (first and last preserved)."""
+    samples = [_sample(45.0 + i / 1000, 4.0 + i / 1000) for i in range(64)]
+    poly = build_route_polyline(samples)
+    assert poly is not None
+    assert len(poly) == 64
+    assert poly[0] == [4.0, 45.0]
+    assert poly[-1] == [round(4.0 + 63 / 1000, 6), round(45.0 + 63 / 1000, 6)]
+
+
 def test_build_route_polyline_downsamples_to_64_keeping_ends() -> None:
     samples = [_sample(45.0 + i / 1000, 4.0 + i / 1000) for i in range(500)]
     poly = build_route_polyline(samples)
