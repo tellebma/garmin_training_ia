@@ -21,6 +21,7 @@ import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import type { ActivityFeedbackDto, PlannedSession, Sport } from '@/lib/dashboard/types'
+import { ActivityRouteMapLazy } from '../../_components/maps/activity-route-map-lazy'
 import { ActivityFeedbackForm } from './activity-feedback-form'
 
 export const revalidate = 300
@@ -166,7 +167,7 @@ async function ActivityDetailBody({
       supabase
         .from('activity_samples')
         .select(
-          'sample_index, sample_time, elapsed_s, distance_m, elevation_m, heart_rate_bpm, power_w, cadence_rpm, speed_m_s'
+          'sample_index, sample_time, elapsed_s, distance_m, elevation_m, heart_rate_bpm, power_w, cadence_rpm, speed_m_s, latitude, longitude'
         )
         .eq('user_id', userId)
         .eq('garmin_activity_id', activity.garmin_activity_id)
@@ -195,6 +196,9 @@ async function ActivityDetailBody({
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
   const samples: ActivitySample[] = samplesRes.data ?? []
+  const gpsSampleCount = samples.filter(
+    (s) => typeof s.latitude === 'number' && typeof s.longitude === 'number'
+  ).length
   const upcomingSessions: PlannedSession[] = upcomingRes.data ?? []
   const activityFeedback: ActivityFeedbackDto | null = feedbackRes.data ?? null
   const profileData = profileRes.data as { fc_max_bpm?: unknown } | null
@@ -279,6 +283,12 @@ async function ActivityDetailBody({
       >
         <ActivityComparisonChart data={analysis.chartData} />
       </ChartCard>
+
+      {gpsSampleCount >= 2 && (
+        <ChartCard title="Trace GPS" description="Parcours de l'activité d'après les données Garmin.">
+          <ActivityRouteMapLazy samples={samples} />
+        </ChartCard>
+      )}
 
       {samples.length > 0 && (
         <ChartCard

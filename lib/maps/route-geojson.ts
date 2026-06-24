@@ -25,7 +25,8 @@ export function routeBounds(
   coords: [number, number][]
 ): [[number, number], [number, number]] | null {
   if (coords.length === 0) return null
-  const first = coords[0]!
+  const first = coords[0]
+  if (!first) return null
   let minLng = first[0]
   let maxLng = first[0]
   let minLat = first[1]
