@@ -529,6 +529,29 @@ auditée et validée avant d'atteindre la prod.
 - Mapper proprement les statuts HTTP non-OK, timeouts, rate limits et erreurs
   inattendues.
 
+### P1 — Worker : filtrer le plan actif sur les lectures `planned_sessions` (avant E9)
+
+Contexte : le frontend (`/today`, `/plan`, historique) lit les `planned_sessions`
+avec `training_plans!inner(status)` + `status='active'` + `order(created_at desc)` +
+`limit(1)`. Le worker, lui, lit par `(user_id, date)` sans filtre de statut ni tri :
+`_load_planned_session`, `_load_planned_session_for_date` (`coach/briefing.py`) et la
+requête de génération dans `coach/sessions.py` (`ensure_sessions`).
+
+Impact aujourd'hui : **nul** — 1 seul objectif de course, 1 plan actif, 0 date en
+double, sessions des plans archivés purgées à la régénération. Mais la régénération ne
+nettoie que les plans du **même `race_goal_id`** : dès qu'un user aura **plusieurs
+objectifs de course** avec des plages de plan qui se chevauchent, il y aura ≥2 lignes
+pour une même date → `.maybe_single()` lèvera une erreur (briefing/`/today` en échec)
+et `ensure_sessions` générera des séances en double.
+
+À faire (PR dédiée, avant l'ouverture beta multi-users E9) :
+- Aligner les 3 lectures worker sur le filtre `status='active'` + `order(created_at desc)`
+  + `limit(1)`, comme le frontend.
+- Ajouter un index unique partiel sur `planned_sessions(user_id, date)` restreint aux
+  plans actifs, pour rendre les doublons impossibles côté DB.
+- Tests : cas multi-objectifs / multi-plans-actifs sur une même date.
+- Découvert pendant le fix du feedback post-séance périmé (PR #59).
+
 ### P1 — Générer les types Supabase
 
 - Ajouter les types `Database` générés depuis les migrations.
