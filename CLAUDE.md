@@ -20,6 +20,7 @@ avant course **août-septembre 2026**.
 | E8 — Parcours géolocalisés | À planifier |
 | E9 — Beta privée (invits + monitoring) | À planifier |
 | **E-Q — SonarQube Quality Gate** | ✅ Livré (97% coverage, gate enforced) |
+| **E17 — Déploiement auto migrations Supabase** | ✅ Livré (CI db push auto-apply sur main) |
 
 ## Stack
 
@@ -160,7 +161,8 @@ Conventional Commits stricts (`feat:`, `fix:`, `docs:`, `ci:`, `build:`, `chore:
 │   ├── docker-compose.prod.yml   # UNRAID overlay
 │   └── deploy/                   # Systemd units + deploy README
 ├── supabase/
-│   ├── migrations/               # 9 SQL files numérotés timestamp
+│   ├── config.toml               # project_id (CLI link/push — projet distant only)
+│   ├── migrations/               # 28 SQL files numérotés timestamp (auto-apply via CI sur main)
 │   └── email-templates/          # Magic link FR + README
 ├── docs/superpowers/
 │   ├── specs/                    # Validated specs par EPIC
@@ -169,6 +171,7 @@ Conventional Commits stricts (`feat:`, `fix:`, `docs:`, `ci:`, `build:`, `chore:
 ├── .github/workflows/
 │   ├── ci.yml                    # 8 jobs (lint, typecheck, test, build, audit, secrets, sonar)
 │   ├── lighthouse.yml            # Lighthouse CI
+│   ├── supabase-migrations.yml   # E17 — db push auto sur main (migrations Supabase)
 │   ├── worker-ci.yml             # Python worker CI
 │   └── worker-docker.yml         # Build + push Docker Hub
 ├── QUALITY_GATES.md              # Politique qualité 5 niveaux
