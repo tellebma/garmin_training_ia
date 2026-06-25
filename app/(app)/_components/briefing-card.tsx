@@ -105,7 +105,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
           )}
         >
           <p className="text-foreground font-medium">
-            Retour post-séance
+            <span>Retour post-séance</span>
             <span className="text-muted-foreground ml-2 text-xs font-normal">
               séance du {formatFeedbackDate(last_session_feedback.activity_date)}
             </span>
