@@ -1,0 +1,7 @@
+# Supabase CLI config.
+# Ce projet n'utilise PAS la stack locale Supabase : le worker et le frontend
+# ciblent directement le projet distant `garmin-training-dev` (eu-west-3).
+# Ce fichier sert au CLI pour `supabase link` + `supabase db push` en CI.
+# Voir .github/workflows/supabase-migrations.yml et QUALITY_GATES.md.
+
+project_id = "peiyrqplymdlmlpsbqzu"

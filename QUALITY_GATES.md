@@ -199,6 +199,37 @@ Avant de marquer un EPIC comme livré :
 
 ---
 
+## Déploiement des migrations Supabase (EPIC E17)
+
+Les migrations `supabase/migrations/*.sql` sont appliquées **automatiquement** par le
+workflow `.github/workflows/supabase-migrations.yml` à chaque merge sur `main` touchant
+`supabase/migrations/**`. Plus de `db push` manuel dans le dashboard.
+
+- **Mécanisme** : `supabase link --project-ref peiyrqplymdlmlpsbqzu` puis `supabase db push`
+  (idempotent — seules les migrations absentes de `supabase_migrations.schema_migrations`
+  sont rejouées). `concurrency` empêche deux applications simultanées.
+- **Mode** : auto-apply, sans approbation manuelle. Le DDL va **directement en prod** au
+  merge (pas de staging sur ce projet).
+- **Secrets CI requis** : `SUPABASE_ACCESS_TOKEN` (Personal Access Token du compte) et
+  `SUPABASE_DB_PASSWORD` (mot de passe DB du projet).
+
+### Contrat de migration — expand/contract (backward-compatible)
+
+Le job migration et le deploy Vercel se déclenchent **en parallèle** sur le même merge.
+Le nouveau code front/worker peut donc tourner *avant* que la migration soit appliquée,
+et inversement. Pour éviter toute fenêtre cassée, toute migration doit être **additive
+d'abord** :
+
+- une migration n'ajoute que des objets (table, colonne, index) — jamais un `DROP` /
+  `RENAME` d'une colonne encore lue par le code en place ;
+- une suppression de colonne se fait **une version après** le déploiement du code qui ne
+  la lit plus (étape « contract » dans un merge ultérieur) ;
+- privilégier `IF NOT EXISTS` / `CREATE OR REPLACE` pour l'idempotence.
+
+Cette règle est rappelée dans le template de PR (`.github/pull_request_template.md`).
+
+---
+
 ## Outils & coût récap
 
 | Outil | Coût | Niveau |

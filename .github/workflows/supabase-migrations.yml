@@ -1,0 +1,51 @@
+name: Supabase Migrations
+
+# Applique les migrations SQL sur le projet Supabase de prod à chaque merge sur main.
+# Auto-apply (pas de gate manuelle) — voir QUALITY_GATES.md § Migrations Supabase.
+#
+# `supabase db push` est idempotent : seules les migrations absentes de
+# `supabase_migrations.schema_migrations` sont rejouées.
+#
+# Secrets requis (repo → Settings → Secrets and variables → Actions) :
+#   - SUPABASE_ACCESS_TOKEN : Personal Access Token (https://supabase.com/dashboard/account/tokens)
+#   - SUPABASE_DB_PASSWORD  : mot de passe DB du projet (Project Settings → Database)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/supabase-migrations.yml'
+  workflow_dispatch:
+
+# Une seule application de migrations à la fois — jamais deux `db push` concurrents.
+concurrency:
+  group: supabase-migrations-prod
+  cancel-in-progress: false
+
+env:
+  SUPABASE_PROJECT_REF: peiyrqplymdlmlpsbqzu
+
+jobs:
+  db-push:
+    name: supabase db push (prod)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Push migrations
+        run: supabase db push
