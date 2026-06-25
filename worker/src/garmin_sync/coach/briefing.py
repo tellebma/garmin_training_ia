@@ -27,7 +27,13 @@ type _RowT = dict[str, Any] | None
 READY_MIN = 70
 CAUTION_MIN = 40
 BASELINE_SCORE = 80
-BRIEFING_CACHE_VERSION = "daily-briefing:v3"
+BRIEFING_CACHE_VERSION = "daily-briefing:v4"
+
+# Post-session feedback only stays relevant for a couple of days. The latest *synced*
+# activity can lag (sync runs once a day), so without this cap an old session — e.g. a
+# bike done on a planned rest day — keeps resurfacing as "Retour post-séance" in later
+# briefings and reads as if it were about the current day.
+FEEDBACK_MAX_AGE_DAYS = 2
 
 log = logging.getLogger(__name__)
 
@@ -731,15 +737,15 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     activity_review = build_activity_review(recent_activities, today)
     latest_activity = recent_activities[0] if recent_activities else None
     latest_activity_date = activity_day(latest_activity) if latest_activity else None
-    feedback_planned = (
-        _load_planned_session_for_date(db, user_id, latest_activity_date)
-        if latest_activity_date
-        else None
-    )
-    session_feedback = build_session_feedback(
-        activity=latest_activity,
-        planned_session=feedback_planned,
-    )
+    session_feedback = None
+    if latest_activity_date is not None and 0 <= (today - latest_activity_date).days <= (
+        FEEDBACK_MAX_AGE_DAYS
+    ):
+        feedback_planned = _load_planned_session_for_date(db, user_id, latest_activity_date)
+        session_feedback = build_session_feedback(
+            activity=latest_activity,
+            planned_session=feedback_planned,
+        )
 
     weekly_avg = None
     if hrv and hrv.get("hrv_weekly_avg"):
