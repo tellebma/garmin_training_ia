@@ -109,6 +109,68 @@ describe('BriefingCard', () => {
     expect(screen.getByText('Accepter')).toBeTruthy()
     expect(screen.getByText('Ignorer')).toBeTruthy()
   })
+
+  it('renders the post-session feedback date and falls back to the raw value when unparseable', () => {
+    const feedback = {
+      activity_date: '2026-06-14',
+      sport: 'swim',
+      planned_sport: 'bike',
+      planned_session_type: 'endurance',
+      verdict: 'sport_mismatch',
+      severity: 'watch' as const,
+      message: 'Natation au lieu de vélo.',
+      readiness_impact: -3,
+    }
+    const base: DailyBriefing = {
+      date: '2026-06-15',
+      readiness_score: 60,
+      status: 'caution',
+      explanation_md: 'x',
+      factors: [],
+      planned_session: null,
+      suggested_session: null,
+      activity_review: {
+        lookback_days: 90,
+        activities_7d: 0,
+        activities_28d: 0,
+        tss_7d: 0,
+        avg_weekly_tss_prev_21d: 0,
+        elevation_gain_7d: 0,
+        avg_weekly_elevation_prev_21d: 0,
+        sport_counts_28d: {},
+        days_since_last_activity: 1,
+        insights: [],
+      },
+      last_session_feedback: feedback,
+      coach_recommendation: { action: 'ease', title: 't', rationale: 'r', instruction: 'i' },
+      next_session_adjustment: {
+        status: 'none',
+        action: 'maintain',
+        title: '',
+        rationale: '',
+        instruction: '',
+        target_session: null,
+        suggested_session_type: null,
+      },
+      is_rest_day: false,
+    }
+
+    // Valid date -> formatted in French.
+    render(<BriefingCard briefing={base} />)
+    expect(screen.getByText(/séance du 14 juin/)).toBeTruthy()
+
+    // Unparseable date -> raw value is shown (defensive fallback branch).
+    cleanup()
+    render(
+      <BriefingCard
+        briefing={{
+          ...base,
+          last_session_feedback: { ...feedback, activity_date: 'not-a-date' },
+        }}
+      />
+    )
+    expect(screen.getByText(/séance du not-a-date/)).toBeTruthy()
+  })
 })
 
 describe('BriefingCard rest day', () => {

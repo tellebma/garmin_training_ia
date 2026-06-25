@@ -31,6 +31,15 @@ const INSIGHT_CLASSES: Record<ActivityInsightSeverity, string> = {
   risk: 'border-red-500/30 bg-red-500/5',
 }
 
+function formatFeedbackDate(iso: string): string {
+  // activity_date is a plain calendar date (YYYY-MM-DD); render in UTC to avoid an
+  // off-by-one day shift in the user's local timezone.
+  const d = new Date(`${iso}T00:00:00Z`)
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', timeZone: 'UTC' })
+}
+
 interface Props {
   briefing: DailyBriefing
 }
@@ -95,7 +104,12 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
             INSIGHT_CLASSES[last_session_feedback.severity]
           )}
         >
-          <p className="text-foreground font-medium">Retour post-séance</p>
+          <p className="text-foreground font-medium">
+            <span>Retour post-séance</span>
+            <span className="text-muted-foreground ml-2 text-xs font-normal">
+              séance du {formatFeedbackDate(last_session_feedback.activity_date)}
+            </span>
+          </p>
           <p className="text-muted-foreground mt-1">{last_session_feedback.message}</p>
           <p className="text-foreground mt-2 text-xs">
             <span className="font-semibold">{last_session_feedback.sport}</span>

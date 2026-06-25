@@ -460,6 +460,58 @@ def test_compute_briefing_activity_load_spike_affects_readiness(mock_db_fn):
     assert b.next_session_adjustment.status == "suggested"
 
 
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_skips_stale_session_feedback(mock_db_fn):
+    """A latest activity older than the recency window must not drive post-session feedback.
+
+    Regression: a bike done on a planned rest day kept resurfacing 'trained on rest day' in
+    later briefings because the latest *synced* activity can be several days old (sync lag).
+    """
+    activities = [
+        # 3 days before the briefing date -> outside the 2-day window
+        {"start_time": "2026-05-17T08:00:00Z", "sport": "bike", "duration_s": 3600, "tss": 60},
+    ]
+    db = _mock_db_with(
+        hrv={"hrv_rmssd": 42, "hrv_status": "balanced", "hrv_weekly_avg": 42},
+        sleep={"sleep_duration_s": 7.5 * 3600, "sleep_score": 75},
+        daily={"resting_hr": 55, "body_battery_low": 60},
+        tsb=2.0,
+        planned={"sport": "rest", "session_type": "rest"},
+        baseline_rows=[{"resting_hr": 55}],
+        activities=activities,
+    )
+    mock_db_fn.return_value = db
+
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+
+    assert b.last_session_feedback is None
+    assert not any(f.name.startswith("session_feedback_") for f in b.factors)
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_keeps_recent_session_feedback(mock_db_fn):
+    """A latest activity within the 2-day window still produces post-session feedback."""
+    activities = [
+        # exactly 2 days before the briefing date -> inside the window
+        {"start_time": "2026-05-18T08:00:00Z", "sport": "bike", "duration_s": 3600, "tss": 60},
+    ]
+    db = _mock_db_with(
+        hrv={"hrv_rmssd": 42, "hrv_status": "balanced", "hrv_weekly_avg": 42},
+        sleep={"sleep_duration_s": 7.5 * 3600, "sleep_score": 75},
+        daily={"resting_hr": 55, "body_battery_low": 60},
+        tsb=2.0,
+        planned={"sport": "run", "session_type": "endurance", "target_duration_s": 3600},
+        baseline_rows=[{"resting_hr": 55}],
+        activities=activities,
+    )
+    mock_db_fn.return_value = db
+
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+
+    assert b.last_session_feedback is not None
+    assert b.last_session_feedback.verdict == "sport_mismatch"
+
+
 def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
     b = DailyBriefing(
         date="2026-05-20",
