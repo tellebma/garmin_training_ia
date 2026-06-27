@@ -82,7 +82,7 @@ function cumulativeFractions(points: GpsPoint[]): number[] | null {
       }
     }
   }
-  const total = distances[distances.length - 1]
+  const total = distances.at(-1)
   if (!total || total <= 0) return null
   return distances.map((d) => d / total)
 }
