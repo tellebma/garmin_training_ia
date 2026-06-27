@@ -86,3 +86,16 @@ export async function workerRegenerateSession(
 export async function workerDailyBriefing(jwt: string): Promise<unknown> {
   return workerPost<unknown>('/coach/daily-briefing', {}, jwt)
 }
+
+export type SyncTriggerResult =
+  | { status: 'started' }
+  | { status: 'cooldown'; retry_after_seconds: number }
+  | { status: 'no_credentials' }
+  | { status: 'invalid_trigger' }
+
+export async function workerTriggerSync(
+  jwt: string,
+  trigger: 'auto' | 'manual'
+): Promise<SyncTriggerResult> {
+  return workerPost<SyncTriggerResult>(`/garmin/sync?trigger=${trigger}`, {}, jwt)
+}
