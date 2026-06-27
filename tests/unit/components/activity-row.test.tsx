@@ -35,6 +35,17 @@ describe('ActivityRow route thumbnail', () => {
 
   it('renders no thumbnail when route_polyline is the empty sentinel', () => {
     const { container } = render(<ActivityRow activity={{ ...base, route_polyline: [] }} />)
-    expect(container.querySelector('svg path')).toBeNull()
+    expect(container.querySelector('svg[aria-label="Aperçu du parcours"]')).toBeNull()
+  })
+
+  it('always renders the sport icon when route_polyline is the empty-array sentinel', () => {
+    const { container } = render(<ActivityRow activity={{ ...base, route_polyline: [] }} />)
+    expect(container.querySelector('[aria-label]')).not.toBeNull()
+    expect(container.querySelector('svg[aria-label="Aperçu du parcours"]')).toBeNull()
+  })
+
+  it('always renders the sport icon when route_polyline is absent', () => {
+    const { container } = render(<ActivityRow activity={{ ...base }} />)
+    expect(container.querySelector('[aria-label]')).not.toBeNull()
   })
 })

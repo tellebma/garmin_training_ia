@@ -20,12 +20,12 @@ describe('RouteThumbnail', () => {
     expect(container.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 100 100')
   })
 
-  it('renders nothing when the polyline has no usable route', () => {
+  it('renders nothing for the empty-array sentinel', () => {
     const { container } = render(<RouteThumbnail polyline={[]} />)
     expect(container.querySelector('svg')).toBeNull()
   })
 
-  it('renders nothing for the empty-array sentinel', () => {
+  it('renders nothing when the polyline has no usable route', () => {
     const { container } = render(<RouteThumbnail polyline={null} />)
     expect(container.firstChild).toBeNull()
   })
