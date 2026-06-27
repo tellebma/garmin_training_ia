@@ -15,6 +15,8 @@ import {
   type CockpitSport,
   type CoachSignalTone,
 } from '@/lib/dashboard/performance-cockpit'
+import { RecoveryPanel } from '../_components/recovery-panel'
+import { mapRecoveryRow } from '@/lib/dashboard/recovery'
 import { cn } from '@/lib/utils'
 import type {
   ActivityFeedbackDto,
@@ -148,6 +150,13 @@ async function CockpitBody({
   const feedback = (feedbackRes.data ?? []) as ActivityFeedbackDto[]
   const hrv = (hrvRes.data ?? []) as HrvDto[]
   const sleep = (sleepRes.data ?? []) as SleepDto[]
+
+  const recoveryRes = await supabase
+    .from('recovery_baselines')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+  const recoveryRow: unknown = recoveryRes.data
   const cockpit = computePerformanceCockpit({
     activities,
     plannedSessions,
@@ -331,6 +340,10 @@ async function CockpitBody({
               />
             )}
           </ChartCard>
+        </div>
+        <div className="mt-4">
+          <p className="text-muted-foreground mb-3 text-sm">Baselines personnelles sur 28 jours</p>
+          <RecoveryPanel data={mapRecoveryRow(recoveryRow)} />
         </div>
       </section>
     </>
