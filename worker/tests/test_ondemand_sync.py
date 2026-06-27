@@ -63,3 +63,47 @@ def test_try_claim_sync_unexpected_payload(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(mod, "get_admin_client", lambda: db)
 
     assert mod.try_claim_sync("user-1", 1800) == {"outcome": "no_credentials"}
+
+
+def test_run_ondemand_sync_invalid_trigger() -> None:
+    assert mod.run_ondemand_sync("user-1", "weekly") == {"status": "invalid_trigger"}
+
+
+def test_run_ondemand_sync_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        mod, "try_claim_sync", lambda _u, _w: {"outcome": "cooldown", "retry_after_seconds": 120}
+    )
+    started: list[str] = []
+    monkeypatch.setattr(mod, "_start_sync_thread", lambda uid: started.append(uid))
+
+    result = mod.run_ondemand_sync("user-1", "manual")
+
+    assert result == {"status": "cooldown", "retry_after_seconds": 120}
+    assert started == []  # no sync when cooled down
+
+
+def test_run_ondemand_sync_no_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mod, "try_claim_sync", lambda _u, _w: {"outcome": "no_credentials"})
+    started: list[str] = []
+    monkeypatch.setattr(mod, "_start_sync_thread", lambda uid: started.append(uid))
+
+    assert mod.run_ondemand_sync("user-1", "auto") == {"status": "no_credentials"}
+    assert started == []
+
+
+def test_run_ondemand_sync_started_uses_auto_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, int] = {}
+
+    def _claim(user_id: str, window: int) -> dict[str, Any]:
+        seen["window"] = window
+        return {"outcome": "claimed"}
+
+    monkeypatch.setattr(mod, "try_claim_sync", _claim)
+    started: list[str] = []
+    monkeypatch.setattr(mod, "_start_sync_thread", lambda uid: started.append(uid))
+
+    result = mod.run_ondemand_sync("user-7", "auto")
+
+    assert result == {"status": "started"}
+    assert seen["window"] == 1800
+    assert started == ["user-7"]
