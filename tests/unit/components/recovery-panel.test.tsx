@@ -54,4 +54,23 @@ describe('RecoveryPanel', () => {
     render(<RecoveryPanel data={low} />)
     expect(screen.getByText(/donn.es insuffisantes/i)).toBeTruthy()
   })
+
+  it('renders stable trend label and glyph', () => {
+    const stable: RecoveryBaselines = {
+      ...full,
+      hrv: { ...base, trend: 'stable' },
+    }
+    render(<RecoveryPanel data={stable} />)
+    expect(screen.getByText('Dans ta moyenne')).toBeTruthy()
+    expect(screen.getByText('→')).toBeTruthy()
+  })
+
+  it('renders stale badge when freshness is stale and confidence is high', () => {
+    const stale: RecoveryBaselines = {
+      ...full,
+      hrv: { ...base, freshness: 'stale', confidence: 'high' },
+    }
+    render(<RecoveryPanel data={stale} />)
+    expect(screen.getByText('Donnée ancienne')).toBeTruthy()
+  })
 })

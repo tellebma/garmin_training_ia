@@ -3,13 +3,12 @@ import type { RecoveryBaselines, RecoveryMetric } from '@/lib/dashboard/recovery
 const METRICS: readonly {
   key: keyof Omit<RecoveryBaselines, 'computedAt'>
   label: string
-  unit: string
 }[] = [
-  { key: 'hrv', label: 'HRV', unit: 'ms' },
-  { key: 'restingHr', label: 'FC repos', unit: 'bpm' },
-  { key: 'sleep', label: 'Sommeil', unit: '' },
-  { key: 'stress', label: 'Stress', unit: '' },
-  { key: 'bodyBattery', label: 'Body Battery', unit: '' },
+  { key: 'hrv', label: 'HRV' },
+  { key: 'restingHr', label: 'FC repos' },
+  { key: 'sleep', label: 'Sommeil' },
+  { key: 'stress', label: 'Stress' },
+  { key: 'bodyBattery', label: 'Body Battery' },
 ]
 
 function trendLabel(trend: RecoveryMetric['trend']): string {

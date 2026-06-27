@@ -16,6 +16,8 @@ create table if not exists public.recovery_baselines (
 
 alter table public.recovery_baselines enable row level security;
 
+drop policy if exists "recovery_baselines_select_own" on public.recovery_baselines;
+
 create policy "recovery_baselines_select_own"
   on public.recovery_baselines for select
   using (auth.uid() = user_id);

@@ -32,4 +32,25 @@ describe('mapRecoveryRow', () => {
     expect(result?.restingHr.trend).toBe('declining')
     expect(result?.sleep.durationBaselineS).toBe(27000)
   })
+
+  it('fills defaults for sparse metric objects', () => {
+    const result = mapRecoveryRow({ hrv: {}, sleep: {} })
+    expect(result).not.toBeNull()
+    expect(result?.hrv.baseline).toBeNull()
+    expect(result?.hrv.trend).toBe('no_data')
+    expect(result?.hrv.confidence).toBe('no_data')
+    expect(result?.hrv.freshness).toBe('no_data')
+    expect(result?.hrv.daysCovered).toBe(0)
+    expect(result?.hrv.lastDate).toBeNull()
+    expect(result?.sleep.durationBaselineS).toBeNull()
+    expect(result?.sleep.scoreBaseline).toBeNull()
+  })
+
+  it('handles a row with all metrics absent', () => {
+    const result = mapRecoveryRow({})
+    expect(result).not.toBeNull()
+    expect(result?.computedAt).toBeNull()
+    expect(result?.restingHr.trend).toBe('no_data')
+    expect(result?.bodyBattery.confidence).toBe('no_data')
+  })
 })
