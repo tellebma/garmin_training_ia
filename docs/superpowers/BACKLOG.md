@@ -104,9 +104,15 @@ prendre ensuite.
 - **E9.2 P0 — Feedback subjectif** : RPE post-séance, fatigue, douleurs,
   courbatures et humeur ; calcul de charge session-RPE et comparaison entre
   difficulté prévue et ressentie.
-- **E9.3 P1 — Récupération individualisée** : tendances HRV, FC au repos,
-  sommeil, stress et Body Battery comparées à la baseline personnelle, avec
-  fraîcheur et niveau de confiance des données.
+- **E9.3 P1 — Récupération individualisée — V1 livrée** (PR #67) : baselines
+  personnelles (médiane glissante 28j) pour HRV, FC repos, sommeil, stress et Body
+  Battery, avec tendance orientée physiologiquement, confiance par couverture de données
+  et fraîcheur. Module worker pur `recovery_baselines.py` matérialisé au sync (table
+  `recovery_baselines`, RLS select-own, pattern E7). Le briefing score le readiness contre
+  ces baselines (repli sur seuils absolus si confiance faible/absente, `readiness_score`
+  inchangé) et le cockpit `/stats` expose un panneau `RecoveryPanel` en langage prudent
+  (jamais de diagnostic). Suites notées : `sleep_excellent` encore en seuil absolu,
+  gating confiance de la FC repos, affichage « dernière synchro… ».
 - **E9.4 P1 — Progression par discipline** : efficacité allure/FC en course,
   puissance/FC et FTP à vélo, performance en montée, métriques natation et
   détection de progression, stagnation ou charge mal assimilée.
