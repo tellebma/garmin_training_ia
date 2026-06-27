@@ -84,4 +84,23 @@ describe('RoutesHeatmap', () => {
     unmount()
     expect(instance.remove).toHaveBeenCalledTimes(1)
   })
+
+  it('skips fitBounds when bounds.isEmpty() returns true', () => {
+    // Exercise the false branch of `if (!bounds.isEmpty())` on line 39:
+    // source + layer are still added but fitBounds must NOT be called.
+    mocks.isEmpty.mockReturnValue(true)
+    render(
+      <RoutesHeatmap
+        polylines={[
+          [
+            [4.0, 45.0],
+            [4.1, 45.1],
+          ],
+        ]}
+      />
+    )
+    expect(mocks.addSource).toHaveBeenCalledWith('routes', expect.anything())
+    expect(mocks.addLayer).toHaveBeenCalledWith(expect.objectContaining({ type: 'heatmap' }))
+    expect(mocks.fitBounds).not.toHaveBeenCalled()
+  })
 })

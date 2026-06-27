@@ -28,6 +28,34 @@ vi.mock('maplibre-gl', () => ({
   },
 }))
 
+// routeBounds spy — default returns non-null bounds; individual tests can
+// override via mockReturnValueOnce(null) to cover the false branch on line 78.
+const routeBoundsMock = vi.hoisted(() =>
+  vi.fn((_coords: [number, number][]): [[number, number], [number, number]] | null => [
+    [0, 0],
+    [1, 1],
+  ])
+)
+
+vi.mock('@/lib/maps/route-geojson', () => ({
+  // Inline replica of the real buildRouteGeoJson (filters nulls, needs >= 2 points).
+  buildRouteGeoJson(samples: { latitude: number | null; longitude: number | null }[]) {
+    const coords = samples
+      .filter(
+        (p): p is { latitude: number; longitude: number } =>
+          typeof p.latitude === 'number' && typeof p.longitude === 'number'
+      )
+      .map((p): [number, number] => [p.longitude, p.latitude])
+    if (coords.length < 2) return null
+    return {
+      type: 'Feature' as const,
+      geometry: { type: 'LineString' as const, coordinates: coords },
+      properties: {} as Record<string, never>,
+    }
+  },
+  routeBounds: routeBoundsMock,
+}))
+
 import { ActivityRouteMap } from '@/app/(app)/_components/maps/activity-route-map'
 import type { ActivitySample } from '@/lib/coach/activity-analysis'
 
@@ -64,6 +92,7 @@ describe('ActivityRouteMap', () => {
     getLayer.mockClear()
     getLayer.mockImplementation((_id: string) => ({ id: 'route-line' }))
     setPaintProperty.mockClear()
+    routeBoundsMock.mockClear()
   })
 
   it('adds the route source once the map loads', () => {
@@ -101,5 +130,15 @@ describe('ActivityRouteMap', () => {
     fireEvent.click(getByText('Vitesse'))
 
     expect(setPaintProperty).toHaveBeenCalledWith('route-line', 'line-gradient', expect.anything())
+  })
+
+  it('skips fitBounds when routeBounds returns null', () => {
+    // Exercise the false branch of `if (bounds)` on line 78:
+    // the map is created, source + layer are added, but fitBounds must NOT be called.
+    routeBoundsMock.mockReturnValueOnce(null)
+    render(<ActivityRouteMap samples={[sample(45.1, 4.1), sample(45.2, 4.2)]} />)
+    expect(addSource).toHaveBeenCalledWith('route', expect.anything())
+    expect(addLayer).toHaveBeenCalled()
+    expect(fitBounds).not.toHaveBeenCalled()
   })
 })
