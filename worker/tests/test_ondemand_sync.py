@@ -56,3 +56,10 @@ def test_try_claim_sync_no_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mod, "get_admin_client", lambda: db)
 
     assert mod.try_claim_sync("user-1", 1800) == {"outcome": "no_credentials"}
+
+
+def test_try_claim_sync_unexpected_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _FakeDb(None)
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+
+    assert mod.try_claim_sync("user-1", 1800) == {"outcome": "no_credentials"}

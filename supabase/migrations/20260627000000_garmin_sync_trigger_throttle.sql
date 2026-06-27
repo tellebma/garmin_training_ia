@@ -62,5 +62,5 @@ revoke execute on function public.try_claim_garmin_sync(uuid, integer) from anon
 revoke execute on function public.try_claim_garmin_sync(uuid, integer) from authenticated;
 grant execute on function public.try_claim_garmin_sync(uuid, integer) to service_role;
 
-comment on function public.try_claim_garmin_sync is
+comment on function public.try_claim_garmin_sync(uuid, integer) is
   'Claim atomique anti-spam pour la sync on-demand E15.3. Service-role only.';
