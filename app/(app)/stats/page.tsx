@@ -150,6 +150,7 @@ async function CockpitBody({
     .not('route_polyline', 'is', null)
 
   const polylines = (routeRows ?? []).map((r): unknown => r.route_polyline)
+  const hasGpsPoints = polylines.some((p) => Array.isArray(p) && p.length > 0)
 
   const banister = (banisterRes.data ?? []) as BanisterPoint[]
   const activities = (activitiesRes.data ?? []) as ActivityRowDto[]
@@ -343,7 +344,7 @@ async function CockpitBody({
         </div>
       </section>
 
-      {polylines.length > 0 && (
+      {hasGpsPoints && (
         <ChartCard title="Où je m'entraîne" description="Carte de chaleur de tes parcours GPS">
           <RoutesHeatmapLazy polylines={polylines} />
         </ChartCard>

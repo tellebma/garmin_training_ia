@@ -34,7 +34,7 @@ export function ActivityRow({ activity, className }: Readonly<ActivityRowProps>)
       )}
     >
       <Icon size={20} className="text-muted-foreground shrink-0" aria-label={label} />
-      {activity.route_polyline ? (
+      {Array.isArray(activity.route_polyline) && activity.route_polyline.length > 0 ? (
         <RouteThumbnail polyline={activity.route_polyline} className="h-8 w-8 shrink-0" />
       ) : null}
       <div className="min-w-0 flex-1">
