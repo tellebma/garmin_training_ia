@@ -255,6 +255,19 @@ def _score_body_battery(daily: dict[str, Any] | None) -> list[ReadinessFactor]:
     return []
 
 
+def _score_stress(daily: dict[str, Any] | None, baseline: float | None) -> list[ReadinessFactor]:
+    if not daily or not baseline or baseline <= 0:
+        return []
+    stress = daily.get("stress_avg")
+    if stress is None:
+        return []
+    if stress > baseline * 1.20:
+        return [
+            ReadinessFactor("stress_high", -10, f"Stress élevé ({stress} vs ligne {baseline:.0f}).")
+        ]
+    return []
+
+
 def derive_status(score: int) -> Status:
     if score >= READY_MIN:
         return "ready"
@@ -625,7 +638,7 @@ def _load_daily_metrics(db: Any, user_id: str, today: date) -> dict[str, Any] | 
     yesterday = today - timedelta(days=1)
     resp = (
         db.table("daily_metrics")
-        .select("resting_hr, body_battery_low")
+        .select("resting_hr, body_battery_low, stress_avg")
         .eq("user_id", user_id)
         .eq("date", yesterday.isoformat())
         .maybe_single()
@@ -650,6 +663,18 @@ def _load_resting_hr_baseline(db: Any, user_id: str, today: date) -> float | Non
         return None
     values.sort()
     return float(values[len(values) // 2])
+
+
+def _load_recovery_baselines(db: Any, user_id: str) -> dict[str, Any] | None:
+    """Load the single recovery_baselines row for this user (one row per user)."""
+    resp = (
+        db.table("recovery_baselines")
+        .select("hrv, resting_hr, sleep, stress, body_battery")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    return cast(_RowT, resp.data if resp else None)
 
 
 def _load_tsb(db: Any, user_id: str, today: date) -> float | None:
@@ -730,7 +755,29 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     hrv = _load_today_hrv(db, user_id, today)
     sleep_row = _load_recent_sleep(db, user_id, today)
     daily = _load_daily_metrics(db, user_id, today)
-    rh_baseline = _load_resting_hr_baseline(db, user_id, today)
+    rb = _load_recovery_baselines(db, user_id)
+
+    # resting_hr: prefer personal table baseline; fall back to 30-day rolling median.
+    rh_meta = (rb or {}).get("resting_hr") or {}
+    rh_baseline_table: float | None = None
+    if isinstance(rh_meta, dict):
+        val = rh_meta.get("baseline")
+        if val is not None:
+            rh_baseline_table = float(val)
+    rh_baseline = (
+        rh_baseline_table
+        if rh_baseline_table is not None
+        else _load_resting_hr_baseline(db, user_id, today)
+    )
+
+    # stress: only score against personal baseline when confidence is reliable.
+    stress_meta = (rb or {}).get("stress") or {}
+    stress_baseline: float | None = None
+    if isinstance(stress_meta, dict) and stress_meta.get("confidence") in {"high", "medium"}:
+        val = stress_meta.get("baseline")
+        if val is not None:
+            stress_baseline = float(val)
+
     tsb = _load_tsb(db, user_id, today)
     planned = _load_planned_session(db, user_id, today)
     recent_activities = _load_recent_activities(db, user_id, today)
@@ -755,6 +802,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     factors.extend(_score_hrv(hrv, weekly_avg))
     factors.extend(_score_sleep(sleep_row))
     factors.extend(_score_resting_hr(daily, rh_baseline))
+    factors.extend(_score_stress(daily, stress_baseline))
     factors.extend(_score_tsb(tsb))
     factors.extend(_score_body_battery(daily))
     factors.extend(_activity_review_factors(activity_review))
