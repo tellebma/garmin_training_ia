@@ -437,9 +437,7 @@ def test_garmin_sync_invalid_trigger(
     assert r.status_code == 400
 
 
-def test_garmin_sync_cooldown(
-    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_garmin_sync_cooldown(client: ASGITestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from garmin_sync import main as main_mod
 
     monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
@@ -452,9 +450,7 @@ def test_garmin_sync_cooldown(
     assert r.json() == {"status": "cooldown", "retry_after_seconds": 99}
 
 
-def test_garmin_sync_started(
-    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_garmin_sync_started(client: ASGITestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from garmin_sync import main as main_mod
 
     monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
