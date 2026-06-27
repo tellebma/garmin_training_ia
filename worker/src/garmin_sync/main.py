@@ -107,9 +107,18 @@ async def garmin_sync(
     user_id = _require_user_jwt(authorization)
     if trigger not in ("auto", "manual"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid trigger")
-    from garmin_sync.ondemand_sync import run_ondemand_sync
+    try:
+        from garmin_sync.ondemand_sync import run_ondemand_sync
 
-    return run_ondemand_sync(user_id, trigger)
+        return run_ondemand_sync(user_id, trigger)
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception("[%s] garmin_sync endpoint crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
 
 
 class GarminConnectRequest(BaseModel):

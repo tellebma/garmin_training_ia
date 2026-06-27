@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -448,6 +449,23 @@ def test_garmin_sync_cooldown(client: ASGITestClient, monkeypatch: pytest.Monkey
     r = client.post("/garmin/sync?trigger=auto", headers={"Authorization": "Bearer x"})
     assert r.status_code == 200
     assert r.json() == {"status": "cooldown", "retry_after_seconds": 99}
+
+
+def test_garmin_sync_catches_unexpected(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+
+    def _boom(user_id: str, trigger: str) -> dict[str, Any]:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("garmin_sync.ondemand_sync.run_ondemand_sync", _boom)
+    r = client.post("/garmin/sync?trigger=manual", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "unexpected_error"
+    assert r.json()["error_id"]
 
 
 def test_garmin_sync_started(client: ASGITestClient, monkeypatch: pytest.MonkeyPatch) -> None:

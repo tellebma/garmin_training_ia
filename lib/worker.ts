@@ -92,6 +92,7 @@ export type SyncTriggerResult =
   | { status: 'cooldown'; retry_after_seconds: number }
   | { status: 'no_credentials' }
   | { status: 'invalid_trigger' }
+  | { status: 'unexpected_error'; error_id: string; type: string }
 
 export async function workerTriggerSync(
   jwt: string,
