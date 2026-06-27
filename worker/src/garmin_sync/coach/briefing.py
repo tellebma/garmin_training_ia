@@ -192,26 +192,59 @@ def _score_hrv(today_hrv: dict[str, Any] | None, weekly_avg: float | None) -> li
     return factors
 
 
-def _score_sleep(sleep_row: dict[str, Any] | None) -> list[ReadinessFactor]:
+def _sleep_duration_factor(
+    duration_s: float, hours: float, baseline: float | None
+) -> ReadinessFactor | None:
+    if baseline and baseline > 0:
+        base_h = baseline / 3600
+        if 0 < duration_s < baseline * 0.85:
+            return ReadinessFactor(
+                "sleep_very_short", -15, f"Sommeil court ({hours:.1f}h vs ligne {base_h:.1f}h)."
+            )
+        if baseline * 0.85 <= duration_s < baseline * 0.95:
+            return ReadinessFactor(
+                "sleep_short", -5, f"Sommeil léger ({hours:.1f}h vs ligne {base_h:.1f}h)."
+            )
+        return None
+    if 0 < hours < 6:
+        return ReadinessFactor("sleep_very_short", -15, f"Sommeil court ({hours:.1f}h).")
+    if 6 <= hours < 7:
+        return ReadinessFactor("sleep_short", -5, f"Sommeil léger ({hours:.1f}h).")
+    return None
+
+
+def _sleep_score_factor(score: float, baseline: float | None) -> ReadinessFactor | None:
+    if baseline and baseline > 0:
+        if 0 < score < baseline * 0.85:
+            return ReadinessFactor(
+                "sleep_low_score", -10, f"Score sommeil bas ({score} vs ligne {baseline:.0f})."
+            )
+        return None
+    if 0 < score < 50:
+        return ReadinessFactor("sleep_low_score", -10, f"Score sommeil bas ({score}).")
+    return None
+
+
+def _score_sleep(
+    sleep_row: dict[str, Any] | None,
+    *,
+    duration_baseline: float | None = None,
+    score_baseline: float | None = None,
+) -> list[ReadinessFactor]:
     if not sleep_row:
         return [ReadinessFactor("sleep_missing", 0, "Pas de données de sommeil hier.")]
-
     factors: list[ReadinessFactor] = []
     duration_s = sleep_row.get("sleep_duration_s") or 0
     score = sleep_row.get("sleep_score") or 0
     hours = duration_s / 3600
-
-    if 0 < hours < 6:
-        factors.append(ReadinessFactor("sleep_very_short", -15, f"Sommeil court ({hours:.1f}h)."))
-    elif 6 <= hours < 7:
-        factors.append(ReadinessFactor("sleep_short", -5, f"Sommeil léger ({hours:.1f}h)."))
-
-    if 0 < score < 50:
-        factors.append(ReadinessFactor("sleep_low_score", -10, f"Score sommeil bas ({score})."))
-
+    dur_factor = _sleep_duration_factor(duration_s, hours, duration_baseline)
+    if dur_factor is not None:
+        factors.append(dur_factor)
+    score_factor = _sleep_score_factor(score, score_baseline)
+    if score_factor is not None:
+        factors.append(score_factor)
     if hours >= 8 and score >= 80:
         factors.append(ReadinessFactor("sleep_excellent", 5, "Excellent sommeil."))
-
     return factors
 
 
@@ -246,12 +279,38 @@ def _score_tsb(tsb: float | None) -> list[ReadinessFactor]:
     return []
 
 
-def _score_body_battery(daily: dict[str, Any] | None) -> list[ReadinessFactor]:
+def _score_body_battery(
+    daily: dict[str, Any] | None, *, baseline: float | None = None
+) -> list[ReadinessFactor]:
     if not daily:
+        return []
+    if baseline and baseline > 0:
+        high = daily.get("body_battery_high")
+        if high is not None and high < baseline * 0.75:
+            return [
+                ReadinessFactor(
+                    "body_battery_low",
+                    -10,
+                    f"Body Battery sous ta moyenne ({high} vs ligne {baseline:.0f}).",
+                )
+            ]
         return []
     bb = daily.get("body_battery_low")
     if bb is not None and bb < 30:
         return [ReadinessFactor("body_battery_low", -10, f"Body Battery bas hier soir ({bb}).")]
+    return []
+
+
+def _score_stress(daily: dict[str, Any] | None, baseline: float | None) -> list[ReadinessFactor]:
+    if not daily or not baseline or baseline <= 0:
+        return []
+    stress = daily.get("stress_avg")
+    if stress is None:
+        return []
+    if stress > baseline * 1.20:
+        return [
+            ReadinessFactor("stress_high", -10, f"Stress élevé ({stress} vs ligne {baseline:.0f}).")
+        ]
     return []
 
 
@@ -625,7 +684,7 @@ def _load_daily_metrics(db: Any, user_id: str, today: date) -> dict[str, Any] | 
     yesterday = today - timedelta(days=1)
     resp = (
         db.table("daily_metrics")
-        .select("resting_hr, body_battery_low")
+        .select("resting_hr, body_battery_low, body_battery_high, stress_avg")
         .eq("user_id", user_id)
         .eq("date", yesterday.isoformat())
         .maybe_single()
@@ -650,6 +709,18 @@ def _load_resting_hr_baseline(db: Any, user_id: str, today: date) -> float | Non
         return None
     values.sort()
     return float(values[len(values) // 2])
+
+
+def _load_recovery_baselines(db: Any, user_id: str) -> dict[str, Any] | None:
+    """Load the single recovery_baselines row for this user (one row per user)."""
+    resp = (
+        db.table("recovery_baselines")
+        .select("hrv, resting_hr, sleep, stress, body_battery")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    return cast(_RowT, resp.data if resp else None)
 
 
 def _load_tsb(db: Any, user_id: str, today: date) -> float | None:
@@ -722,6 +793,52 @@ def _session_feedback_factor(feedback: SessionFeedback | None) -> list[Readiness
     ]
 
 
+def _gated_baseline(meta: Any, *, gate_confidence: bool = True) -> float | None:
+    if not isinstance(meta, dict):
+        return None
+    if gate_confidence and meta.get("confidence") not in {"high", "medium"}:
+        return None
+    val = meta.get("baseline")
+    return float(val) if val is not None else None
+
+
+@dataclass(frozen=True)
+class _RecoveryInputs:
+    resting_hr: float | None
+    stress: float | None
+    sleep_duration: float | None
+    sleep_score: float | None
+    body_battery: float | None
+
+
+def _resolve_recovery_baselines(rb: dict[str, Any] | None) -> _RecoveryInputs:
+    data = rb or {}
+    sleep_meta = data.get("sleep")
+    sleep_dur: float | None = None
+    sleep_score: float | None = None
+    if isinstance(sleep_meta, dict) and sleep_meta.get("confidence") in {"high", "medium"}:
+        sleep_dur = sleep_meta.get("duration_baseline_s")
+        sleep_score = sleep_meta.get("score_baseline")
+    return _RecoveryInputs(
+        resting_hr=_gated_baseline(data.get("resting_hr"), gate_confidence=False),
+        stress=_gated_baseline(data.get("stress")),
+        sleep_duration=sleep_dur,
+        sleep_score=sleep_score,
+        body_battery=_gated_baseline(data.get("body_battery")),
+    )
+
+
+def _maybe_session_feedback(
+    db: Any, user_id: str, today: date, recent_activities: list[dict[str, Any]]
+) -> SessionFeedback | None:
+    latest = recent_activities[0] if recent_activities else None
+    latest_date = activity_day(latest) if latest else None
+    if latest_date is None or not (0 <= (today - latest_date).days <= FEEDBACK_MAX_AGE_DAYS):
+        return None
+    feedback_planned = _load_planned_session_for_date(db, user_id, latest_date)
+    return build_session_feedback(activity=latest, planned_session=feedback_planned)
+
+
 def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     """Compute the full daily briefing for one user. Single DB round-trip per source."""
     today = today or date.today()
@@ -730,22 +847,19 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     hrv = _load_today_hrv(db, user_id, today)
     sleep_row = _load_recent_sleep(db, user_id, today)
     daily = _load_daily_metrics(db, user_id, today)
-    rh_baseline = _load_resting_hr_baseline(db, user_id, today)
+    rb = _load_recovery_baselines(db, user_id)
+    rec = _resolve_recovery_baselines(rb)
+    rh_baseline = (
+        rec.resting_hr
+        if rec.resting_hr is not None
+        else _load_resting_hr_baseline(db, user_id, today)
+    )
+
     tsb = _load_tsb(db, user_id, today)
     planned = _load_planned_session(db, user_id, today)
     recent_activities = _load_recent_activities(db, user_id, today)
     activity_review = build_activity_review(recent_activities, today)
-    latest_activity = recent_activities[0] if recent_activities else None
-    latest_activity_date = activity_day(latest_activity) if latest_activity else None
-    session_feedback = None
-    if latest_activity_date is not None and 0 <= (today - latest_activity_date).days <= (
-        FEEDBACK_MAX_AGE_DAYS
-    ):
-        feedback_planned = _load_planned_session_for_date(db, user_id, latest_activity_date)
-        session_feedback = build_session_feedback(
-            activity=latest_activity,
-            planned_session=feedback_planned,
-        )
+    session_feedback = _maybe_session_feedback(db, user_id, today, recent_activities)
 
     weekly_avg = None
     if hrv and hrv.get("hrv_weekly_avg"):
@@ -753,10 +867,15 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
 
     factors: list[ReadinessFactor] = []
     factors.extend(_score_hrv(hrv, weekly_avg))
-    factors.extend(_score_sleep(sleep_row))
+    factors.extend(
+        _score_sleep(
+            sleep_row, duration_baseline=rec.sleep_duration, score_baseline=rec.sleep_score
+        )
+    )
     factors.extend(_score_resting_hr(daily, rh_baseline))
+    factors.extend(_score_stress(daily, rec.stress))
     factors.extend(_score_tsb(tsb))
-    factors.extend(_score_body_battery(daily))
+    factors.extend(_score_body_battery(daily, baseline=rec.body_battery))
     factors.extend(_activity_review_factors(activity_review))
     factors.extend(_session_feedback_factor(session_feedback))
     factors.extend(_hard_session_guardrail_factors(planned, factors))
