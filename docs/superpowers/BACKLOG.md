@@ -66,8 +66,16 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
 - **E15.2 P2 — Garmin officiel** : évaluer Garmin Health/Activity API (webhooks push) —
   réservé au programme partenaire, validation B2B. La lib `python-garminconnect`
   actuelle ne fait que du polling non officiel.
-- **E15.3 P1 — Sync on-demand** : déclencher une sync à l'ouverture de l'app
-  (pull-to-refresh) en plus du cron, pour réduire la latence perçue immédiatement.
+- **E15.3 P1 — Sync on-demand — V1 livrée** (PR #64) : sync `activities_only`
+  déclenchée automatiquement à l'ouverture de l'app (silencieuse) et via un bouton manuel,
+  bridée par un garde-fou anti-spam atomique. Le claim (`UPDATE ... RETURNING` via la RPC
+  `try_claim_garmin_sync` SECURITY DEFINER) sur `garmin_credentials.last_sync_trigger_at`
+  garantit qu'au plus une sync part par fenêtre (auto 30 min, manuel 5 min) et que deux
+  ouvertures concurrentes n'en déclenchent qu'une. La sync tourne en thread daemon
+  (réponse immédiate) et le gate porte sur la tentative, pas sur le succès. Chaîne :
+  `SyncNowButton` → `triggerGarminSync` → `POST /garmin/sync` (JWT) → `run_ondemand_sync`.
+  Reste à explorer : afficher « dernière synchro il y a X min » via `last_sync_at` (la copy
+  cooldown actuelle dérive de `retry_after_seconds`).
 - **E15.4 P0 — Pull au connect/reconnect Garmin — V1 livrée** : `start_connect_flow` et
   `resume_connect_flow` déclenchent désormais `_trigger_initial_sync(user_id)` après un
   `connected`. La sync tourne dans un thread daemon (réponse `connected` immédiate, pas de
@@ -96,9 +104,15 @@ prendre ensuite.
 - **E9.2 P0 — Feedback subjectif** : RPE post-séance, fatigue, douleurs,
   courbatures et humeur ; calcul de charge session-RPE et comparaison entre
   difficulté prévue et ressentie.
-- **E9.3 P1 — Récupération individualisée** : tendances HRV, FC au repos,
-  sommeil, stress et Body Battery comparées à la baseline personnelle, avec
-  fraîcheur et niveau de confiance des données.
+- **E9.3 P1 — Récupération individualisée — V1 livrée** (PR #67) : baselines
+  personnelles (médiane glissante 28j) pour HRV, FC repos, sommeil, stress et Body
+  Battery, avec tendance orientée physiologiquement, confiance par couverture de données
+  et fraîcheur. Module worker pur `recovery_baselines.py` matérialisé au sync (table
+  `recovery_baselines`, RLS select-own, pattern E7). Le briefing score le readiness contre
+  ces baselines (repli sur seuils absolus si confiance faible/absente, `readiness_score`
+  inchangé) et le cockpit `/stats` expose un panneau `RecoveryPanel` en langage prudent
+  (jamais de diagnostic). Suites notées : `sleep_excellent` encore en seuil absolu,
+  gating confiance de la FC repos, affichage « dernière synchro… ».
 - **E9.4 P1 — Progression par discipline** : efficacité allure/FC en course,
   puissance/FC et FTP à vélo, performance en montée, métriques natation et
   détection de progression, stagnation ou charge mal assimilée.
