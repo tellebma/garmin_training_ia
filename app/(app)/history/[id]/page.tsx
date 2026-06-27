@@ -14,8 +14,8 @@ import {
   summarizeActivitySamples,
   summarizeSimilarActivities,
   type ActivityDetail,
-  type ActivitySample,
 } from '@/lib/coach/activity-analysis'
+import { fetchAllActivitySamples } from '@/lib/activities/activity-samples'
 import { formatDistanceFromMeters, formatDuration, formatTSS } from '@/lib/dashboard/format'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
@@ -141,8 +141,8 @@ async function ActivityDetailBody({
     new Date(activity.start_time).getTime() - 90 * 86_400_000
   ).toISOString()
 
-  const [plannedRes, similarRes, samplesRes, profileRes, upcomingRes, feedbackRes] =
-    await Promise.all([
+  const [plannedRes, similarRes, samples, profileRes, upcomingRes, feedbackRes] = await Promise.all(
+    [
       supabase
         .from('planned_sessions')
         .select(
@@ -164,15 +164,10 @@ async function ActivityDetailBody({
         .gte('start_time', ninetyDaysAgo)
         .order('start_time', { ascending: false })
         .limit(12),
-      supabase
-        .from('activity_samples')
-        .select(
-          'sample_index, sample_time, elapsed_s, distance_m, elevation_m, heart_rate_bpm, power_w, cadence_rpm, speed_m_s, latitude, longitude'
-        )
-        .eq('user_id', userId)
-        .eq('garmin_activity_id', activity.garmin_activity_id)
-        .order('sample_index', { ascending: true })
-        .limit(2000),
+      fetchAllActivitySamples(supabase, {
+        userId,
+        garminActivityId: activity.garmin_activity_id,
+      }),
       supabase.from('athlete_profiles').select('fc_max_bpm').eq('user_id', userId).maybeSingle(),
       supabase
         .from('planned_sessions')
@@ -191,11 +186,11 @@ async function ActivityDetailBody({
         .eq('user_id', userId)
         .eq('activity_id', activity.id)
         .maybeSingle(),
-    ])
+    ]
+  )
 
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
-  const samples: ActivitySample[] = samplesRes.data ?? []
   const gpsSampleCount = samples.filter(
     (s) => typeof s.latitude === 'number' && typeof s.longitude === 'number'
   ).length
