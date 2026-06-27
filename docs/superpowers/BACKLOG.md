@@ -46,7 +46,9 @@ compréhensibles pour un athlète non expert.
 
 - **E14.1 P1 — Graphiques pro** : profil d'altitude, FC dans le temps, allure/vitesse,
   puissance, cadence, zones, splits/tours, distribution d'effort — lisibles, soignés,
-  interactifs. S'appuyer sur `activity_samples`.
+  interactifs. S'appuyer sur `activity_samples`. ⚠ **Régression lisibilité connue
+  (retour owner 2026-06-27)** : les courbes d'activité partagent un axe Y unique → la FC
+  s'écrase en quasi-ligne plate (voir détail § « Graphiques pro et carte d'activité »).
 - **E14.2 P1 — Carte d'activité** : afficher le tracé GPS dans `/history/[id]` avec
   dénivelé et survol corrélé FC/allure. Recoupe E9.5 et la spec E8a.
   Livrable B livré : vignettes SVG dans l'historique, trace colorée par métrique (FC/vitesse/altitude) sur le détail, heatmap globale sur /stats.
@@ -346,6 +348,31 @@ Spec et critères d'acceptation :
 - Suite : enrichir ces garde-fous avec une analyse de progression hebdomadaire par
   discipline, en particulier pour limiter les hausses trop rapides en course à pied.
 
+### P1 — Carte « Dernière activité » de /today : cliquable + micro-verdict coach (retour owner 2026-06-27)
+
+- **Problème** : sur `/today`, la carte « Dernière activité » (`ActivityRow` dans
+  `app/(app)/_components/activity-row.tsx`, rendue par `app/(app)/today/page.tsx`) est une
+  info statique. Elle a un effet `hover:bg-accent/30` trompeur mais **n'est pas cliquable**
+  et ne donne aucune lecture coach — elle n'apporte aujourd'hui qu'un récap brut
+  (sport, date, durée·distance·TSS).
+- **Plus-value retenue (owner) — cliquable + micro-verdict coach** :
+  1. **Cliquable** : la carte devient un lien vers la fiche détaillée existante
+     `/history/[id]` (analyse coach, courbes, comparaison prévu/réalisé), avec une
+     affordance claire (chevron, focus clavier, `role`/`aria` corrects). Pas de nouvelle
+     vue à créer — la fiche est déjà riche.
+  2. **Micro-verdict coach inline** : afficher un retour rapide sur la carte (badge +
+     phrase courte type « ✅ Bien exécuté — charge ok », « ⚠ Un peu long », « dérive
+     cardio »), en **réutilisant la logique déjà calculée** (`last_session_feedback` du
+     briefing et/ou `lib/coach/activity-analysis.ts`) plutôt que de recalculer.
+- **À cadrer à l'implémentation** : d'où vient le verdict (réutiliser `last_session_feedback`
+  du briefing déjà chargé sur `/today` vs un calcul léger dédié), et le comportement quand
+  aucune séance n'était planifiée le même jour (verdict neutre/exécution seule, pas de
+  comparaison prévu/réalisé forcée).
+- **Critère produit** : depuis `/today`, l'utilisateur comprend en un coup d'œil si sa
+  dernière activité s'est bien passée, et accède à la fiche complète en un clic.
+- **Garde-fou coach** : le micro-verdict reste prudent (jamais un diagnostic), cohérent
+  avec les garde-fous E9 (charge externe + interne + ressenti, pas de métrique isolée).
+
 ### P1 — Garde-fous santé/performance
 
 - Détecter les progressions hebdo trop rapides, en particulier en course à pied.
@@ -430,6 +457,61 @@ Critère : plus aucune migration oubliée ; l'application du schéma est standar
 - Suite éventuelle : skeletons par section pour `/plan` et `/history` (listes) si besoin,
   empreinte de fraîcheur pour invalider finement.
 
+### EPIC E16 — Chargement et rendu progressif des pages (sujet transversal) (owner 2026-06-27)
+
+**Priorité : P1 — Statut : V1 partielle, audit ci-dessous**
+
+Sujet dédié au-dessus de l'item « Skeleton & rendu progressif » : poser un **standard de
+chargement** appliqué à **toutes** les pages — afficher la coquille de page immédiatement,
+puis chaque section dès que sa donnée est prête, avec un skeleton pour ce qui n'est pas
+encore là. Objectif : la page apparaît tout de suite, jamais d'écran blanc bloqué sur la
+requête la plus lente.
+
+**Standard cible** :
+- Distinguer deux mécanismes : `loading.tsx` (skeleton pendant la **navigation** vers la
+  route) vs `<Suspense>` intra-page (**rendu progressif** : shell + données rapides affichés
+  pendant que les sections lentes streament). Le « afficher dès que dispo » repose sur le
+  second.
+- Toute page avec une dépendance lente (appel worker, agrégat) doit isoler cette section
+  dans un `<Suspense>` avec fallback skeleton, et ne jamais bloquer le reste de la page
+  dessus.
+- Chaque route a un `loading.tsx` cohérent avec sa structure réelle (pas un spinner
+  générique).
+
+**Audit de l'existant (statique, 2026-06-27 — comptage Suspense/await, pas une mesure
+runtime)** :
+- ✅ **Rendu progressif en place** (Suspense intra-page) : `/today` (briefing), `/stats`
+  (corps cockpit), `/profile` (discipline-levels worker ~15 s), `/history/[id]` (analyse +
+  samples). Ce sont les pages à dépendance worker lente — le streaming y est justifié et fait.
+- ⚠️ **Pages bloquantes** : `/plan` et `/history` (listes) `await` toutes leurs données
+  avant de rendre (0 `<Suspense>`). Enjeu **modéré** car ce ne sont que des requêtes
+  Supabase rapides, mais à uniformiser pour la cohérence et la robustesse si les listes
+  grossissent. (C'est la « suite éventuelle » de l'item Skeleton ci-dessus.)
+- ⚠️ **`/onboarding`** : bloquant **et** sans `loading.tsx` — à doter au moins d'un
+  `loading.tsx`.
+- ✅ `/profile/garmin` : client component avec `loading.tsx`, OK.
+- 🔴 **Coût auth redondant (transversal, prioritaire)** : `app/(app)/layout.tsx` fait déjà
+  `supabase.auth.getUser()`, puis **chaque page rappelle `requireOnboarded()`
+  (`lib/onboarding/guard.ts`) qui refait `auth.getUser()` + une requête `athlete_profiles`**.
+  Résultat : ≥2 allers-retours auth en série **avant** que le moindre streaming démarre, sur
+  toutes les pages protégées. C'est le plafond de latence partagé le plus impactant. Piste :
+  mémoïser/partager le résultat auth (React `cache()`), ou remonter la garde onboarding dans
+  le layout, pour ne payer l'auth qu'une fois par requête.
+
+**Actions** :
+- E16.1 P1 — Supprimer le double appel auth (layout + `requireOnboarded`) via `cache()` ou
+  garde unique au layout. Gain transversal sur le TTFB de toutes les pages.
+- E16.2 P2 — Passer `/plan` et `/history` en sections `<Suspense>` + skeletons dédiés.
+- E16.3 P2 — Ajouter un `loading.tsx` à `/onboarding`.
+- E16.4 P2 — Empreinte de fraîcheur des données pour invalider finement (déjà listé comme
+  suite de l'item Skeleton et du cache briefing).
+- E16.5 P2 — (Optionnel) mesurer réellement (Lighthouse/Speed Insights) le TTFB et le LCP
+  par page pour prioriser sur des chiffres plutôt qu'un audit statique.
+
+**Critère produit** : chaque page protégée affiche sa coquille quasi immédiatement, chaque
+bloc apparaît dès que sa donnée est prête, et aucune page n'attend sa requête la plus lente
+pour montrer quoi que ce soit.
+
 ### P0 — Identité numérique et style graphique coach
 
 - Définir une identité visuelle stable : personnalité de marque, ton éditorial,
@@ -458,6 +540,84 @@ Critère : plus aucune migration oubliée ; l'application du schéma est standar
 - Lien : recoupe E9.5 (analyse avancée d'activité) et la spec E8a parcours géolocalisés.
 - Critère produit : un athlète habitué à Garmin/Strava doit trouver les graphes au
   moins aussi clairs et complets.
+- **P1 — Lisibilité des « Courbes d'activité » : axe Y unique → courbes écrasées
+  (retour owner 2026-06-27)** :
+  - **Problème** : dans `app/(app)/_components/charts/activity-samples-chart.tsx`, les 5
+    métriques (FC, altitude, puissance, cadence, allure) sont tracées sur **un seul axe Y
+    partagé**. Comme leurs échelles sont incompatibles (FC ~120-180 bpm, altitude des
+    centaines de m, puissance 0-400 W…), l'axe s'étire sur la plus grande amplitude et les
+    métriques à faible plage — la FC en particulier — apparaissent comme un trait quasi
+    plat, illisible.
+  - **Intention owner** : un rendu **type Strava** où l'on lit **les vraies valeurs** de
+    chaque métrique (pas seulement les fluctuations relatives). L'owner a évoqué la
+    « normalisation », mais une normalisation 0-100 % pure va à l'encontre de cet objectif
+    (elle aplatit tout sur une échelle abstraite et masque les unités sur l'axe).
+  - **Solution recommandée — panneaux empilés synchronisés** : un mini-graphe par métrique,
+    empilés verticalement, alignés sur le même axe X (temps/distance), chacun avec son
+    propre axe Y aux unités réelles, et un curseur/tooltip partagé qui affiche toutes les
+    valeurs à l'abscisse survolée. C'est exactement le comportement Strava et il satisfait
+    « rendu Strava + lecture des valeurs réelles ».
+  - **Repli léger acceptable** : multi-axes Y (un `yAxisId` recharts par métrique) sur un
+    graphe superposé, avec un sélecteur des métriques affichées pour éviter la surcharge
+    d'axes. Conserve les valeurs réelles mais reste moins lisible à 4-5 séries.
+  - **À ne pas faire seul** : normalisation 0-100 % sur axe commun — perd les valeurs à la
+    lecture directe (ne répond pas à l'intention owner). Tolérable uniquement comme mode
+    de comparaison de formes en plus des panneaux, jamais en remplacement.
+  - **Critère d'acceptation** : sur une activité avec FC + altitude + puissance, chaque
+    courbe est lisible avec sa propre amplitude, la FC n'est plus un trait plat, et
+    l'utilisateur peut lire la valeur réelle de chaque métrique à un instant donné.
+- **P1 — Vitesse/allure natation dans la courbe d'activité piscine (retour owner 2026-06-27)** :
+  - **Problème** : `app/(app)/_components/charts/activity-samples-chart.tsx` convertit
+    systématiquement `speed_m_s` en **allure min/km** (label « Allure min/km »), une unité
+    inadaptée à la natation où la métrique standard est l'**allure min/100m**. Le composant
+    ne connaît pas le sport de l'activité, donc la piscine n'a pas de courbe de vitesse
+    lisible.
+  - **Donnée déjà disponible** : `speed_m_s` est extrait côté worker
+    (`worker/src/garmin_sync/transformers/activities.py`, `_SPEED_KEYS`) et stocké dans
+    `activity_samples` — donc présent dès que Garmin le fournit pour la natation. Rien à
+    ajouter côté ingestion ; c'est un travail de rendu.
+  - **Solution** : passer le `sport` de l'activité à `ActivitySamplesChart` et adapter la
+    série vitesse selon le sport — pour la natation, afficher l'**allure min/100m** (ou la
+    vitesse) avec le bon label et la bonne échelle, **uniquement si `speed_m_s` est présent**
+    (« si disponible » = courbe masquée sinon, pas de série vide ni absurde).
+  - **À cadrer** : unité natation à retenir — **allure min/100m** (convention nageur,
+    recommandée) vs vitesse km/h ; l'owner a parlé de « vitesse », à confirmer au moment de
+    l'implémentation.
+  - **Lien** : recoupe l'item « Lisibilité des courbes d'activité » ci-dessus (E14.1) — la
+    série natation aurait son propre panneau/axe dans la refonte multi-échelles. **Désormais
+    couvert par l'item « Convention d'unités vitesse/allure par discipline » ci-dessous**
+    (natation = min/100m), à traiter via le helper central plutôt qu'en local.
+  - **Critère** : sur une activité piscine avec données de vitesse, l'utilisateur voit une
+    courbe d'allure/vitesse dans une unité pertinente pour la natation ; aucune courbe
+    trompeuse quand la donnée manque.
+
+### P1 — Convention d'unités vitesse/allure par discipline (Strava-like) (retour owner 2026-06-27)
+
+- **Demande owner** : normaliser l'affichage de la vitesse/allure selon la discipline,
+  comme sur Strava (unités auxquelles la plupart des athlètes sont habitués) :
+  - **Vélo → km/h**
+  - **Course à pied → min/km** (allure)
+  - **Natation → min/100m** (allure)
+- **Problème actuel** : pas de helper central (rien dans `lib/dashboard/format.ts`), chaque
+  surface reformate seule et de façon incohérente. Cas concret signalé : les **plans
+  d'entraînement** affichent les cibles de course en **km/h** (`lib/coach/session-templates.ts`
+  `fmtTarget`, ligne ~53-54 : `${t.pace_low_kmh} km/h`), peu lisible pour un coureur qui
+  raisonne en min/km. La courbe d'activité (`activity-samples-chart.tsx`) convertit aussi
+  `speed_m_s` en min/km sans tenir compte du sport.
+- **Solution** : créer un formateur centralisé du type `formatPaceForSport(sport, speed_m_s)`
+  / `formatTargetForSport(...)` dans `lib/dashboard/format.ts`, appliquant la convention
+  ci-dessus, et le **réutiliser partout** : courbes d'activité, fiche `/history/[id]`,
+  cartes de séance / plans (`session-card.tsx`, `session-templates.ts`), briefing, stats.
+- **À cadrer côté données** : le modèle `IntervalTarget` stocke `pace_low_kmh`/`pace_high_kmh`
+  (km/h) — la conversion en min/km et min/100m est un travail d'affichage. Vérifier aussi le
+  rendu markdown côté worker (génération séances E5, `format_explanation_md` et templates) pour
+  que les plans soient cohérents quel que soit le point de génération (front vs worker).
+- **Priorité au sein de l'item** : le sous-cas **plans d'entraînement** (course en min/km,
+  natation en min/100m) est le plus irritant et devrait être traité en premier.
+- **Lien** : englobe l'item « Vitesse/allure natation dans la courbe d'activité piscine »
+  ci-dessus et recoupe « Lisibilité des courbes d'activité » (E14.1).
+- **Critère produit** : un athlète habitué à Strava retrouve partout ses unités familières
+  (km/h vélo, min/km course, min/100m natation), y compris dans les séances du plan.
 
 ### P1 — Pédagogie des métriques (bulles explicatives) (E14.3)
 
