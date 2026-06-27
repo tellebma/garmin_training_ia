@@ -63,6 +63,7 @@ export function routeToSvgPath(points: LngLat[], opts: SvgPathOpts): string | nu
   })
 
   const [first, ...rest] = coords
+  if (!first) return null
   return (
     `M${String(first[0])} ${String(first[1])}` +
     rest.map(([x, y]) => `L${String(x)} ${String(y)}`).join('')
