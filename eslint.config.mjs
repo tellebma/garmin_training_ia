@@ -83,6 +83,7 @@ export default [
   {
     ignores: [
       '.next/**',
+      '.claude/**', // Claude Code session data (worktrees, generated files)
       'node_modules/**',
       'coverage/**',
       'public/**',
