@@ -192,7 +192,12 @@ def _score_hrv(today_hrv: dict[str, Any] | None, weekly_avg: float | None) -> li
     return factors
 
 
-def _score_sleep(sleep_row: dict[str, Any] | None) -> list[ReadinessFactor]:
+def _score_sleep(
+    sleep_row: dict[str, Any] | None,
+    *,
+    duration_baseline: float | None = None,
+    score_baseline: float | None = None,
+) -> list[ReadinessFactor]:
     if not sleep_row:
         return [ReadinessFactor("sleep_missing", 0, "Pas de données de sommeil hier.")]
 
@@ -201,12 +206,38 @@ def _score_sleep(sleep_row: dict[str, Any] | None) -> list[ReadinessFactor]:
     score = sleep_row.get("sleep_score") or 0
     hours = duration_s / 3600
 
-    if 0 < hours < 6:
-        factors.append(ReadinessFactor("sleep_very_short", -15, f"Sommeil court ({hours:.1f}h)."))
-    elif 6 <= hours < 7:
-        factors.append(ReadinessFactor("sleep_short", -5, f"Sommeil léger ({hours:.1f}h)."))
+    if duration_baseline and duration_baseline > 0:
+        base_h = duration_baseline / 3600
+        if 0 < duration_s < duration_baseline * 0.85:
+            factors.append(
+                ReadinessFactor(
+                    "sleep_very_short", -15, f"Sommeil court ({hours:.1f}h vs ligne {base_h:.1f}h)."
+                )
+            )
+        elif duration_baseline * 0.85 <= duration_s < duration_baseline * 0.95:
+            factors.append(
+                ReadinessFactor(
+                    "sleep_short", -5, f"Sommeil léger ({hours:.1f}h vs ligne {base_h:.1f}h)."
+                )
+            )
+    else:
+        if 0 < hours < 6:
+            factors.append(
+                ReadinessFactor("sleep_very_short", -15, f"Sommeil court ({hours:.1f}h).")
+            )
+        elif 6 <= hours < 7:
+            factors.append(ReadinessFactor("sleep_short", -5, f"Sommeil léger ({hours:.1f}h)."))
 
-    if 0 < score < 50:
+    if score_baseline and score_baseline > 0:
+        if 0 < score < score_baseline * 0.85:
+            factors.append(
+                ReadinessFactor(
+                    "sleep_low_score",
+                    -10,
+                    f"Score sommeil bas ({score} vs ligne {score_baseline:.0f}).",
+                )
+            )
+    elif 0 < score < 50:
         factors.append(ReadinessFactor("sleep_low_score", -10, f"Score sommeil bas ({score})."))
 
     if hours >= 8 and score >= 80:
@@ -246,8 +277,21 @@ def _score_tsb(tsb: float | None) -> list[ReadinessFactor]:
     return []
 
 
-def _score_body_battery(daily: dict[str, Any] | None) -> list[ReadinessFactor]:
+def _score_body_battery(
+    daily: dict[str, Any] | None, *, baseline: float | None = None
+) -> list[ReadinessFactor]:
     if not daily:
+        return []
+    if baseline and baseline > 0:
+        high = daily.get("body_battery_high")
+        if high is not None and high < baseline * 0.75:
+            return [
+                ReadinessFactor(
+                    "body_battery_low",
+                    -10,
+                    f"Body Battery sous ta moyenne ({high} vs ligne {baseline:.0f}).",
+                )
+            ]
         return []
     bb = daily.get("body_battery_low")
     if bb is not None and bb < 30:
@@ -638,7 +682,7 @@ def _load_daily_metrics(db: Any, user_id: str, today: date) -> dict[str, Any] | 
     yesterday = today - timedelta(days=1)
     resp = (
         db.table("daily_metrics")
-        .select("resting_hr, body_battery_low, stress_avg")
+        .select("resting_hr, body_battery_low, body_battery_high, stress_avg")
         .eq("user_id", user_id)
         .eq("date", yesterday.isoformat())
         .maybe_single()
@@ -778,6 +822,18 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
         if val is not None:
             stress_baseline = float(val)
 
+    sleep_meta = (rb or {}).get("sleep") or {}
+    sleep_duration_baseline: float | None = None
+    sleep_score_baseline: float | None = None
+    if isinstance(sleep_meta, dict) and sleep_meta.get("confidence") in {"high", "medium"}:
+        sleep_duration_baseline = sleep_meta.get("duration_baseline_s")
+        sleep_score_baseline = sleep_meta.get("score_baseline")
+
+    bb_meta = (rb or {}).get("body_battery") or {}
+    bb_baseline: float | None = None
+    if isinstance(bb_meta, dict) and bb_meta.get("confidence") in {"high", "medium"}:
+        bb_baseline = bb_meta.get("baseline")
+
     tsb = _load_tsb(db, user_id, today)
     planned = _load_planned_session(db, user_id, today)
     recent_activities = _load_recent_activities(db, user_id, today)
@@ -800,11 +856,17 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
 
     factors: list[ReadinessFactor] = []
     factors.extend(_score_hrv(hrv, weekly_avg))
-    factors.extend(_score_sleep(sleep_row))
+    factors.extend(
+        _score_sleep(
+            sleep_row,
+            duration_baseline=sleep_duration_baseline,
+            score_baseline=sleep_score_baseline,
+        )
+    )
     factors.extend(_score_resting_hr(daily, rh_baseline))
     factors.extend(_score_stress(daily, stress_baseline))
     factors.extend(_score_tsb(tsb))
-    factors.extend(_score_body_battery(daily))
+    factors.extend(_score_body_battery(daily, baseline=bb_baseline))
     factors.extend(_activity_review_factors(activity_review))
     factors.extend(_session_feedback_factor(session_feedback))
     factors.extend(_hard_session_guardrail_factors(planned, factors))

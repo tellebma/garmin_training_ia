@@ -663,6 +663,53 @@ def test_compute_briefing_stress_high_against_baseline(mock_db_fn):
     assert b.readiness_score < BASELINE_SCORE
 
 
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_sleep_below_personal_baseline(mock_db_fn):
+    rb = _recovery_row(
+        sleep={
+            "baseline": 80.0,
+            "recent": 60.0,
+            "trend": "declining",
+            "confidence": "high",
+            "freshness": "fresh",
+            "days_covered": 28,
+            "last_date": "2026-05-19",
+            "duration_baseline_s": 28800,
+            "score_baseline": 85,
+        }
+    )
+    db = _mock_db_with(
+        sleep={"sleep_duration_s": 5 * 3600, "sleep_score": 70},
+        daily={"resting_hr": 50, "body_battery_low": 60},
+        recovery_baselines=rb,
+    )
+    mock_db_fn.return_value = db
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+    assert b.readiness_score < BASELINE_SCORE
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_body_battery_below_personal_baseline(mock_db_fn):
+    rb = _recovery_row(
+        body_battery={
+            "baseline": 90.0,
+            "recent": 60.0,
+            "trend": "declining",
+            "confidence": "high",
+            "freshness": "fresh",
+            "days_covered": 28,
+            "last_date": "2026-05-19",
+        }
+    )
+    db = _mock_db_with(
+        daily={"resting_hr": 50, "body_battery_low": 60, "body_battery_high": 60},
+        recovery_baselines=rb,
+    )
+    mock_db_fn.return_value = db
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+    assert b.readiness_score < BASELINE_SCORE
+
+
 @patch("garmin_sync.coach.briefing.compute_briefing")
 @patch("garmin_sync.coach.briefing.get_admin_client")
 def test_compute_and_cache_daily_briefing_upserts_payload(mock_db_fn, mock_compute):
