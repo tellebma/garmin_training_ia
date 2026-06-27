@@ -65,4 +65,23 @@ describe('RoutesHeatmap', () => {
     render(<RoutesHeatmap polylines={[[], null]} />)
     expect(mocks.MapConstructor).not.toHaveBeenCalled()
   })
+
+  it('calls map.remove() when the component unmounts (cleanup)', () => {
+    // Use polylines with real points so a map instance is created.
+    const { unmount } = render(
+      <RoutesHeatmap
+        polylines={[
+          [
+            [4.0, 45.0],
+            [4.1, 45.1],
+          ],
+        ]}
+      />
+    )
+    // Grab the remove mock from the last constructed Map instance.
+    const instance = mocks.MapConstructor.mock.instances[0] as { remove: ReturnType<typeof vi.fn> }
+    expect(instance.remove).not.toHaveBeenCalled()
+    unmount()
+    expect(instance.remove).toHaveBeenCalledTimes(1)
+  })
 })
