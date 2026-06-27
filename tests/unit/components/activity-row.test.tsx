@@ -30,18 +30,20 @@ describe('ActivityRow route thumbnail', () => {
         }}
       />
     )
-    expect(container.querySelector('svg path')).not.toBeNull()
+    // The decorative thumbnail SVG is identified by its 100x100 viewBox
+    // (the Lucide sport icon uses a 24x24 viewBox).
+    expect(container.querySelector('svg[viewBox="0 0 100 100"]')).not.toBeNull()
   })
 
   it('renders no thumbnail when route_polyline is the empty sentinel', () => {
     const { container } = render(<ActivityRow activity={{ ...base, route_polyline: [] }} />)
-    expect(container.querySelector('svg[aria-label="Aperçu du parcours"]')).toBeNull()
+    expect(container.querySelector('svg[viewBox="0 0 100 100"]')).toBeNull()
   })
 
   it('always renders the sport icon when route_polyline is the empty-array sentinel', () => {
     const { container } = render(<ActivityRow activity={{ ...base, route_polyline: [] }} />)
     expect(container.querySelector('[aria-label]')).not.toBeNull()
-    expect(container.querySelector('svg[aria-label="Aperçu du parcours"]')).toBeNull()
+    expect(container.querySelector('svg[viewBox="0 0 100 100"]')).toBeNull()
   })
 
   it('always renders the sport icon when route_polyline is absent', () => {

@@ -16,8 +16,8 @@ export function RouteThumbnail({ polyline, size = 100, className }: RouteThumbna
     <svg
       viewBox={route.viewBox}
       className={cn('text-primary', className)}
-      role="img"
-      aria-label="Aperçu du parcours"
+      aria-hidden="true"
+      focusable="false"
       fill="none"
     >
       <path
