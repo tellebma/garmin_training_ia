@@ -29,6 +29,19 @@ log = logging.getLogger(__name__)
 INITIAL_BACKFILL_DAYS = 90
 
 
+def _run_post_sync_recomputes(user_id: str) -> None:
+    try:
+        recompute_daily_state(user_id, days_back=180)
+    except Exception:
+        log.exception("recompute_daily_state failed for user=%s", user_id)
+    try:
+        from garmin_sync.coach.recovery_baselines import recompute_recovery_baselines
+
+        recompute_recovery_baselines(user_id)
+    except Exception:
+        log.exception("recompute_recovery_baselines failed for user=%s", user_id)
+
+
 def run_sync_for_user(
     user_id: str, *, initial: bool = False, mode: SyncMode = SYNC_MODE_FULL
 ) -> dict[str, Any]:
@@ -127,16 +140,7 @@ def run_sync_for_user(
 
     # E7 — Materialize Banister state for fast frontend reads.
     # Wrapped in try/except : a failure here MUST NOT abort the sync.
-    try:
-        recompute_daily_state(user_id, days_back=180)
-    except Exception:
-        log.exception("recompute_daily_state failed for user=%s", user_id)
-    try:
-        from garmin_sync.coach.recovery_baselines import recompute_recovery_baselines
-
-        recompute_recovery_baselines(user_id)
-    except Exception:
-        log.exception("recompute_recovery_baselines failed for user=%s", user_id)
+    _run_post_sync_recomputes(user_id)
 
     return {"status": "ok", "days_synced": (today - start).days + 1}
 

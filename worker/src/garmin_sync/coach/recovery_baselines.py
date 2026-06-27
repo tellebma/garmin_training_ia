@@ -15,6 +15,8 @@ from typing import Any, Literal, TypedDict, cast
 
 from garmin_sync.supabase_client import get_admin_client
 
+DbRows = list[dict[str, Any]]
+
 WINDOW_DAYS = 28
 RECENT_DAYS = 7
 STABLE_THRESHOLD = 0.05
@@ -117,7 +119,7 @@ def compute_sleep_baseline(
     today: date,
 ) -> SleepBaseline:
     """Combine duration + score into one trend, keep raw baselines for display."""
-    score_by_date = {d: s for d, s in score_samples}
+    score_by_date = dict(score_samples)
     index_samples = [
         (d, _sleep_index(dur, score_by_date[d]))
         for d, dur in duration_samples
@@ -165,7 +167,7 @@ def recompute_recovery_baselines(user_id: str) -> None:
         start = (today - timedelta(days=WINDOW_DAYS)).isoformat()
 
         hrv_rows = cast(
-            "list[dict[str, Any]]",
+            DbRows,
             db.table("hrv")
             .select("date, hrv_rmssd")
             .eq("user_id", user_id)
@@ -175,7 +177,7 @@ def recompute_recovery_baselines(user_id: str) -> None:
             or [],
         )
         sleep_rows = cast(
-            "list[dict[str, Any]]",
+            DbRows,
             db.table("sleep")
             .select("date, sleep_duration_s, sleep_score")
             .eq("user_id", user_id)
@@ -185,7 +187,7 @@ def recompute_recovery_baselines(user_id: str) -> None:
             or [],
         )
         daily_rows = cast(
-            "list[dict[str, Any]]",
+            DbRows,
             db.table("daily_metrics")
             .select("date, resting_hr, stress_avg, body_battery_high")
             .eq("user_id", user_id)
