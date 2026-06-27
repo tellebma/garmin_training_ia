@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest'
 const addSource = vi.fn()
 const addLayer = vi.fn()
 const fitBounds = vi.fn()
+const isStyleLoaded = vi.fn(() => true)
+const getLayer = vi.fn((_id: string) => ({ id: 'route-line' }))
+const setPaintProperty = vi.fn()
 const on = vi.fn((event: string, cb: () => void) => {
   if (event === 'load') cb()
 })
@@ -16,6 +19,9 @@ vi.mock('maplibre-gl', () => ({
       this.addSource = addSource
       this.addLayer = addLayer
       this.fitBounds = fitBounds
+      this.isStyleLoaded = isStyleLoaded
+      this.getLayer = getLayer
+      this.setPaintProperty = setPaintProperty
       this.remove = vi.fn()
     }),
   },
@@ -46,12 +52,16 @@ describe('ActivityRouteMap', () => {
     expect(addSource).toHaveBeenCalledWith('route', expect.anything())
     expect(addLayer).toHaveBeenCalled()
     expect(fitBounds).toHaveBeenCalled()
+    expect(setPaintProperty).toHaveBeenCalledWith('route-line', 'line-gradient', expect.anything())
   })
 
   it('does not call addSource when all GPS samples are null', () => {
     addSource.mockClear()
     addLayer.mockClear()
     fitBounds.mockClear()
+    isStyleLoaded.mockClear()
+    getLayer.mockClear()
+    setPaintProperty.mockClear()
 
     render(<ActivityRouteMap samples={[sample(null, null), sample(null, null)]} />)
     expect(addSource).not.toHaveBeenCalled()
