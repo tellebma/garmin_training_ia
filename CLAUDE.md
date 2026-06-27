@@ -126,18 +126,29 @@ Conventional Commits stricts (`feat:`, `fix:`, `docs:`, `ci:`, `build:`, `chore:
 Le board GitHub Projects est le **tableau de bord vivant** du projet :
 **« Garmin Training Coach — Backlog » (#4)** → https://github.com/users/tellebma/projects/4
 (aussi listé sous https://github.com/tellebma/garmin_training_ia/projects, le board y est lié).
-Champs : `Status` (Todo / In Progress / Done) + `Priorité` (P0 / P1 / P2).
 `docs/superpowers/BACKLOG.md` reste la source de vérité détaillée (specs, critères, statut
 « V1 livrée ») ; le Project en est la vue synthétique et navigable.
 
+**Champs du board** :
+
+- `Status` (workflow) : **Backlog** (idée / post-MVP non priorisé) → **Todo** (priorisé,
+  prêt à prendre) → **In Progress** → **In Review** (PR ouverte) → **Done**, plus
+  **Won't do** (abandonné, ex E17.2).
+- `Priorité` : **P0** / **P1** / **P2**.
+- `EPIC` : E9, E13, E14, E15, E16, E17, Coaching, Plateforme, Post-MVP (pour grouper/filtrer).
+
+Convention : un item « V1 livrée » reste en *Done* ; le reste-à-faire explicite (« Suite … »
+dans `BACKLOG.md`) devient un item *Todo* distinct.
+
 **Règle** : pour **chaque tâche** travaillée, tenir le Project à jour en temps réel :
 
-- À la **prise** d'une tâche : déplacer l'item correspondant en *In progress* (le créer s'il
-  manque, en reprenant titre + EPIC/priorité depuis `BACKLOG.md`).
-- À l'**ouverture de PR** : lier la PR à l'item (statut *In review*).
-- Au **merge** : passer l'item en *Done* et mettre à jour le statut dans `BACKLOG.md`
-  (« V1 livrée » + n° de PR), pour garder les deux cohérents.
-- Toute **nouvelle demande** ajoutée à `BACKLOG.md` doit aussi créer un item dans le Project.
+- À la **prise** d'une tâche : déplacer l'item correspondant en *In Progress* (le créer s'il
+  manque, en reprenant titre + EPIC + Priorité depuis `BACKLOG.md`).
+- À l'**ouverture de PR** : lier la PR à l'item et passer en *In Review*.
+- Au **merge** : passer l'item en *Done*, créer un item *Todo* pour toute « Suite », et mettre
+  à jour `BACKLOG.md` (« V1 livrée » + n° de PR), pour garder les deux cohérents.
+- Toute **nouvelle demande** ajoutée à `BACKLOG.md` doit aussi créer un item dans le Project
+  (avec Status / Priorité / EPIC).
 
 Objectif : un suivi lisible et fiable d'un coup d'œil sur GitHub. Garder Project et
 `BACKLOG.md` synchronisés ; ne jamais faire avancer une tâche sans refléter son état sur le
