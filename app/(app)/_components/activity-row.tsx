@@ -2,6 +2,7 @@
 import { Activity as ActivityIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SPORT_ICON, SPORT_LABEL } from './sport-icon'
+import { RouteThumbnail } from './maps/route-thumbnail'
 import {
   formatDistanceFromMeters,
   formatDuration,
@@ -33,6 +34,9 @@ export function ActivityRow({ activity, className }: Readonly<ActivityRowProps>)
       )}
     >
       <Icon size={20} className="text-muted-foreground shrink-0" aria-label={label} />
+      {Array.isArray(activity.route_polyline) && activity.route_polyline.length > 0 ? (
+        <RouteThumbnail polyline={activity.route_polyline} className="h-8 w-8 shrink-0" />
+      ) : null}
       <div className="min-w-0 flex-1">
         <p className="text-foreground truncate text-sm font-medium">{label}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">

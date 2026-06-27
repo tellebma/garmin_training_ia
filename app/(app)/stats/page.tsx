@@ -16,6 +16,7 @@ import {
   type CoachSignalTone,
 } from '@/lib/dashboard/performance-cockpit'
 import { cn } from '@/lib/utils'
+import { RoutesHeatmapLazy } from '../_components/maps/routes-heatmap-lazy'
 import type {
   ActivityFeedbackDto,
   ActivityRowDto,
@@ -141,6 +142,15 @@ async function CockpitBody({
         .order('date', { ascending: true }),
     ]
   )
+
+  const { data: routeRows } = await supabase
+    .from('activities')
+    .select('route_polyline')
+    .eq('user_id', userId)
+    .not('route_polyline', 'is', null)
+
+  const polylines = (routeRows ?? []).map((r): unknown => r.route_polyline)
+  const hasGpsPoints = polylines.some((p) => Array.isArray(p) && p.length > 0)
 
   const banister = (banisterRes.data ?? []) as BanisterPoint[]
   const activities = (activitiesRes.data ?? []) as ActivityRowDto[]
@@ -333,6 +343,12 @@ async function CockpitBody({
           </ChartCard>
         </div>
       </section>
+
+      {hasGpsPoints && (
+        <ChartCard title="Où je m'entraîne" description="Carte de chaleur de tes parcours GPS">
+          <RoutesHeatmapLazy polylines={polylines} />
+        </ChartCard>
+      )}
     </>
   )
 }
