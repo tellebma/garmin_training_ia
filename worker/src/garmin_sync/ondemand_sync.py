@@ -66,9 +66,14 @@ def run_ondemand_sync(user_id: str, trigger: str) -> dict[str, Any]:
     claim = try_claim_sync(user_id, window)
     outcome = claim["outcome"]
     if outcome == "cooldown":
-        return {"status": "cooldown", "retry_after_seconds": claim["retry_after_seconds"]}
+        return {"status": "cooldown", "retry_after_seconds": claim.get("retry_after_seconds", 0)}
     if outcome == "no_credentials":
         return {"status": "no_credentials"}
 
-    _start_sync_thread(user_id)
-    return {"status": "started"}
+    if outcome == "claimed":
+        _start_sync_thread(user_id)
+        return {"status": "started"}
+
+    # Unknown outcome — should not happen (try_claim_sync normalizes), fail safe.
+    log.warning("unexpected claim outcome %r for user=%s", outcome, user_id)
+    return {"status": "no_credentials"}

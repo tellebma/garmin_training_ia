@@ -107,3 +107,21 @@ def test_run_ondemand_sync_started_uses_auto_window(monkeypatch: pytest.MonkeyPa
     assert result == {"status": "started"}
     assert seen["window"] == 1800
     assert started == ["user-7"]
+
+
+def test_run_ondemand_sync_started_uses_manual_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, int] = {}
+
+    def _claim(user_id: str, window: int) -> dict[str, Any]:
+        seen["window"] = window
+        return {"outcome": "claimed"}
+
+    monkeypatch.setattr(mod, "try_claim_sync", _claim)
+    started: list[str] = []
+    monkeypatch.setattr(mod, "_start_sync_thread", lambda uid: started.append(uid))
+
+    result = mod.run_ondemand_sync("user-9", "manual")
+
+    assert result == {"status": "started"}
+    assert seen["window"] == 300
+    assert started == ["user-9"]

@@ -52,6 +52,7 @@ describe('SyncNowButton', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/déjà à jour/i)).toBeTruthy()
+      expect(screen.getByText(/3 min/i)).toBeTruthy()
     })
   })
 })

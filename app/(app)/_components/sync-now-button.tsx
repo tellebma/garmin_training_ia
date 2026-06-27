@@ -24,7 +24,8 @@ export function SyncNowButton() {
       if (result.status === 'started') {
         setFeedback({ kind: 'info', text: 'Synchronisation lancée' })
       } else if (result.status === 'cooldown') {
-        setFeedback({ kind: 'muted', text: 'Déjà à jour, réessaie dans un instant' })
+        const minutes = Math.max(1, Math.ceil(result.retry_after_seconds / 60))
+        setFeedback({ kind: 'muted', text: `Déjà à jour, réessaie dans ${String(minutes)} min` })
       } else if (result.status === 'no_credentials') {
         setFeedback({ kind: 'muted', text: 'Connecte ton compte Garmin pour synchroniser' })
       } else {
