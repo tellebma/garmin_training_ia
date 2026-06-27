@@ -49,12 +49,9 @@ export function SyncNowButton() {
         {pending ? 'Synchronisation...' : 'Synchroniser'}
       </button>
       {feedback ? (
-        <span
-          className={feedback.kind === 'info' ? 'text-sm' : 'text-muted-foreground text-sm'}
-          role="status"
-        >
+        <output className={feedback.kind === 'info' ? 'text-sm' : 'text-muted-foreground text-sm'}>
           {feedback.text}
-        </span>
+        </output>
       ) : null}
     </div>
   )
