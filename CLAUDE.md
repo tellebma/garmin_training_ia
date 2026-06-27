@@ -121,6 +121,30 @@ Conventional Commits stricts (`feat:`, `fix:`, `docs:`, `ci:`, `build:`, `chore:
 - `fix/<short-name>` pour les hot fixes
 - Toujours via PR, jamais de push direct sur main
 
+### Suivi des tâches (GitHub Projects) — OBLIGATOIRE
+
+Le board GitHub Projects est le **tableau de bord vivant** du projet :
+https://github.com/tellebma/garmin_training_ia/projects. `docs/superpowers/BACKLOG.md`
+reste la source de vérité détaillée (specs, critères, statut « V1 livrée ») ; le Project en
+est la vue synthétique et navigable.
+
+**Règle** : pour **chaque tâche** travaillée, tenir le Project à jour en temps réel :
+
+- À la **prise** d'une tâche : déplacer l'item correspondant en *In progress* (le créer s'il
+  manque, en reprenant titre + EPIC/priorité depuis `BACKLOG.md`).
+- À l'**ouverture de PR** : lier la PR à l'item (statut *In review*).
+- Au **merge** : passer l'item en *Done* et mettre à jour le statut dans `BACKLOG.md`
+  (« V1 livrée » + n° de PR), pour garder les deux cohérents.
+- Toute **nouvelle demande** ajoutée à `BACKLOG.md` doit aussi créer un item dans le Project.
+
+Objectif : un suivi lisible et fiable d'un coup d'œil sur GitHub. Garder Project et
+`BACKLOG.md` synchronisés ; ne jamais faire avancer une tâche sans refléter son état sur le
+board.
+
+> Note outillage : la mise à jour du Project (v2) nécessite un token GitHub avec le scope
+> `project` (ou `read:project` en lecture). Si le token courant ne l'a pas
+> (`gh auth refresh -s project`), basculer sur des **Issues** liées au Project en attendant.
+
 ## File map
 
 ```
