@@ -8,9 +8,12 @@ that also carries the raw duration/score baselines for display.
 
 from __future__ import annotations
 
+import logging
 import statistics
-from datetime import date, timedelta
-from typing import Literal, TypedDict
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Literal, TypedDict, cast
+
+from garmin_sync.supabase_client import get_admin_client
 
 WINDOW_DAYS = 28
 RECENT_DAYS = 7
@@ -138,3 +141,88 @@ def compute_sleep_baseline(
         score_baseline=int(score_base) if score_base is not None else None,
         score_recent=int(score_recent) if score_recent is not None else None,
     )
+
+
+log = logging.getLogger(__name__)
+
+
+def _series(rows: list[dict[str, Any]], field: str) -> list[tuple[date, float]]:
+    out: list[tuple[date, float]] = []
+    for row in rows:
+        raw_date = row.get("date")
+        value = row.get(field)
+        if raw_date is None or value is None:
+            continue
+        out.append((date.fromisoformat(str(raw_date)), float(value)))
+    return out
+
+
+def recompute_recovery_baselines(user_id: str) -> None:
+    """Recompute the 5 recovery baselines over 28d and upsert. Never raises."""
+    try:
+        db = get_admin_client()
+        today = date.today()
+        start = (today - timedelta(days=WINDOW_DAYS)).isoformat()
+
+        hrv_rows = cast(
+            "list[dict[str, Any]]",
+            db.table("hrv")
+            .select("date, hrv_rmssd")
+            .eq("user_id", user_id)
+            .gte("date", start)
+            .execute()
+            .data
+            or [],
+        )
+        sleep_rows = cast(
+            "list[dict[str, Any]]",
+            db.table("sleep")
+            .select("date, sleep_duration_s, sleep_score")
+            .eq("user_id", user_id)
+            .gte("date", start)
+            .execute()
+            .data
+            or [],
+        )
+        daily_rows = cast(
+            "list[dict[str, Any]]",
+            db.table("daily_metrics")
+            .select("date, resting_hr, stress_avg, body_battery_high")
+            .eq("user_id", user_id)
+            .gte("date", start)
+            .execute()
+            .data
+            or [],
+        )
+
+        hrv = compute_metric_baseline(
+            _series(hrv_rows, "hrv_rmssd"), today=today, higher_is_better=True
+        )
+        resting_hr = compute_metric_baseline(
+            _series(daily_rows, "resting_hr"), today=today, higher_is_better=False
+        )
+        stress = compute_metric_baseline(
+            _series(daily_rows, "stress_avg"), today=today, higher_is_better=False
+        )
+        body_battery = compute_metric_baseline(
+            _series(daily_rows, "body_battery_high"), today=today, higher_is_better=True
+        )
+        sleep = compute_sleep_baseline(
+            _series(sleep_rows, "sleep_duration_s"),
+            _series(sleep_rows, "sleep_score"),
+            today=today,
+        )
+
+        row: dict[str, Any] = {
+            "user_id": user_id,
+            "computed_at": datetime.now(UTC).isoformat(),
+            "hrv": hrv,
+            "resting_hr": resting_hr,
+            "sleep": sleep,
+            "stress": stress,
+            "body_battery": body_battery,
+            "raw_meta": {"window_days": WINDOW_DAYS},
+        }
+        db.table("recovery_baselines").upsert(row, on_conflict="user_id").execute()
+    except Exception:
+        log.exception("recompute_recovery_baselines failed for user=%s", user_id)

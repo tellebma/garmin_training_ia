@@ -131,6 +131,12 @@ def run_sync_for_user(
         recompute_daily_state(user_id, days_back=180)
     except Exception:
         log.exception("recompute_daily_state failed for user=%s", user_id)
+    try:
+        from garmin_sync.coach.recovery_baselines import recompute_recovery_baselines
+
+        recompute_recovery_baselines(user_id)
+    except Exception:
+        log.exception("recompute_recovery_baselines failed for user=%s", user_id)
 
     return {"status": "ok", "days_synced": (today - start).days + 1}
 

@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Any
 
 import garmin_sync.coach.recovery_baselines as mod
 
@@ -93,3 +94,81 @@ def test_sleep_combines_duration_and_score() -> None:
     assert b["score_baseline"] == 90
     assert b["trend"] == "stable"
     assert b["confidence"] == "medium"  # 14 days
+
+
+class _FakeQuery:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+        self.upserted: list[dict[str, Any]] | None = None
+
+    def select(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+        return self
+
+    def eq(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+        return self
+
+    def gte(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+        return self
+
+    def upsert(self, row: dict[str, Any], **_k: Any) -> "_FakeQuery":
+        self.upserted = [row]
+        return self
+
+    def execute(self) -> Any:
+        class _R:
+            data = self._rows
+
+        return _R()
+
+
+class _FakeDb:
+    def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
+        self.queries: dict[str, _FakeQuery] = {
+            name: _FakeQuery(rows) for name, rows in tables.items()
+        }
+
+    def table(self, name: str) -> _FakeQuery:
+        return self.queries.setdefault(name, _FakeQuery([]))
+
+
+def test_recompute_upserts_five_metrics(monkeypatch: "Any") -> None:
+    today = date.today()
+    days = [today - timedelta(days=i) for i in range(14)]
+    db = _FakeDb(
+        {
+            "hrv": [{"date": d.isoformat(), "hrv_rmssd": 55.0} for d in days],
+            "sleep": [
+                {"date": d.isoformat(), "sleep_duration_s": 27000, "sleep_score": 80} for d in days
+            ],
+            "daily_metrics": [
+                {
+                    "date": d.isoformat(),
+                    "resting_hr": 48,
+                    "stress_avg": 30,
+                    "body_battery_high": 85,
+                }
+                for d in days
+            ],
+            "recovery_baselines": [],
+        }
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+
+    mod.recompute_recovery_baselines("user-1")
+
+    upserted = db.queries["recovery_baselines"].upserted
+    assert upserted is not None
+    row = upserted[0]
+    assert row["user_id"] == "user-1"
+    for key in ("hrv", "resting_hr", "sleep", "stress", "body_battery"):
+        assert key in row
+        assert row[key]["confidence"] == "medium"  # 14 days
+
+
+def test_recompute_never_raises(monkeypatch: "Any") -> None:
+    def _boom() -> Any:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(mod, "get_admin_client", _boom)
+    # must not raise
+    mod.recompute_recovery_baselines("user-1")
