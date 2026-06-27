@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -420,3 +421,66 @@ def test_regenerate_session_returns_rate_limited_status(mock_jwt, mock_rl):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "rate_limited"
+
+
+def test_garmin_sync_endpoint_requires_jwt(client: ASGITestClient) -> None:
+    r = client.post("/garmin/sync?trigger=manual")
+    assert r.status_code == 401
+
+
+def test_garmin_sync_invalid_trigger(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    r = client.post("/garmin/sync?trigger=weekly", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 400
+
+
+def test_garmin_sync_cooldown(client: ASGITestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    monkeypatch.setattr(
+        "garmin_sync.ondemand_sync.run_ondemand_sync",
+        lambda user_id, trigger: {"status": "cooldown", "retry_after_seconds": 99},
+    )
+    r = client.post("/garmin/sync?trigger=auto", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    assert r.json() == {"status": "cooldown", "retry_after_seconds": 99}
+
+
+def test_garmin_sync_catches_unexpected(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+
+    def _boom(user_id: str, trigger: str) -> dict[str, Any]:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("garmin_sync.ondemand_sync.run_ondemand_sync", _boom)
+    r = client.post("/garmin/sync?trigger=manual", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "unexpected_error"
+    assert r.json()["error_id"]
+
+
+def test_garmin_sync_started(client: ASGITestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    seen: dict[str, str] = {}
+
+    def _run(user_id: str, trigger: str) -> dict[str, str]:
+        seen["user_id"] = user_id
+        seen["trigger"] = trigger
+        return {"status": "started"}
+
+    monkeypatch.setattr("garmin_sync.ondemand_sync.run_ondemand_sync", _run)
+    r = client.post("/garmin/sync?trigger=manual", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    assert r.json() == {"status": "started"}
+    assert seen == {"user_id": "u1", "trigger": "manual"}

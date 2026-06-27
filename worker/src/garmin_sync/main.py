@@ -98,6 +98,29 @@ async def sync_user(
     return run_sync_for_user(user_id, initial=initial)
 
 
+@router.post("/garmin/sync")
+async def garmin_sync(
+    trigger: str,
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """On-demand sync triggered by the app (E15.3). trigger = auto | manual."""
+    user_id = _require_user_jwt(authorization)
+    if trigger not in ("auto", "manual"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid trigger")
+    try:
+        from garmin_sync.ondemand_sync import run_ondemand_sync
+
+        return run_ondemand_sync(user_id, trigger)
+    except Exception as e:
+        error_id = _new_error_id()
+        log.exception("[%s] garmin_sync endpoint crashed for user=%s", error_id, user_id)
+        return {
+            "status": "unexpected_error",
+            "error_id": error_id,
+            "type": type(e).__name__,
+        }
+
+
 class GarminConnectRequest(BaseModel):
     email: str
     password: str
