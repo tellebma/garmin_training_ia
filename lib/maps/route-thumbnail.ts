@@ -1,3 +1,5 @@
+import { isLngLat } from './geo'
+
 export type RoutePolyline = [number, number][]
 
 export interface SvgRoute {
@@ -5,20 +7,9 @@ export interface SvgRoute {
   viewBox: string
 }
 
-function isPoint(value: unknown): value is [number, number] {
-  return (
-    Array.isArray(value) &&
-    value.length >= 2 &&
-    typeof value[0] === 'number' &&
-    typeof value[1] === 'number' &&
-    Number.isFinite(value[0]) &&
-    Number.isFinite(value[1])
-  )
-}
-
 export function polylineToSvgPath(polyline: unknown, size = 100): SvgRoute | null {
   if (!Array.isArray(polyline)) return null
-  const points = polyline.filter(isPoint)
+  const points = polyline.filter(isLngLat)
   if (points.length < 2) return null
 
   let minLng = Infinity

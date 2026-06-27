@@ -1,3 +1,5 @@
+import { isLngLat } from './geo'
+
 export interface HeatmapPoint {
   type: 'Feature'
   geometry: { type: 'Point'; coordinates: [number, number] }
@@ -9,22 +11,12 @@ export interface HeatmapCollection {
   features: HeatmapPoint[]
 }
 
-function isPoint(value: unknown): value is [number, number] {
-  return (
-    Array.isArray(value) &&
-    typeof value[0] === 'number' &&
-    typeof value[1] === 'number' &&
-    Number.isFinite(value[0]) &&
-    Number.isFinite(value[1])
-  )
-}
-
 export function buildHeatmapGeoJson(polylines: unknown[]): HeatmapCollection {
   const features: HeatmapPoint[] = []
   for (const polyline of polylines) {
     if (!Array.isArray(polyline)) continue
     for (const point of polyline) {
-      if (!isPoint(point)) continue
+      if (!isLngLat(point)) continue
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [point[0], point[1]] },
