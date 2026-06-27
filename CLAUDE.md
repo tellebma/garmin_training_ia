@@ -124,9 +124,11 @@ Conventional Commits stricts (`feat:`, `fix:`, `docs:`, `ci:`, `build:`, `chore:
 ### Suivi des tâches (GitHub Projects) — OBLIGATOIRE
 
 Le board GitHub Projects est le **tableau de bord vivant** du projet :
-https://github.com/tellebma/garmin_training_ia/projects. `docs/superpowers/BACKLOG.md`
-reste la source de vérité détaillée (specs, critères, statut « V1 livrée ») ; le Project en
-est la vue synthétique et navigable.
+**« Garmin Training Coach — Backlog » (#4)** → https://github.com/users/tellebma/projects/4
+(aussi listé sous https://github.com/tellebma/garmin_training_ia/projects, le board y est lié).
+Champs : `Status` (Todo / In Progress / Done) + `Priorité` (P0 / P1 / P2).
+`docs/superpowers/BACKLOG.md` reste la source de vérité détaillée (specs, critères, statut
+« V1 livrée ») ; le Project en est la vue synthétique et navigable.
 
 **Règle** : pour **chaque tâche** travaillée, tenir le Project à jour en temps réel :
 
