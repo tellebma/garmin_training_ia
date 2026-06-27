@@ -21,10 +21,10 @@ export function polylineToSvgPath(polyline: unknown, size = 100): SvgRoute | nul
   const points = polyline.filter(isPoint)
   if (points.length < 2) return null
 
-  let minLng = points[0][0]
-  let maxLng = points[0][0]
-  let minLat = points[0][1]
-  let maxLat = points[0][1]
+  let minLng = Infinity
+  let maxLng = -Infinity
+  let minLat = Infinity
+  let maxLat = -Infinity
   for (const [lng, lat] of points) {
     if (lng < minLng) minLng = lng
     if (lng > maxLng) maxLng = lng
