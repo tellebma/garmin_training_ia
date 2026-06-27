@@ -43,6 +43,7 @@ export interface ActivityRowDto {
   elevation_gain_m: number | null
   tss: number | null
   hr_avg: number | null
+  route_polyline?: unknown
 }
 
 export interface WeeklyVolumePoint {

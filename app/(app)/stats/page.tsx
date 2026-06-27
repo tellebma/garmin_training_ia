@@ -15,7 +15,10 @@ import {
   type CockpitSport,
   type CoachSignalTone,
 } from '@/lib/dashboard/performance-cockpit'
+import { RecoveryPanel } from '../_components/recovery-panel'
+import { mapRecoveryRow } from '@/lib/dashboard/recovery'
 import { cn } from '@/lib/utils'
+import { RoutesHeatmapLazy } from '../_components/maps/routes-heatmap-lazy'
 import type {
   ActivityFeedbackDto,
   ActivityRowDto,
@@ -95,8 +98,8 @@ async function CockpitBody({
   const startDate = new Date(now.getTime() - (range - 1) * 86_400_000).toISOString().slice(0, 10)
   const today = now.toISOString().slice(0, 10)
 
-  const [banisterRes, activitiesRes, plannedRes, feedbackRes, hrvRes, sleepRes] = await Promise.all(
-    [
+  const [banisterRes, activitiesRes, plannedRes, feedbackRes, hrvRes, sleepRes, recoveryRes] =
+    await Promise.all([
       supabase
         .from('daily_banister_state')
         .select('date, ctl, atl, tsb')
@@ -139,8 +142,17 @@ async function CockpitBody({
         .eq('user_id', userId)
         .gte('date', startDate)
         .order('date', { ascending: true }),
-    ]
-  )
+      supabase.from('recovery_baselines').select('*').eq('user_id', userId).maybeSingle(),
+    ])
+
+  const { data: routeRows } = await supabase
+    .from('activities')
+    .select('route_polyline')
+    .eq('user_id', userId)
+    .not('route_polyline', 'is', null)
+
+  const polylines = (routeRows ?? []).map((r): unknown => r.route_polyline)
+  const hasGpsPoints = polylines.some((p) => Array.isArray(p) && p.length > 0)
 
   const banister = (banisterRes.data ?? []) as BanisterPoint[]
   const activities = (activitiesRes.data ?? []) as ActivityRowDto[]
@@ -148,6 +160,7 @@ async function CockpitBody({
   const feedback = (feedbackRes.data ?? []) as ActivityFeedbackDto[]
   const hrv = (hrvRes.data ?? []) as HrvDto[]
   const sleep = (sleepRes.data ?? []) as SleepDto[]
+  const recoveryRow: unknown = recoveryRes.data
   const cockpit = computePerformanceCockpit({
     activities,
     plannedSessions,
@@ -332,7 +345,17 @@ async function CockpitBody({
             )}
           </ChartCard>
         </div>
+        <div className="mt-4">
+          <p className="text-muted-foreground mb-3 text-sm">Baselines personnelles sur 28 jours</p>
+          <RecoveryPanel data={mapRecoveryRow(recoveryRow)} />
+        </div>
       </section>
+
+      {hasGpsPoints && (
+        <ChartCard title="Où je m'entraîne" description="Carte de chaleur de tes parcours GPS">
+          <RoutesHeatmapLazy polylines={polylines} />
+        </ChartCard>
+      )}
     </>
   )
 }
