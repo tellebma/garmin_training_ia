@@ -138,13 +138,16 @@ def transform_activity_samples(
     """Extract chart samples from Garmin activity details.
 
     Garmin Connect has changed the exact shape of activity details over time.
-    The common shape is `activityDetailMetrics: [{metrics: [{key, value}, ...]}]`;
-    this transformer also accepts direct sample dicts for defensive compatibility.
+    The real shape is `activityDetailMetrics: [{metrics: [v0, v1, ...]}]` where each
+    value is positional and the index→key mapping lives in `metricDescriptors`. We also
+    accept the legacy `metrics: [{key, value}, ...]` shape and direct sample dicts for
+    defensive compatibility.
     """
     samples = _sample_rows(raw_details)
+    descriptors = _metric_descriptors(raw_details)
     rows: list[dict[str, Any]] = []
     for idx, sample in enumerate(samples):
-        normalized = _normalize_sample(sample)
+        normalized = _normalize_sample(sample, descriptors)
         if not _has_sample_signal(normalized):
             continue
         rows.append(
@@ -176,15 +179,39 @@ def _sample_rows(raw_details: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _normalize_sample(sample: dict[str, Any]) -> dict[str, Any]:
+def _metric_descriptors(raw_details: dict[str, Any]) -> dict[int, str]:
+    """Map ``metricsIndex`` → ``key`` from Garmin's ``metricDescriptors`` list.
+
+    Empty when absent — the sample then falls back to the legacy ``{key, value}`` shape.
+    """
+    descriptors = raw_details.get("metricDescriptors")
+    if not isinstance(descriptors, list):
+        return {}
+    mapping: dict[int, str] = {}
+    for descriptor in descriptors:
+        if not isinstance(descriptor, dict):
+            continue
+        index = descriptor.get("metricsIndex")
+        key = descriptor.get("key") or descriptor.get("metricKey")
+        if isinstance(index, int) and isinstance(key, str):
+            mapping[index] = key
+    return mapping
+
+
+def _normalize_sample(sample: dict[str, Any], descriptors: dict[int, str]) -> dict[str, Any]:
     metrics = sample.get("metrics")
     if not isinstance(metrics, list):
         return sample
 
     normalized = {k: v for k, v in sample.items() if k != "metrics"}
-    for metric in metrics:
+    for position, metric in enumerate(metrics):
+        # Real Garmin shape: positional scalar values keyed via metricDescriptors.
         if not isinstance(metric, dict):
+            key = descriptors.get(position)
+            if key is not None:
+                normalized[key] = metric
             continue
+        # Legacy shape: list of {key, value} dicts.
         key = metric.get("key") or metric.get("metricKey")
         if isinstance(key, str):
             normalized[key] = metric.get("value")

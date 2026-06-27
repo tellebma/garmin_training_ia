@@ -175,6 +175,38 @@ def test_transform_activity_samples_from_detail_metrics() -> None:
     assert rows[1]["distance_m"] == 170
 
 
+def test_transform_activity_samples_from_positional_metrics() -> None:
+    """Real Garmin shape: ``metrics`` is a positional list of floats; the index→key
+    mapping lives in ``metricDescriptors``."""
+    raw_details = {
+        "metricDescriptors": [
+            {"metricsIndex": 0, "key": "directTimestamp"},
+            {"metricsIndex": 1, "key": "sumElapsedDuration"},
+            {"metricsIndex": 2, "key": "sumDistance"},
+            {"metricsIndex": 3, "key": "directElevation"},
+            {"metricsIndex": 4, "key": "directHeartRate"},
+            {"metricsIndex": 5, "key": "directLatitude"},
+            {"metricsIndex": 6, "key": "directLongitude"},
+        ],
+        "activityDetailMetrics": [
+            {"metrics": [1.7152e12, 0.0, 0.0, 120.4, 145.0, 45.764043, 4.835659]},
+            {"metrics": [1.7152e12, 60.0, 170.0, 121.0, 148.0, 45.764500, 4.836000]},
+        ],
+    }
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=123, raw_details=raw_details)
+
+    assert len(rows) == 2
+    assert rows[0]["elapsed_s"] == 0
+    assert rows[0]["distance_m"] == 0
+    assert rows[0]["elevation_m"] == 120.4
+    assert rows[0]["heart_rate_bpm"] == 145
+    assert rows[0]["latitude"] == 45.764043
+    assert rows[0]["longitude"] == 4.835659
+    assert rows[1]["elapsed_s"] == 60
+    assert rows[1]["latitude"] == 45.764500
+
+
 def test_transform_activity_samples_accepts_direct_sample_dicts() -> None:
     raw_details = {
         "samples": [
