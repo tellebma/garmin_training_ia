@@ -228,6 +228,12 @@ def _first_value(sample: dict[str, Any], keys: tuple[str, ...]) -> Any:
 
 def _parse_sample_time(sample: dict[str, Any]) -> str | None:
     value = _first_value(sample, _TIME_KEYS)
+    # Real Garmin shape: directTimestamp is an epoch-millisecond number.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            return datetime.fromtimestamp(value / 1000, tz=UTC).isoformat()
+        except (ValueError, OverflowError, OSError):
+            return None
     if not isinstance(value, str) or not value:
         return None
     try:

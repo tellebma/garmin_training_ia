@@ -189,14 +189,16 @@ def test_transform_activity_samples_from_positional_metrics() -> None:
             {"metricsIndex": 6, "key": "directLongitude"},
         ],
         "activityDetailMetrics": [
-            {"metrics": [1.7152e12, 0.0, 0.0, 120.4, 145.0, 45.764043, 4.835659]},
-            {"metrics": [1.7152e12, 60.0, 170.0, 121.0, 148.0, 45.764500, 4.836000]},
+            {"metrics": [1700000000000, 0.0, 0.0, 120.4, 145.0, 45.764043, 4.835659]},
+            {"metrics": [1700000060000, 60.0, 170.0, 121.0, 148.0, 45.764500, 4.836000]},
         ],
     }
 
     rows = transform_activity_samples(user_id="u1", garmin_activity_id=123, raw_details=raw_details)
 
     assert len(rows) == 2
+    # directTimestamp is an epoch-millisecond number in the real Garmin shape.
+    assert rows[0]["sample_time"] == "2023-11-14T22:13:20+00:00"
     assert rows[0]["elapsed_s"] == 0
     assert rows[0]["distance_m"] == 0
     assert rows[0]["elevation_m"] == 120.4
@@ -205,6 +207,67 @@ def test_transform_activity_samples_from_positional_metrics() -> None:
     assert rows[0]["longitude"] == 4.835659
     assert rows[1]["elapsed_s"] == 60
     assert rows[1]["latitude"] == 45.764500
+
+
+def test_transform_activity_samples_positional_unordered_descriptors() -> None:
+    """metricDescriptors may be unordered/sparse: the mapping keys on metricsIndex,
+    not on the descriptor's position in the list."""
+    raw_details = {
+        "metricDescriptors": [
+            {"metricsIndex": 2, "key": "directHeartRate"},
+            {"metricsIndex": 0, "key": "directLatitude"},
+            {"metricsIndex": 1, "key": "directLongitude"},
+        ],
+        "activityDetailMetrics": [{"metrics": [45.1, 4.2, 150.0]}],
+    }
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=1, raw_details=raw_details)
+
+    assert rows[0]["latitude"] == 45.1
+    assert rows[0]["longitude"] == 4.2
+    assert rows[0]["heart_rate_bpm"] == 150
+
+
+def test_transform_activity_samples_positional_value_beyond_mapping_ignored() -> None:
+    """A metric position with no descriptor entry is dropped, not crashed on."""
+    raw_details = {
+        "metricDescriptors": [{"metricsIndex": 0, "key": "directHeartRate"}],
+        "activityDetailMetrics": [{"metrics": [142.0, 999.0]}],
+    }
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=1, raw_details=raw_details)
+
+    assert rows[0]["heart_rate_bpm"] == 142
+    assert rows[0]["latitude"] is None
+
+
+def test_transform_activity_samples_positional_null_gps_midtrack() -> None:
+    """Garmin sends null lat/lng for GPS dropouts mid-activity; the sample is still
+    kept on its other signals and GPS stays None."""
+    raw_details = {
+        "metricDescriptors": [
+            {"metricsIndex": 0, "key": "directHeartRate"},
+            {"metricsIndex": 1, "key": "directLatitude"},
+            {"metricsIndex": 2, "key": "directLongitude"},
+        ],
+        "activityDetailMetrics": [{"metrics": [148.0, None, None]}],
+    }
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=1, raw_details=raw_details)
+
+    assert len(rows) == 1
+    assert rows[0]["heart_rate_bpm"] == 148
+    assert rows[0]["latitude"] is None
+    assert rows[0]["longitude"] is None
+
+
+def test_transform_activity_samples_positional_without_descriptors_drops_rows() -> None:
+    """Positional values with no metricDescriptors cannot be keyed → no signal → dropped."""
+    raw_details = {"activityDetailMetrics": [{"metrics": [45.1, 4.2, 150.0]}]}
+
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=1, raw_details=raw_details)
+
+    assert rows == []
 
 
 def test_transform_activity_samples_accepts_direct_sample_dicts() -> None:
