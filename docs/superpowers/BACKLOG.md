@@ -315,6 +315,49 @@ Spec et critères d'acceptation :
 - **Critère produit** : une séance de musculation faite par l'athlète apparaît dans l'historique
   avec un rendu correct et est prise en compte par le coach pour la récupération du lendemain.
 
+### P1 — Charge musculaire dans les ajustements coach (entraînement concurrent) (demande owner 2026-06-28)
+
+- **Idée owner** : une séance de muscu ciblant un groupe musculaire (ex. **jambes**) doit
+  influencer les séances suivantes qui sollicitent les mêmes muscles (grosse sortie vélo,
+  CAP). Pas en réécrivant le plan, mais en **suggérant** un allègement (choix owner :
+  Accepter/Ignorer, pas de réécriture auto).
+- **Faisabilité (vérifiée)** : `get_activity_exercise_sets(activity_id)` de
+  `python-garminconnect` (endpoint `/activity/{id}/exerciseSets`) expose les **séries** d'une
+  séance de force : **catégorie d'exercice** (`SQUAT`, `BENCH_PRESS`, `DEADLIFT`…), reps,
+  poids, volume. Le worker **ne l'appelle pas encore** (seulement `get_activity_details`).
+  ⚠️ Garmin ne donne **pas** les muscles en clair → **table de mapping
+  `catégorie → groupes musculaires`** à maintenir côté worker (squat → jambes/fessiers, etc.).
+- **À faire** :
+  - **Worker / ingestion** : appeler `get_activity_exercise_sets` pour les activités de type
+    force, stocker les séries (table dédiée ou `raw`/`activity_samples`), dériver les groupes
+    musculaires via le mapping. Dépend de l'item « Activités hors triathlon » (charge muscu).
+  - **Coach** : estimer une **charge musculaire récente par groupe** (ex. jambes) et l'injecter
+    dans le garde-fou **`next_session_adjustment`** existant — grosse séance jambes récente +
+    séance vélo/CAP dure planifiée → proposer un allègement (Accepter/Ignorer), comme les
+    garde-fous E9.
+  - **Garde-fou** : suggestion uniquement, jamais de réécriture auto ; pas de diagnostic,
+    cohérent avec les garde-fous E9.
+- **À cadrer à l'implémentation** : granularité des groupes (jambes / haut du corps / core
+  suffit-il ?), modèle de charge muscu (volume = reps × poids ? durée × RPE ?), fenêtre de
+  récupération par groupe.
+- **Lien** : recoupe « Activités hors triathlon » (ingestion) et E13.3 (prescription).
+- **Critère** : après une grosse séance jambes, le coach **propose** (sans imposer) d'alléger
+  la prochaine grosse sortie vélo/CAP.
+
+### P2 — Carte musculaire (muscles sollicités) (demande owner 2026-06-28, polish UX différé)
+
+- **Idée owner** : un graphique **« carte du corps »** montrant les muscles sollicités (sur une
+  séance et/ou agrégé sur la semaine), façon apps de muscu, pour visualiser ce qui est travaillé
+  et ce qui est négligé.
+- **Dépend de** l'ingestion des `exerciseSets` + mapping `catégorie → muscles` (voir item
+  « Charge musculaire dans les ajustements coach » ci-dessus).
+- **P2** — relève de la **dataviz / polish UX** (lentille différée le 2026-06-28). À traiter
+  **après** le volet coach.
+- **À cadrer** : SVG carte musculaire (face/dos), échelle d'intensité par groupe, vue séance
+  vs vue semaine.
+- **Critère** : l'athlète visualise d'un coup d'œil quels groupes il a travaillés et lesquels
+  sont négligés.
+
 ### P1 — Feedback post-séance — V1 livrée
 
 - Après chaque activité, comparer prévu vs réalisé : durée, TSS, distance, D+,
