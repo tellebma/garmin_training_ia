@@ -46,8 +46,8 @@ compréhensibles pour un athlète non expert.
 
 - **E14.1 P1 — Graphiques pro** : profil d'altitude, FC dans le temps, allure/vitesse,
   puissance, cadence, zones, splits/tours, distribution d'effort — lisibles, soignés,
-  interactifs. S'appuyer sur `activity_samples`. ⚠ **Régression lisibilité connue
-  (retour owner 2026-06-27)** : les courbes d'activité partagent un axe Y unique → la FC
+  interactifs. S'appuyer sur `activity_samples`. ⚠ **Régression lisibilité — P0, prochain
+  chantier (retour owner 2026-06-27)** : les courbes d'activité partagent un axe Y unique → la FC
   s'écrase en quasi-ligne plate (voir détail § « Graphiques pro et carte d'activité »).
 - **E14.2 P1 — Carte d'activité** : afficher le tracé GPS dans `/history/[id]` avec
   dénivelé et survol corrélé FC/allure. Recoupe E9.5 et la spec E8a.
@@ -540,8 +540,8 @@ pour montrer quoi que ce soit.
 - Lien : recoupe E9.5 (analyse avancée d'activité) et la spec E8a parcours géolocalisés.
 - Critère produit : un athlète habitué à Garmin/Strava doit trouver les graphes au
   moins aussi clairs et complets.
-- **P1 — Lisibilité des « Courbes d'activité » : axe Y unique → courbes écrasées
-  (retour owner 2026-06-27)** :
+- **P0 — Lisibilité des « Courbes d'activité » : axe Y unique → courbes écrasées
+  (retour owner 2026-06-27) — prochain chantier** :
   - **Problème** : dans `app/(app)/_components/charts/activity-samples-chart.tsx`, les 5
     métriques (FC, altitude, puissance, cadence, allure) sont tracées sur **un seul axe Y
     partagé**. Comme leurs échelles sont incompatibles (FC ~120-180 bpm, altitude des
@@ -566,7 +566,9 @@ pour montrer quoi que ce soit.
   - **Critère d'acceptation** : sur une activité avec FC + altitude + puissance, chaque
     courbe est lisible avec sa propre amplitude, la FC n'est plus un trait plat, et
     l'utilisateur peut lire la valeur réelle de chaque métrique à un instant donné.
-- **P1 — Vitesse/allure natation dans la courbe d'activité piscine (retour owner 2026-06-27)** :
+- **P2 — Vitesse/allure natation dans la courbe d'activité piscine (retour owner 2026-06-27)** :
+  _(rétrogradé P2 : englobé par l'item « Convention d'unités par discipline » et par la refonte
+  multi-panneaux E14.1 ci-dessus ; pas un chantier autonome)_
   - **Problème** : `app/(app)/_components/charts/activity-samples-chart.tsx` convertit
     systématiquement `speed_m_s` en **allure min/km** (label « Allure min/km »), une unité
     inadaptée à la natation où la métrique standard est l'**allure min/100m**. Le composant
