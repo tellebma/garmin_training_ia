@@ -14,7 +14,7 @@ from garmin_sync.coach.banister import (
     compute_banister_history,
     estimate_initial_ctl_from_profile,
 )
-from garmin_sync.coach.discipline_level import compute_discipline_levels
+from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.training_days import (
@@ -593,9 +593,9 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     sports_in_race = [leg["discipline"] for leg in race["legs"]]
     race_sport = race["legs"][0]["discipline"] if race["legs"] else "run"
     sports_strengths = profile.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
-    effective_strengths = compute_discipline_levels(
-        sports_strengths, activities, today=today
-    ).effective_strengths
+    effective_strengths = load_effective_strengths(
+        db, user_id, sports_strengths, today=today, activities=activities
+    )
     available_days = profile.get("available_days") or ["mon", "wed", "fri"]
 
     # Per-sport race D+ -> per-week target D+, gated by the sport's threshold.

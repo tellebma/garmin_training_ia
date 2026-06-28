@@ -658,8 +658,8 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
     )
     monkeypatch.setattr(
         p_mod,
-        "compute_discipline_levels",
-        lambda *_a, **_kw: fake_levels,
+        "load_effective_strengths",
+        lambda *_a, **_kw: fake_levels.effective_strengths,
     )
 
     captured_kwargs: list[dict] = []

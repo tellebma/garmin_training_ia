@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from unittest.mock import MagicMock
 
-from garmin_sync.coach.discipline_level import compute_discipline_levels
+from garmin_sync.coach.discipline_level import compute_discipline_levels, load_effective_strengths
 
 TODAY = date(2026, 6, 22)
 
@@ -86,3 +87,32 @@ def test_cap_and_floor_respected() -> None:
     payload = up.to_dict()
     assert set(payload["disciplines"]) == {"swim", "bike", "run"}
     assert "signals" in payload["disciplines"]["bike"]
+
+
+def test_load_effective_strengths_uses_provided_activities_without_db() -> None:
+    # 26+ activités vélo régulières et soutenues sur 90j -> bike déclaré 2 remonte à 3.
+    today = date(2026, 6, 28)
+    acts = [
+        _act(days_ago=3 + int(i * 3.2), sport="cycling")
+        for i in range(28)
+    ]
+    db = MagicMock()
+    out = load_effective_strengths(
+        db, "u1", {"swim": 3, "bike": 2, "run": 3}, today=today, activities=acts
+    )
+    assert out["bike"] == 3  # remonté de +1
+    db.table.assert_not_called()  # activities fournies -> pas de requête
+
+
+def test_load_effective_strengths_loads_activities_from_db_when_absent() -> None:
+    today = date(2026, 6, 28)
+    db = MagicMock()
+    chain = (
+        db.table.return_value.select.return_value.eq.return_value.gte.return_value.execute.return_value
+    )
+    chain.data = []  # aucune activité -> niveaux = déclarés (safe noop)
+    out = load_effective_strengths(
+        db, "u1", {"swim": 2, "bike": 4, "run": 3}, today=today
+    )
+    assert out == {"swim": 2, "bike": 4, "run": 3}
+    db.table.assert_called_with("activities")
