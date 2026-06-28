@@ -43,17 +43,21 @@ def distribute_weekly_tss_by_sport(
     weekly_tss: float,
     sports_in_race: list[str],
     sports_strengths: dict[str, int],
+    progress: float = 1.0,
 ) -> dict[str, float]:
-    """Distribute weekly TSS target between sports.
+    """Distribue le TSS hebdo entre sports selon le niveau par discipline.
 
-    Niveau par discipline (1-5) module la part : faible (1) ~+25%, fort (5) ~-15%,
-    interpolation linéaire. Normalisé pour que la somme égale weekly_tss.
+    Niveau (1-5) module la part : faible (1) ~+25 %, fort (5) ~-15 % à biais plein.
+    ``progress`` (0..1) module l'amplitude du biais via ``bias_curve`` : ~moitié du
+    biais en début de plan, plein en fin de build. Normalisé (somme = weekly_tss).
     """
+    p = min(1.0, max(0.0, progress))
+    bias = 0.5 + 0.5 * p
     weights: dict[str, float] = {}
     for s in sports_in_race:
         score = sports_strengths.get(s, 3)
-        # modulation continue : niveau 1 -> 1.25, niveau 3 -> 1.0, niveau 5 -> 0.85.
-        weights[s] = 1.25 - (score - 1) * 0.10
+        boost = 0.25 - (score - 1) * 0.10  # niveau 1 -> +0.25, 3 -> 0, 5 -> -0.15
+        weights[s] = 1.0 + boost * bias
     total_w = sum(weights.values())
     return {s: round(weekly_tss * w / total_w, 2) for s, w in weights.items()}
 

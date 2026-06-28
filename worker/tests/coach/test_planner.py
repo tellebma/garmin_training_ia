@@ -60,6 +60,32 @@ def test_distribute_weekly_tss_weak_sport_gets_more() -> None:
     assert abs(sum(out.values()) - 300) < 0.5
 
 
+def test_progress_zero_is_more_balanced_than_progress_one() -> None:
+    # swim faible (1), bike fort (5). À progress faible le biais est moindre
+    # -> part swim plus proche de l'équilibre ; à progress=1 le biais est plein.
+    early = distribute_weekly_tss_by_sport(
+        weekly_tss=200, sports_in_race=["swim", "bike"],
+        sports_strengths={"swim": 1, "bike": 5}, progress=0.0,
+    )
+    late = distribute_weekly_tss_by_sport(
+        weekly_tss=200, sports_in_race=["swim", "bike"],
+        sports_strengths={"swim": 1, "bike": 5}, progress=1.0,
+    )
+    assert late["swim"] > early["swim"]  # on investit plus sur le faible en fin de build
+    assert abs(sum(early.values()) - 200) < 0.01  # toujours normalisé
+    assert abs(sum(late.values()) - 200) < 0.01
+
+
+def test_default_progress_is_backward_compatible() -> None:
+    # défaut progress=1.0 -> identique à l'ancien comportement statique.
+    out = distribute_weekly_tss_by_sport(
+        weekly_tss=300, sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 5, "run": 3},
+    )
+    # ancien : poids 1.25 / 0.85 / 1.05 -> somme 3.15 ; swim = 300*1.25/3.15
+    assert out["swim"] == round(300 * 1.25 / 3.15, 2)
+
+
 def test_pick_session_types_for_base_phase() -> None:
     types = pick_session_types_for_phase("base")
     assert "endurance" in types
