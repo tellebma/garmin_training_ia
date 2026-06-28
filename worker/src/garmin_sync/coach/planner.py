@@ -107,7 +107,12 @@ def _ramp_rate_for_week(week_offset: int, phase: Phase) -> float:
 def _progress_for_offset(offset: int, phases: Sequence[tuple[int, str]]) -> float:
     """Avancement 0..1 : 0 au début, 1 à la dernière semaine de build (tenu ensuite)."""
     build_offsets = [o for o, ph in phases if ph == "build"]
-    last = max(build_offsets) if build_offsets else (phases[-1][0] if phases else 0)
+    if build_offsets:
+        last = max(build_offsets)
+    elif phases:
+        last = phases[-1][0]
+    else:
+        last = 0
     return min(1.0, max(0.0, offset / max(1, last)))
 
 
@@ -576,6 +581,62 @@ def _load_today_banister_state(
     return tss_by_date, states[-1], activity_review, activities
 
 
+def _build_all_week_sessions(
+    *,
+    phases: Sequence[tuple[int, Phase]],
+    today_state: BanisterState,
+    profile: dict[str, Any],
+    first_week_tss_multiplier: float,
+    sports_in_race: list[str],
+    effective_strengths: dict[str, int],
+    available_days: list[str],
+    weeks_count: int,
+    week_start: date,
+    race_date: date,
+    race_sport: str,
+    weekly_elevation_by_sport: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Build planned sessions for all weeks of the plan."""
+    all_sessions: list[dict[str, Any]] = []
+    prev_tss_by_sport: dict[str, float] | None = None
+    for offset, phase in phases:
+        ramp = _ramp_rate_for_week(offset, phase)
+        base_weekly = max(
+            today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
+        )
+        weekly_tss = base_weekly * ramp
+        if offset == 0:
+            weekly_tss *= first_week_tss_multiplier
+        progress = _progress_for_offset(offset, phases)
+        tss_by_sport = distribute_weekly_tss_by_sport(
+            weekly_tss=weekly_tss,
+            sports_in_race=sports_in_race,
+            sports_strengths=effective_strengths,
+            progress=progress,
+        )
+        tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
+        is_reduction_week = phase == "taper" or (offset + 1) % 4 == 0
+        if not is_reduction_week:
+            prev_tss_by_sport = tss_by_sport
+        is_last = offset == weeks_count - 1
+        sessions = _build_week_sessions(
+            week_offset=offset,
+            phase=phase,
+            week_start=week_start + timedelta(weeks=offset),
+            sports_in_race=sports_in_race,
+            sports_strengths=effective_strengths,
+            tss_by_sport=tss_by_sport,
+            available_days=available_days,
+            hours_per_week=profile.get("hours_per_week"),
+            is_last_week=is_last,
+            race_date=race_date,
+            race_sport=race_sport,
+            weekly_elevation_by_sport=weekly_elevation_by_sport,
+        )
+        all_sessions.extend(sessions)
+    return all_sessions
+
+
 def generate_plan(user_id: str) -> dict[str, Any]:
     """Generate a training plan for the given user.
 
@@ -639,43 +700,20 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     )
 
     week_start = today - timedelta(days=today.weekday())
-    all_sessions: list[dict[str, Any]] = []
-    prev_tss_by_sport: dict[str, float] | None = None
-    for offset, phase in phases:
-        ramp = _ramp_rate_for_week(offset, phase)
-        base_weekly = max(
-            today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
-        )
-        weekly_tss = base_weekly * ramp
-        if offset == 0:
-            weekly_tss *= first_week_tss_multiplier
-        progress = _progress_for_offset(offset, phases)
-        tss_by_sport = distribute_weekly_tss_by_sport(
-            weekly_tss=weekly_tss,
-            sports_in_race=sports_in_race,
-            sports_strengths=effective_strengths,
-            progress=progress,
-        )
-        tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
-        is_reduction_week = phase == "taper" or (offset + 1) % 4 == 0
-        if not is_reduction_week:
-            prev_tss_by_sport = tss_by_sport
-        is_last = offset == weeks_count - 1
-        sessions = _build_week_sessions(
-            week_offset=offset,
-            phase=phase,
-            week_start=week_start + timedelta(weeks=offset),
-            sports_in_race=sports_in_race,
-            sports_strengths=effective_strengths,
-            tss_by_sport=tss_by_sport,
-            available_days=available_days,
-            hours_per_week=profile.get("hours_per_week"),
-            is_last_week=is_last,
-            race_date=race_date,
-            race_sport=race_sport,
-            weekly_elevation_by_sport=weekly_elevation_by_sport,
-        )
-        all_sessions.extend(sessions)
+    all_sessions = _build_all_week_sessions(
+        phases=phases,
+        today_state=today_state,
+        profile=profile,
+        first_week_tss_multiplier=first_week_tss_multiplier,
+        sports_in_race=sports_in_race,
+        effective_strengths=effective_strengths,
+        available_days=available_days,
+        weeks_count=weeks_count,
+        week_start=week_start,
+        race_date=race_date,
+        race_sport=race_sport,
+        weekly_elevation_by_sport=weekly_elevation_by_sport,
+    )
 
     # Archive previous plans for this race and delete their planned_sessions
     # (FK has no ON DELETE CASCADE; without this, sessions of archived plans

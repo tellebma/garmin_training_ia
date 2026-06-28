@@ -66,12 +66,16 @@ def test_progress_zero_is_more_balanced_than_progress_one() -> None:
     # swim faible (1), bike fort (5). À progress faible le biais est moindre
     # -> part swim plus proche de l'équilibre ; à progress=1 le biais est plein.
     early = distribute_weekly_tss_by_sport(
-        weekly_tss=200, sports_in_race=["swim", "bike"],
-        sports_strengths={"swim": 1, "bike": 5}, progress=0.0,
+        weekly_tss=200,
+        sports_in_race=["swim", "bike"],
+        sports_strengths={"swim": 1, "bike": 5},
+        progress=0.0,
     )
     late = distribute_weekly_tss_by_sport(
-        weekly_tss=200, sports_in_race=["swim", "bike"],
-        sports_strengths={"swim": 1, "bike": 5}, progress=1.0,
+        weekly_tss=200,
+        sports_in_race=["swim", "bike"],
+        sports_strengths={"swim": 1, "bike": 5},
+        progress=1.0,
     )
     assert late["swim"] > early["swim"]  # on investit plus sur le faible en fin de build
     assert abs(sum(early.values()) - 200) < 0.01  # toujours normalisé
@@ -81,7 +85,8 @@ def test_progress_zero_is_more_balanced_than_progress_one() -> None:
 def test_default_progress_is_backward_compatible() -> None:
     # défaut progress=1.0 -> identique à l'ancien comportement statique.
     out = distribute_weekly_tss_by_sport(
-        weekly_tss=300, sports_in_race=["swim", "bike", "run"],
+        weekly_tss=300,
+        sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 1, "bike": 5, "run": 3},
     )
     # ancien : poids 1.25 / 0.85 / 1.05 -> somme 3.15 ; swim = 300*1.25/3.15
@@ -797,15 +802,19 @@ def test_distribute_then_cap_run_never_exceeds_10pct_week_over_week() -> None:
     # simule 2 semaines consécutives : la 2e demande +50% sur run -> bridée à +10%.
     w1 = cap_weekly_ramp_by_sport(
         distribute_weekly_tss_by_sport(
-            weekly_tss=200, sports_in_race=["run", "bike"],
-            sports_strengths={"run": 1, "bike": 5}, progress=0.5,
+            weekly_tss=200,
+            sports_in_race=["run", "bike"],
+            sports_strengths={"run": 1, "bike": 5},
+            progress=0.5,
         ),
         None,
     )
     w2 = cap_weekly_ramp_by_sport(
         distribute_weekly_tss_by_sport(
-            weekly_tss=320, sports_in_race=["run", "bike"],
-            sports_strengths={"run": 1, "bike": 5}, progress=1.0,
+            weekly_tss=320,
+            sports_in_race=["run", "bike"],
+            sports_strengths={"run": 1, "bike": 5},
+            progress=1.0,
         ),
         w1,
     )

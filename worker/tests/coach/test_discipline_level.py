@@ -92,10 +92,7 @@ def test_cap_and_floor_respected() -> None:
 def test_load_effective_strengths_uses_provided_activities_without_db() -> None:
     # 26+ activités vélo régulières et soutenues sur 90j -> bike déclaré 2 remonte à 3.
     today = date(2026, 6, 28)
-    acts = [
-        _act(days_ago=3 + int(i * 3.2), sport="cycling")
-        for i in range(28)
-    ]
+    acts = [_act(days_ago=3 + int(i * 3.2), sport="cycling") for i in range(28)]
     db = MagicMock()
     out = load_effective_strengths(
         db, "u1", {"swim": 3, "bike": 2, "run": 3}, today=today, activities=acts
@@ -107,12 +104,8 @@ def test_load_effective_strengths_uses_provided_activities_without_db() -> None:
 def test_load_effective_strengths_loads_activities_from_db_when_absent() -> None:
     today = date(2026, 6, 28)
     db = MagicMock()
-    chain = (
-        db.table.return_value.select.return_value.eq.return_value.gte.return_value.execute.return_value
-    )
+    chain = db.table.return_value.select.return_value.eq.return_value.gte.return_value.execute.return_value  # noqa: E501
     chain.data = []  # aucune activité -> niveaux = déclarés (safe noop)
-    out = load_effective_strengths(
-        db, "u1", {"swim": 2, "bike": 4, "run": 3}, today=today
-    )
+    out = load_effective_strengths(db, "u1", {"swim": 2, "bike": 4, "run": 3}, today=today)
     assert out == {"swim": 2, "bike": 4, "run": 3}
     db.table.assert_called_with("activities")
