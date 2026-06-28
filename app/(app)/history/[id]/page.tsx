@@ -209,6 +209,7 @@ async function ActivityDetailBody({
   const analysis = buildActivityCoachAnalysis({ activity, plannedSession, similar })
   const sampleSummary = samples.length > 0 ? summarizeActivitySamples(samples, fcMax) : null
   const nextSessionAdjustment = buildNextSessionAdjustment(sampleSummary, upcomingSessions)
+  const sport: Sport = knownSport(activity.sport) ? activity.sport : 'bike'
 
   return (
     <>
@@ -299,10 +300,7 @@ async function ActivityDetailBody({
           title="Courbes d'activité"
           description="Fréquence cardiaque, altitude, puissance, cadence et allure selon les données Garmin disponibles."
         >
-          <ActivitySamplesChart
-            data={samples}
-            sport={knownSport(activity.sport) ? activity.sport : 'bike'}
-          />
+          <ActivitySamplesChart data={samples} sport={sport} />
         </ChartCard>
       )}
 
@@ -358,7 +356,7 @@ async function ActivityDetailBody({
                       <td className="py-2 pr-3">{formatNumber(segment.avg_hr_bpm, ' bpm')}</td>
                       <td className="py-2 pr-3">
                         {formatSpeedForSport(
-                          knownSport(activity.sport) ? activity.sport : 'bike',
+                          sport,
                           segment.avg_speed_kmh != null ? segment.avg_speed_kmh / 3.6 : null
                         )}
                       </td>

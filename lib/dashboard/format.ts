@@ -1,3 +1,5 @@
+import type { Sport } from '@/lib/dashboard/types'
+
 export function formatTSS(tss: number | null | undefined): string {
   if (tss === null || tss === undefined) return '—'
   return `${String(Math.round(tss))} TSS`
@@ -48,8 +50,6 @@ export function formatWeekday(isoDate: string): string {
   const d = new Date(isoDate)
   return FR_WEEKDAY[d.getDay()] ?? ''
 }
-
-import type { Sport } from '@/lib/dashboard/types'
 
 type PaceUnit = 'km/h' | 'min/km' | 'min/100m'
 
