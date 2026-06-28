@@ -35,6 +35,9 @@ NORMAL_RAMP_RATE = 1.05  # +5% per week (normal weeks)
 DELOAD_RAMP_RATE = 0.70  # -30% deload week (every 4th week)
 TAPER_RAMP_RATE = 0.55  # -45% taper
 
+# Weekly ramp cap per sport (guardrail against overload)
+WEEKLY_RAMP_CAP: dict[str, float] = {"run": 1.10, "swim": 1.15, "bike": 1.20}
+
 DAY_NAME_TO_INDEX = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 
@@ -98,6 +101,28 @@ def _ramp_rate_for_week(week_offset: int, phase: Phase) -> float:
     if (week_offset + 1) % 4 == 0:
         return DELOAD_RAMP_RATE
     return NORMAL_RAMP_RATE
+
+
+def cap_weekly_ramp_by_sport(
+    tss_by_sport: dict[str, float],
+    prev_tss_by_sport: dict[str, float] | None,
+) -> dict[str, float]:
+    """Borne la hausse hebdo de TSS par sport (anti-surcharge, surtout course).
+
+    Seules les hausses sont bridées (deload/taper intacts). Sans précédent pour un
+    sport, pas de cap. L'excédent n'est pas redistribué (sécurité avant volume).
+    """
+    if not prev_tss_by_sport:
+        return dict(tss_by_sport)
+    capped: dict[str, float] = {}
+    for sport, tss in tss_by_sport.items():
+        prev = prev_tss_by_sport.get(sport)
+        if prev is None or prev <= 0:
+            capped[sport] = tss
+            continue
+        ceiling = prev * WEEKLY_RAMP_CAP.get(sport, 1.20)
+        capped[sport] = round(min(tss, ceiling), 2)
+    return capped
 
 
 def _placement_priority_for_day(day_idx: int) -> int:

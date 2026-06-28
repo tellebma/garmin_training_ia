@@ -10,6 +10,7 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    cap_weekly_ramp_by_sport,
     compute_first_week_tss_multiplier,
     distribute_weekly_tss_by_sport,
     generate_plan,
@@ -704,3 +705,28 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
         assert kw["sports_strengths"] == {"swim": 3, "bike": 3, "run": 3}, (
             f"Expected effective strengths, got {kw['sports_strengths']}"
         )
+
+
+def test_cap_limits_run_increase_to_10pct() -> None:
+    out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
+    assert out["run"] == 110.0  # +10% max
+
+
+def test_cap_does_not_limit_decreases() -> None:
+    out = cap_weekly_ramp_by_sport({"run": 70.0}, {"run": 100.0})
+    assert out["run"] == 70.0  # baisse (deload) non bridée
+
+
+def test_cap_no_prev_is_passthrough() -> None:
+    assert cap_weekly_ramp_by_sport({"run": 200.0}, None) == {"run": 200.0}
+
+
+def test_cap_missing_sport_in_prev_not_capped() -> None:
+    out = cap_weekly_ramp_by_sport({"swim": 80.0, "run": 150.0}, {"run": 100.0})
+    assert out["swim"] == 80.0  # pas de précédent swim -> non bridé
+    assert out["run"] == 110.0
+
+
+def test_cap_bike_uses_its_own_cap() -> None:
+    out = cap_weekly_ramp_by_sport({"bike": 200.0}, {"bike": 100.0})
+    assert out["bike"] == 120.0  # vélo +20%
