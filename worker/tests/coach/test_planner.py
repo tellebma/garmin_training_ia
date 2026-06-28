@@ -10,6 +10,7 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    _progress_for_offset,
     cap_weekly_ramp_by_sport,
     compute_first_week_tss_multiplier,
     distribute_weekly_tss_by_sport,
@@ -116,6 +117,19 @@ def test_ramp_rates_consistent_with_spec() -> None:
     """Sanity check : deload < normal, taper << normal."""
     assert DELOAD_RAMP_RATE < NORMAL_RAMP_RATE
     assert TAPER_RAMP_RATE < DELOAD_RAMP_RATE
+
+
+def test_progress_for_offset_ramps_over_build() -> None:
+    phases = [(0, "base"), (1, "base"), (2, "build"), (3, "build"), (4, "peak"), (5, "taper")]
+    assert _progress_for_offset(0, phases) == 0.0
+    assert _progress_for_offset(3, phases) == 1.0  # dernière semaine de build
+    assert _progress_for_offset(5, phases) == 1.0  # tenu en taper (clamp)
+
+
+def test_progress_for_offset_no_build_uses_last_offset() -> None:
+    phases = [(0, "base"), (1, "base"), (2, "taper")]
+    assert _progress_for_offset(0, phases) == 0.0
+    assert _progress_for_offset(2, phases) == 1.0
 
 
 def test_first_week_multiplier_keeps_normal_load_without_risk() -> None:
@@ -305,13 +319,14 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
     week_start = today - timedelta(days=today.weekday())
 
     # 6 available days, weekly_tss = 420 (= 8h/wk * 50 / 7 * 7 * ramp 1.05 = ~420)
+    # With equal strengths=3, each sport gets an equal share: 420 / 3 = 140.0
     sessions = _build_week_sessions(
         week_offset=0,
         phase="base",
         week_start=week_start,
-        weekly_tss=420.0,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -411,9 +426,9 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         week_offset=0,
         phase="base",
         week_start=week_start,
-        weekly_tss=420.0,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -449,9 +464,9 @@ def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
         week_offset=0,
         phase="base",
         week_start=week_start,
-        weekly_tss=420.0,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -572,13 +587,14 @@ def _count(sessions, stype):
 def test_build_week_caps_training_days_when_all_available() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
+    # With equal strengths=3, each sport gets an equal share: round(400/3, 2) = 133.33
     sessions = _build_week_sessions(
         week_offset=0,
         phase="build",
         week_start=date(2026, 6, 22),  # Monday
-        weekly_tss=400,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 133.33, "bike": 133.33, "run": 133.33},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -598,9 +614,9 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
         week_offset=0,
         phase="base",
         week_start=date(2026, 6, 22),
-        weekly_tss=120,
         sports_in_race=["bike"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"bike": 120.0},
         available_days=["mon", "wed", "fri"],
         hours_per_week=6,
         is_last_week=False,
@@ -730,3 +746,22 @@ def test_cap_missing_sport_in_prev_not_capped() -> None:
 def test_cap_bike_uses_its_own_cap() -> None:
     out = cap_weekly_ramp_by_sport({"bike": 200.0}, {"bike": 100.0})
     assert out["bike"] == 120.0  # vélo +20%
+
+
+def test_distribute_then_cap_run_never_exceeds_10pct_week_over_week() -> None:
+    # simule 2 semaines consécutives : la 2e demande +50% sur run -> bridée à +10%.
+    w1 = cap_weekly_ramp_by_sport(
+        distribute_weekly_tss_by_sport(
+            weekly_tss=200, sports_in_race=["run", "bike"],
+            sports_strengths={"run": 1, "bike": 5}, progress=0.5,
+        ),
+        None,
+    )
+    w2 = cap_weekly_ramp_by_sport(
+        distribute_weekly_tss_by_sport(
+            weekly_tss=320, sports_in_race=["run", "bike"],
+            sports_strengths={"run": 1, "bike": 5}, progress=1.0,
+        ),
+        w1,
+    )
+    assert w2["run"] <= round(w1["run"] * 1.10, 2) + 0.01

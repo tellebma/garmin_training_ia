@@ -5,6 +5,7 @@ state, derives phases + sessions, writes to DB.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any, cast
 
@@ -101,6 +102,13 @@ def _ramp_rate_for_week(week_offset: int, phase: Phase) -> float:
     if (week_offset + 1) % 4 == 0:
         return DELOAD_RAMP_RATE
     return NORMAL_RAMP_RATE
+
+
+def _progress_for_offset(offset: int, phases: Sequence[tuple[int, str]]) -> float:
+    """Avancement 0..1 : 0 au début, 1 à la dernière semaine de build (tenu ensuite)."""
+    build_offsets = [o for o, ph in phases if ph == "build"]
+    last = max(build_offsets) if build_offsets else (phases[-1][0] if phases else 0)
+    return min(1.0, max(0.0, offset / max(1, last)))
 
 
 def cap_weekly_ramp_by_sport(
@@ -420,9 +428,9 @@ def _build_week_sessions(
     week_offset: int,
     phase: Phase,
     week_start: date,
-    weekly_tss: float,
     sports_in_race: list[str],
     sports_strengths: dict[str, int],
+    tss_by_sport: dict[str, float],
     available_days: list[str],
     hours_per_week: float | None,
     is_last_week: bool,
@@ -445,9 +453,6 @@ def _build_week_sessions(
     level = athlete_level(sports_strengths)
     max_level = min((sports_strengths.get(s, 3) for s in sports_in_race), default=3)
     types_for_phase = pick_session_types_for_phase(phase, max_level=max_level)
-    tss_by_sport = distribute_weekly_tss_by_sport(
-        weekly_tss=weekly_tss, sports_in_race=sports_in_race, sports_strengths=sports_strengths
-    )
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
 
     # Deload weeks (every 4th, except taper) need a stricter rest floor.
@@ -634,8 +639,8 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     )
 
     week_start = today - timedelta(days=today.weekday())
-
     all_sessions: list[dict[str, Any]] = []
+    prev_tss_by_sport: dict[str, float] | None = None
     for offset, phase in phases:
         ramp = _ramp_rate_for_week(offset, phase)
         base_weekly = max(
@@ -644,14 +649,23 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         weekly_tss = base_weekly * ramp
         if offset == 0:
             weekly_tss *= first_week_tss_multiplier
+        progress = _progress_for_offset(offset, phases)
+        tss_by_sport = distribute_weekly_tss_by_sport(
+            weekly_tss=weekly_tss,
+            sports_in_race=sports_in_race,
+            sports_strengths=effective_strengths,
+            progress=progress,
+        )
+        tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
+        prev_tss_by_sport = tss_by_sport
         is_last = offset == weeks_count - 1
         sessions = _build_week_sessions(
             week_offset=offset,
             phase=phase,
             week_start=week_start + timedelta(weeks=offset),
-            weekly_tss=weekly_tss,
             sports_in_race=sports_in_race,
             sports_strengths=effective_strengths,
+            tss_by_sport=tss_by_sport,
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
             is_last_week=is_last,
