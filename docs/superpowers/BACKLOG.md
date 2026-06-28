@@ -402,6 +402,29 @@ Spec et critères d'acceptation :
 
 ## Qualité / plateforme
 
+### EPIC E18 — Console d'administration & observabilité beta
+
+**Priorité : P1 — Statut : à planifier**
+
+Vue `/admin` réservée à l'owner pour superviser la beta privée d'un coup d'œil :
+adoption, volume de données synchronisées, santé des syncs et **coût IA réel**. Le besoin
+structurant : la conso de tokens IA n'est tracée nulle part aujourd'hui
+(`openai_client.py` jette `resp.usage`), donc l'EPIC est en deux temps — instrumenter,
+puis afficher. Spec : `docs/superpowers/specs/2026-06-28-e18-admin-console-design.md`.
+
+- **E18.1 P1 — Instrumentation conso LLM** : nouvelle table `llm_usage` (un row par appel
+  OpenAI, RLS deny-all), capture de `resp.usage` dans `openai_client.py`, tarif versionné
+  en code (`MODEL_PRICING`) pour calculer `cost_usd`, helper `record_llm_usage` branché sur
+  tous les sites d'appel LLM (séances + briefing). Best-effort : ne casse jamais la
+  génération. Prérequis de E18.2/E18.3.
+- **E18.2 P1 — Agrégats admin** : RPC `admin_overview()` `security definer` (garde owner
+  interne) renvoyant users (total + actifs 7j), activités (total + 7j), tokens + `cost_usd`
+  7j, santé sync (succès/échecs derniers crons), série coût/jour 7j.
+- **E18.3 P1 — Page `/admin`** : route Next.js gardée par email owner, cartes de stats +
+  graphe coût IA/jour (réutilise charts E14.1), lecture seule, UI dark existante.
+- **Suite (Todo séparés)** : détail par utilisateur, alerting/budget cap IA, gestion de
+  l'allowlist depuis l'UI, multi-admin (flag `is_admin`), affichage du coût converti en €.
+
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 
 **Priorité : P1 — Statut : V1 livrée (auto-apply, sans gate)**
