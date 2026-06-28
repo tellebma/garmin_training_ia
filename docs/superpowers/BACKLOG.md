@@ -4,6 +4,21 @@ Ce fichier est la source de vérité du backlog post-MVP. Les specs détaillées
 restent dans `docs/superpowers/specs/` et les plans d'exécution dans
 `docs/superpowers/plans/`.
 
+## Re-priorisation 2026-06-28 (ouverture beta amis + course août-sept)
+
+L'owner ouvre la beta à ses amis et la course est dans ~2-3 mois. Re-priorisation
+selon trois lentilles retenues — **qualité coach** (prépa course), **latence / temps
+réel**, **solidité multi-utilisateurs** — et **abandon de la lentille polish UX** pour
+l'instant. Conséquences :
+
+- **Remontés en P0** : E16.1 (double appel auth, plafond de latence transversal),
+  « Worker : filtrer le plan actif » (correctness multi-users), « Observabilité production »
+  (Sentry — voir les erreurs des amis), E9.4 (progression par discipline, spec+plan prêts).
+  E13.2 (déjà P0) reste prioritaire et est **en cours** (branche `feat/e13.2-...`).
+- **Rétrogradés en P2** (polish UX différé) : « Identité numérique / `DESIGN.md` »
+  (était P0), E14.3 bulles explicatives, carte « dernière activité » de `/today`.
+- Inchangés : E15.1 Strava (P1, plus gros chantier), E18 admin/coût IA (P1).
+
 ## EPICs issus des retours owner (2026-06-21)
 
 Trois EPICs regroupent les retours de l'owner du 21/06/2026. Les items détaillés
@@ -52,7 +67,7 @@ compréhensibles pour un athlète non expert.
 - **E14.2 P1 — Carte d'activité** : afficher le tracé GPS dans `/history/[id]` avec
   dénivelé et survol corrélé FC/allure. Recoupe E9.5 et la spec E8a.
   Livrable B livré : vignettes SVG dans l'historique, trace colorée par métrique (FC/vitesse/altitude) sur le détail, heatmap globale sur /stats.
-- **E14.3 P1 — Bulles explicatives** : infobulles sur charge (CTL), forme (TSB),
+- **E14.3 P2 — Bulles explicatives** (rétrogradé P1 → P2 le 2026-06-28) : infobulles sur charge (CTL), forme (TSB),
   fatigue (ATL), HRV, TSS, zones, dérive cardio. Expliquer « c'est quoi » et « comment
   l'utiliser pour progresser » en langage simple, plus un glossaire accessible.
 
@@ -115,7 +130,7 @@ prendre ensuite.
   inchangé) et le cockpit `/stats` expose un panneau `RecoveryPanel` en langage prudent
   (jamais de diagnostic). Suites notées : `sleep_excellent` encore en seuil absolu,
   gating confiance de la FC repos, affichage « dernière synchro… ».
-- **E9.4 P1 — Progression par discipline** : efficacité allure/FC en course,
+- **E9.4 P0 — Progression par discipline** (remontée P0 le 2026-06-28) : efficacité allure/FC en course,
   puissance/FC et FTP à vélo, performance en montée, métriques natation et
   détection de progression, stagnation ou charge mal assimilée.
 - **E9.5 P1 — Analyse avancée d'activité** : tours/intervalles, temps en zones,
@@ -271,6 +286,35 @@ Spec et critères d'acceptation :
 - Critère coach : un vrai plan triathlon inclut du travail de mobilité/renfo, pas
   seulement les trois disciplines.
 
+### P1 — Activités hors triathlon (musculation, marche, yoga…) (demande owner 2026-06-28)
+
+- **Demande owner** : prendre en charge les activités autres que nage/vélo/course —
+  **musculation** en premier, mais aussi marche, randonnée, yoga, etc. — pour que la pratique
+  réelle de l'athlète soit reflétée.
+- **Bonne nouvelle — l'ingestion fonctionne déjà** : `_normalize_sport`
+  (`worker/src/garmin_sync/transformers/activities.py`) mappe les 5 sports canoniques
+  (swim/bike/run/brick/race) et **retourne les sports inconnus tels quels** (`strength_training`,
+  `walking`, `hiking`, `yoga`…). La colonne `activities.sport` n'a **aucune contrainte `CHECK`**,
+  donc ces activités sont déjà stockées avec leur `typeKey` Garmin. Rien à ajouter côté sync.
+- **Ce qui manque réellement** :
+  1. **Charge / fatigue (P1, coach)** : ces activités n'entrent pas dans la distribution TSS
+     swim/bike/run et `compute_tss` ne les modélise pas. Décider comment elles contribuent à la
+     fatigue/charge (ex. charge via FC/durée pour la muscu, ou TSS estimé) pour que le briefing
+     et les garde-fous récup tiennent compte d'une grosse séance de muscu la veille.
+  2. **Affichage dédié (P2, polish — différé)** : labels FR lisibles + icônes par type
+     (haltère pour muscu, etc.) à la place de l'icône générique, et métriques pertinentes
+     (durée, FC, calories ; pas d'allure/distance pour la muscu). Recoupe le polish UX différé.
+  3. **Prescription par le coach (lien E13.3)** : si le coach doit **prescrire** de la muscu/renfo
+     dans le plan, c'est l'item « Séances de mobilité / renforcement dans le plan (E13.3) ».
+     Le présent item couvre l'**observation** (ce que l'athlète fait déjà), E13.3 la **prescription**.
+- **À cadrer à l'implémentation** : liste des types à supporter explicitement (vs « autre »
+  fourre-tout), modèle de charge pour la muscu (pas de puissance/allure), et si on filtre/groupe
+  les « autres activités » dans `/history` et `/stats`.
+- **Priorité au sein de l'item** : le volet **charge/fatigue** (P1) prime ; l'affichage dédié
+  (P2) suit la lentille polish différée.
+- **Critère produit** : une séance de musculation faite par l'athlète apparaît dans l'historique
+  avec un rendu correct et est prise en compte par le coach pour la récupération du lendemain.
+
 ### P1 — Feedback post-séance — V1 livrée
 
 - Après chaque activité, comparer prévu vs réalisé : durée, TSS, distance, D+,
@@ -348,7 +392,7 @@ Spec et critères d'acceptation :
 - Suite : enrichir ces garde-fous avec une analyse de progression hebdomadaire par
   discipline, en particulier pour limiter les hausses trop rapides en course à pied.
 
-### P1 — Carte « Dernière activité » de /today : cliquable + micro-verdict coach (retour owner 2026-06-27)
+### P2 — Carte « Dernière activité » de /today : cliquable + micro-verdict coach (retour owner 2026-06-27, rétrogradé P2 le 2026-06-28 — polish UX différé)
 
 - **Problème** : sur `/today`, la carte « Dernière activité » (`ActivityRow` dans
   `app/(app)/_components/activity-row.tsx`, rendue par `app/(app)/today/page.tsx`) est une
@@ -522,8 +566,9 @@ runtime)** :
   le layout, pour ne payer l'auth qu'une fois par requête.
 
 **Actions** :
-- E16.1 P1 — Supprimer le double appel auth (layout + `requireOnboarded`) via `cache()` ou
+- E16.1 P0 — Supprimer le double appel auth (layout + `requireOnboarded`) via `cache()` ou
   garde unique au layout. Gain transversal sur le TTFB de toutes les pages.
+  (Remontée P0 le 2026-06-28 — plafond de latence partagé, fix court.)
 - E16.2 P2 — Passer `/plan` et `/history` en sections `<Suspense>` + skeletons dédiés.
 - E16.3 P2 — Ajouter un `loading.tsx` à `/onboarding`.
 - E16.4 P2 — Empreinte de fraîcheur des données pour invalider finement (déjà listé comme
@@ -535,7 +580,7 @@ runtime)** :
 bloc apparaît dès que sa donnée est prête, et aucune page n'attend sa requête la plus lente
 pour montrer quoi que ce soit.
 
-### P0 — Identité numérique et style graphique coach
+### P2 — Identité numérique et style graphique coach (rétrogradé P0 → P2 le 2026-06-28 — polish UX différé)
 
 - Définir une identité visuelle stable : personnalité de marque, ton éditorial,
   palette, typographies, iconographie, densité d'information, états d'alerte et
@@ -642,7 +687,7 @@ pour montrer quoi que ce soit.
 - **Critère produit** : un athlète habitué à Strava retrouve partout ses unités familières
   (km/h vélo, min/km course, min/100m natation), y compris dans les séances du plan.
 
-### P1 — Pédagogie des métriques (bulles explicatives) (E14.3)
+### P2 — Pédagogie des métriques (bulles explicatives) (E14.3) (rétrogradé P1 → P2 le 2026-06-28 — polish UX différé)
 
 - Ajouter des bulles/infobulles explicatives sur les graphiques et métriques clés :
   charge (CTL), forme (TSB), fatigue (ATL), HRV, TSS, zones, dérive cardio.
@@ -728,7 +773,7 @@ pour montrer quoi que ce soit.
 - Mapper proprement les statuts HTTP non-OK, timeouts, rate limits et erreurs
   inattendues.
 
-### P1 — Worker : filtrer le plan actif sur les lectures `planned_sessions` (avant E9)
+### P0 — Worker : filtrer le plan actif sur les lectures `planned_sessions` (avant E9) (remontée P1 → P0 le 2026-06-28 — correctness multi-users à l'ouverture beta)
 
 Contexte : le frontend (`/today`, `/plan`, historique) lit les `planned_sessions`
 avec `training_plans!inner(status)` + `status='active'` + `order(created_at desc)` +
@@ -756,7 +801,7 @@ et `ensure_sessions` générera des séances en double.
 - Ajouter les types `Database` générés depuis les migrations.
 - Typer les clients Supabase et réduire les casts dans les pages dashboard.
 
-### P1 — Observabilité production
+### P0 — Observabilité production (remontée P1 → P0 le 2026-06-28 — visibilité des erreurs beta)
 
 - Initialiser Sentry côté worker.
 - Ajouter logs structurés et métriques : durée sync, erreurs Garmin, erreurs OpenAI,
