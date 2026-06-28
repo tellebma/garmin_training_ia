@@ -101,11 +101,12 @@ qui répond chaque semaine à quatre questions : qu'est-ce qui a été réalisé
 comment la charge a été assimilée, où l'athlète progresse et quelle décision
 prendre ensuite.
 
-- **E9.1 P0 — Cockpit hebdomadaire** : prévu vs réalisé, charge, durée, distance,
-  dénivelé, assiduité, répartition par zones et équilibre intensité/récupération.
-- **E9.2 P0 — Feedback subjectif** : RPE post-séance, fatigue, douleurs,
-  courbatures et humeur ; calcul de charge session-RPE et comparaison entre
-  difficulté prévue et ressentie.
+- **E9.1 P0 — Cockpit hebdomadaire — V1 livrée** : prévu vs réalisé, charge, durée,
+  distance, dénivelé, assiduité, répartition par zones et équilibre intensité/récupération.
+  Voir « Statut incrément 1 » ci-dessous (E9.1 V1). Reste-à-faire suivi via E9.4/E9.5/E9.6.
+- **E9.2 P0 — Feedback subjectif — V1 livrée** : RPE post-séance, fatigue, douleurs,
+  courbatures et humeur ; calcul de charge session-RPE et comparaison entre difficulté
+  prévue et ressentie. Voir « Statut incrément 1 » ci-dessous (E9.2 V1).
 - **E9.3 P1 — Récupération individualisée — V1 livrée** (PR #67) : baselines
   personnelles (médiane glissante 28j) pour HRV, FC repos, sommeil, stress et Body
   Battery, avec tendance orientée physiologiquement, confiance par couverture de données
