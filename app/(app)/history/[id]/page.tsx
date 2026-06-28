@@ -356,7 +356,12 @@ async function ActivityDetailBody({
                       <td className="py-2 pr-3">{formatDistanceFromMeters(segment.distance_m)}</td>
                       <td className="py-2 pr-3">{formatDecimal(segment.avg_grade_pct, '%')}</td>
                       <td className="py-2 pr-3">{formatNumber(segment.avg_hr_bpm, ' bpm')}</td>
-                      <td className="py-2 pr-3">{formatDecimal(segment.avg_speed_kmh, ' km/h')}</td>
+                      <td className="py-2 pr-3">
+                        {formatSpeedForSport(
+                          knownSport(activity.sport) ? activity.sport : 'bike',
+                          segment.avg_speed_kmh != null ? segment.avg_speed_kmh / 3.6 : null
+                        )}
+                      </td>
                       <td className="py-2">{formatDecimal(segment.speed_variability_pct, '%')}</td>
                     </tr>
                   ))}
