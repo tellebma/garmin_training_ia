@@ -1,3 +1,4 @@
+import { formatTargetForSport } from '@/lib/dashboard/format'
 import {
   isIntervalSet,
   type IntervalBlock,
@@ -50,8 +51,11 @@ function fmtTarget(t: IntervalTarget, sport: Sport): string {
   if (sport === 'bike' && t.watts_low && t.watts_high) {
     return `${String(t.watts_low)}-${String(t.watts_high)} W`
   }
-  if (sport === 'run' && t.pace_low_kmh && t.pace_high_kmh) {
-    return `${t.pace_low_kmh.toFixed(1)}-${t.pace_high_kmh.toFixed(1)} km/h`
+  if ((sport === 'run' || sport === 'swim') && t.pace_low_kmh && t.pace_high_kmh) {
+    return formatTargetForSport(sport, {
+      pace_low_kmh: t.pace_low_kmh,
+      pace_high_kmh: t.pace_high_kmh,
+    })
   }
   return t.label
 }

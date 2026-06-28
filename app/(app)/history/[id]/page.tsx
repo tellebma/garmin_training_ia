@@ -16,7 +16,12 @@ import {
   type ActivityDetail,
 } from '@/lib/coach/activity-analysis'
 import { fetchAllActivitySamples } from '@/lib/activities/activity-samples'
-import { formatDistanceFromMeters, formatDuration, formatTSS } from '@/lib/dashboard/format'
+import {
+  formatDistanceFromMeters,
+  formatDuration,
+  formatTSS,
+  formatSpeedForSport,
+} from '@/lib/dashboard/format'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
@@ -47,8 +52,9 @@ function formatPace(secondsPerKm: number | null | undefined): string {
 
 function formatSpeed(activity: ActivityDetail): string {
   if (!activity.distance_m || !activity.duration_s || activity.duration_s <= 0) return '—'
-  const kmh = activity.distance_m / 1000 / (activity.duration_s / 3600)
-  return `${kmh.toFixed(1)} km/h`
+  const speedMs = activity.distance_m / activity.duration_s
+  const sport: Sport = knownSport(activity.sport) ? activity.sport : 'bike'
+  return formatSpeedForSport(sport, speedMs)
 }
 
 function formatNumber(value: number | null | undefined, suffix = ''): string {
@@ -203,6 +209,7 @@ async function ActivityDetailBody({
   const analysis = buildActivityCoachAnalysis({ activity, plannedSession, similar })
   const sampleSummary = samples.length > 0 ? summarizeActivitySamples(samples, fcMax) : null
   const nextSessionAdjustment = buildNextSessionAdjustment(sampleSummary, upcomingSessions)
+  const sport: Sport = knownSport(activity.sport) ? activity.sport : 'bike'
 
   return (
     <>
@@ -293,7 +300,7 @@ async function ActivityDetailBody({
           title="Courbes d'activité"
           description="Fréquence cardiaque, altitude, puissance, cadence et allure selon les données Garmin disponibles."
         >
-          <ActivitySamplesChart data={samples} />
+          <ActivitySamplesChart data={samples} sport={sport} />
         </ChartCard>
       )}
 
@@ -347,7 +354,12 @@ async function ActivityDetailBody({
                       <td className="py-2 pr-3">{formatDistanceFromMeters(segment.distance_m)}</td>
                       <td className="py-2 pr-3">{formatDecimal(segment.avg_grade_pct, '%')}</td>
                       <td className="py-2 pr-3">{formatNumber(segment.avg_hr_bpm, ' bpm')}</td>
-                      <td className="py-2 pr-3">{formatDecimal(segment.avg_speed_kmh, ' km/h')}</td>
+                      <td className="py-2 pr-3">
+                        {formatSpeedForSport(
+                          sport,
+                          segment.avg_speed_kmh == null ? null : segment.avg_speed_kmh / 3.6
+                        )}
+                      </td>
                       <td className="py-2">{formatDecimal(segment.speed_variability_pct, '%')}</td>
                     </tr>
                   ))}

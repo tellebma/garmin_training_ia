@@ -1,107 +1,103 @@
 'use client'
 
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { useState } from 'react'
 import type { ActivitySample } from '@/lib/coach/activity-analysis'
+import type { Sport } from '@/lib/dashboard/types'
+import { MetricPanel } from './metric-panel'
+import { availableMetrics, buildChartData, hasDistance, type MetricKey } from './use-samples-chart'
 
 interface ActivitySamplesChartProps {
   readonly data: ActivitySample[]
+  readonly sport: Sport
   readonly height?: number
 }
 
-function hasMetric(data: ActivitySample[], key: keyof ActivitySample): boolean {
-  return data.some((sample) => typeof sample[key] === 'number')
-}
+export function ActivitySamplesChart({ data, sport, height = 96 }: ActivitySamplesChartProps) {
+  const distanceAvailable = hasDistance(data)
+  const [xBasis, setXBasis] = useState<'time' | 'distance'>('time')
+  const [hidden, setHidden] = useState<Set<MetricKey>>(new Set())
 
-function labelMinutes(sample: ActivitySample): string {
-  if (typeof sample.elapsed_s === 'number') return `${String(Math.round(sample.elapsed_s / 60))}m`
-  return String(sample.sample_index)
-}
+  const metrics = availableMetrics(data, sport)
+  const effectiveBasis = xBasis === 'distance' && distanceAvailable ? 'distance' : 'time'
+  const chartData = buildChartData(data, sport, effectiveBasis)
+  const visible = metrics.filter((m) => !hidden.has(m.key))
 
-export function ActivitySamplesChart({ data, height = 320 }: ActivitySamplesChartProps) {
-  const chartData = data.map((sample) => ({
-    ...sample,
-    label: labelMinutes(sample),
-    pace_min_km:
-      typeof sample.speed_m_s === 'number' && sample.speed_m_s > 0
-        ? 1000 / sample.speed_m_s / 60
-        : null,
-  }))
+  function toggleMetric(key: MetricKey) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-        <YAxis tick={{ fontSize: 10 }} />
-        <Tooltip
-          contentStyle={{
-            background: 'var(--card)',
-            border: '1px solid var(--border)',
-            borderRadius: 6,
-            fontSize: 12,
-          }}
-        />
-        <Legend wrapperStyle={{ fontSize: 11 }} />
-        {hasMetric(data, 'heart_rate_bpm') && (
-          <Line
-            type="monotone"
-            dataKey="heart_rate_bpm"
-            stroke="var(--chart-1)"
-            strokeWidth={2}
-            dot={false}
-            name="FC"
-          />
-        )}
-        {hasMetric(data, 'elevation_m') && (
-          <Line
-            type="monotone"
-            dataKey="elevation_m"
-            stroke="var(--chart-2)"
-            strokeWidth={2}
-            dot={false}
-            name="Altitude"
-          />
-        )}
-        {hasMetric(data, 'power_w') && (
-          <Line
-            type="monotone"
-            dataKey="power_w"
-            stroke="var(--chart-3)"
-            strokeWidth={2}
-            dot={false}
-            name="Puissance"
-          />
-        )}
-        {hasMetric(data, 'cadence_rpm') && (
-          <Line
-            type="monotone"
-            dataKey="cadence_rpm"
-            stroke="var(--chart-4)"
-            strokeWidth={2}
-            dot={false}
-            name="Cadence"
-          />
-        )}
-        {hasMetric(data, 'speed_m_s') && (
-          <Line
-            type="monotone"
-            dataKey="pace_min_km"
-            stroke="var(--chart-5)"
-            strokeWidth={2}
-            dot={false}
-            name="Allure min/km"
-          />
-        )}
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="bg-muted flex rounded-md p-0.5 text-xs">
+          <button
+            type="button"
+            onClick={() => {
+              setXBasis('time')
+            }}
+            className={`rounded px-2 py-1 ${effectiveBasis === 'time' ? 'bg-card font-medium' : 'text-muted-foreground'}`}
+          >
+            Temps
+          </button>
+          <button
+            type="button"
+            disabled={!distanceAvailable}
+            onClick={() => {
+              setXBasis('distance')
+            }}
+            className={`rounded px-2 py-1 ${effectiveBasis === 'distance' ? 'bg-card font-medium' : 'text-muted-foreground'} disabled:opacity-40`}
+          >
+            Distance
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {metrics.map((m) => {
+            const active = !hidden.has(m.key)
+            return (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => {
+                  toggleMetric(m.key)
+                }}
+                aria-pressed={active}
+                className={`rounded-full border px-2 py-0.5 text-xs ${active ? 'text-foreground border-transparent' : 'text-muted-foreground opacity-60'}`}
+                style={
+                  active
+                    ? { background: `color-mix(in srgb, ${m.color} 18%, transparent)` }
+                    : undefined
+                }
+              >
+                {m.name}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="text-muted-foreground py-8 text-center text-sm">
+          Sélectionne au moins une métrique à afficher.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {visible.map((m, idx) => (
+            <MetricPanel
+              key={m.key}
+              descriptor={m}
+              data={chartData}
+              xUnit={effectiveBasis === 'distance' ? 'km' : 'min'}
+              showXAxis={idx === visible.length - 1}
+              height={height}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
