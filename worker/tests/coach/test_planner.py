@@ -748,6 +748,51 @@ def test_cap_bike_uses_its_own_cap() -> None:
     assert out["bike"] == 120.0  # vélo +20%
 
 
+def test_post_deload_rebound_not_throttled() -> None:
+    """Post-deload week must rebound to the pre-deload sustained level, not
+    be throttled to deload_tss * 1.10.
+
+    Simulates the conditional-prev threading for three consecutive weeks:
+      offset=2 (normal, build)   → prev updated to sustained level
+      offset=3 (deload, build)   → (offset+1)%4==0 → prev NOT updated
+      offset=4 (normal, build)   → rebound allowed (prev still = week3 level)
+
+    Without the fix, prev would be updated to the deload TSS and week5 run
+    would be capped at deload*1.10 ≈ 0.77*S.  With the fix, prev stays at S
+    and the rebound week is only capped at S*1.10, allowing full recovery.
+    """
+    sports = ["run"]
+    strengths = {"run": 3}
+    sustained_tss = 100.0
+    deload_tss = 70.0  # ~0.7 * sustained (mirrors DELOAD_RAMP_RATE)
+
+    prev: dict[str, float] | None = None
+    deload_run = 0.0
+    rebound_run = 0.0
+    for offset, weekly_tss in [(2, sustained_tss), (3, deload_tss), (4, sustained_tss)]:
+        phase: str = "build"
+        tss_by_sport = distribute_weekly_tss_by_sport(
+            weekly_tss=weekly_tss, sports_in_race=sports, sports_strengths=strengths
+        )
+        tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev)
+        is_reduction_week = phase == "taper" or (offset + 1) % 4 == 0
+        if not is_reduction_week:
+            prev = tss_by_sport
+        if offset == 3:
+            deload_run = tss_by_sport["run"]
+        if offset == 4:
+            rebound_run = tss_by_sport["run"]
+
+    # The rebound must NOT be capped at deload*1.10 (≈ 77)
+    # because prev was preserved at the sustained level during the deload.
+    assert rebound_run > deload_run * 1.10, (
+        f"Post-deload rebound was throttled: rebound={rebound_run}, "
+        f"deload={deload_run}, 10%-above-deload={deload_run * 1.10:.2f}"
+    )
+    # And the rebound must not wildly overshoot (capped at sustained*1.10)
+    assert rebound_run <= sustained_tss * 1.10 + 0.01
+
+
 def test_distribute_then_cap_run_never_exceeds_10pct_week_over_week() -> None:
     # simule 2 semaines consécutives : la 2e demande +50% sur run -> bridée à +10%.
     w1 = cap_weekly_ramp_by_sport(

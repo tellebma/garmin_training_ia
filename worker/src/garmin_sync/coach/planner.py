@@ -657,7 +657,9 @@ def generate_plan(user_id: str) -> dict[str, Any]:
             progress=progress,
         )
         tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
-        prev_tss_by_sport = tss_by_sport
+        is_reduction_week = phase == "taper" or (offset + 1) % 4 == 0
+        if not is_reduction_week:
+            prev_tss_by_sport = tss_by_sport
         is_last = offset == weeks_count - 1
         sessions = _build_week_sessions(
             week_offset=offset,
