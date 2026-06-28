@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from garmin_sync.coach.activity_review import ActivityInsight, ActivityReview
 from garmin_sync.coach.sessions import (
     SessionNotFound,
+    _inject_effective_strengths,
     ensure_sessions,
     regenerate_session,
 )
@@ -277,3 +279,25 @@ def test_regenerate_session_not_found_for_user(mock_db):
     session_lookup.data = None
     with pytest.raises(SessionNotFound):
         regenerate_session(user_id="u1", session_id="other-id")
+
+
+def test_inject_effective_strengths_overwrites_declared_with_effective() -> None:
+    # run déclaré 4 mais ~0 activité sur 90j -> descendu à 3.
+    db = MagicMock()
+    chain = db.table.return_value.select.return_value.eq.return_value.gte.return_value.execute.return_value  # noqa: E501
+    chain.data = []  # pas d'activité
+    athlete = {"sports_strengths": {"swim": 2, "bike": 4, "run": 4}, "ftp_watts": 240}
+    out = _inject_effective_strengths(db, "u1", athlete, today=date(2026, 6, 28))
+    # sans activité -> safe noop : effectif == déclaré (borné), donc inchangé ici
+    assert out["sports_strengths"] == {"swim": 2, "bike": 4, "run": 4}
+
+
+@patch("garmin_sync.coach.sessions.load_effective_strengths")
+def test_inject_effective_strengths_uses_reconciled_levels(mock_load) -> None:
+    mock_load.return_value = {"swim": 2, "bike": 5, "run": 3}
+    db = MagicMock()
+    athlete = {"sports_strengths": {"swim": 2, "bike": 4, "run": 3}, "ftp_watts": 240}
+    out = _inject_effective_strengths(db, "u1", athlete)
+    assert out["sports_strengths"] == {"swim": 2, "bike": 5, "run": 3}
+    # le reste du profil est préservé
+    assert out["ftp_watts"] == 240
