@@ -14,6 +14,7 @@ from garminconnect import (
 from garmin_sync.coach.state import recompute_daily_state
 from garmin_sync.crypto import TokenCipher
 from garmin_sync.garmin_client import GarminAuthError, login_with_tokens
+from garmin_sync.observability import capture
 from garmin_sync.supabase_client import get_admin_client
 from garmin_sync.sync import (
     SYNC_MODE_ACTIVITIES_ONLY,
@@ -32,14 +33,16 @@ INITIAL_BACKFILL_DAYS = 90
 def _run_post_sync_recomputes(user_id: str) -> None:
     try:
         recompute_daily_state(user_id, days_back=180)
-    except Exception:
+    except Exception as exc:
         log.exception("recompute_daily_state failed for user=%s", user_id)
+        capture(exc, where="recompute_daily_state", user_id=user_id)
     try:
         from garmin_sync.coach.recovery_baselines import recompute_recovery_baselines
 
         recompute_recovery_baselines(user_id)
-    except Exception:
+    except Exception as exc:
         log.exception("recompute_recovery_baselines failed for user=%s", user_id)
+        capture(exc, where="recompute_recovery_baselines", user_id=user_id)
 
 
 def run_sync_for_user(
@@ -117,8 +120,9 @@ def run_sync_for_user(
         # Banister state from whatever was persisted so /today + /stats still work.
         try:
             recompute_daily_state(user_id, days_back=180)
-        except Exception:
+        except Exception as recompute_exc:
             log.exception("recompute_daily_state failed for user=%s", user_id)
+            capture(recompute_exc, where="recompute_daily_state", user_id=user_id)
         return {"status": "garmin_no_display_name"}
 
     now_iso = datetime.now(UTC).isoformat()
@@ -164,8 +168,9 @@ def _run_cron(mode: SyncMode, label: str) -> dict[str, Any]:
     for uid in user_ids:
         try:
             results[uid] = run_sync_for_user(uid, initial=False, mode=mode)
-        except Exception:
+        except Exception as exc:
             log.exception("%s cron failed for user=%s", label, uid)
+            capture(exc, where="sync_cron", mode=label, user_id=uid)
             results[uid] = {"status": "exception"}
     return {"mode": mode, "total_users": len(user_ids), "results": results}
 
@@ -200,8 +205,9 @@ def run_profile_sync_cron() -> dict[str, Any]:
                 db.table("garmin_credentials").update(
                     {"last_profile_sync_at": datetime.now(UTC).isoformat()}
                 ).eq("user_id", uid).execute()
-        except Exception:
+        except Exception as exc:
             log.exception("profile sync failed for user=%s", uid)
+            capture(exc, where="profile_sync_cron", user_id=uid)
             results[uid] = {"status": "exception"}
     return {"mode": "profile", "total_users": len(user_ids), "results": results}
 
@@ -218,6 +224,9 @@ if __name__ == "__main__":
     import json
     import sys
 
+    from garmin_sync.observability import init_sentry
+
+    init_sentry()
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
     runner = _MODES.get(mode)
     if not runner:

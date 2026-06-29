@@ -155,6 +155,50 @@ def test_ensure_sessions_continues_on_error(mock_db, mock_gen):
     assert result["failed_count"] == 1
 
 
+@patch("garmin_sync.coach.sessions.capture")
+@patch("garmin_sync.coach.sessions._load_activity_review")
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_reports_failure_to_sentry(mock_db, mock_gen, mock_review, mock_capture):
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [
+        {
+            "id": "s1",
+            "sport": "run",
+            "session_type": "endurance",
+            "target_duration_s": 3000,
+            "target_tss": 50,
+            "phase": "base",
+            "date": "2026-05-21",
+        },
+    ]
+    _profile_chain(db).data = {"sports_strengths": {"swim": 2, "bike": 4, "run": 3}}
+    _race_chain(db).data = None
+    mock_review.return_value = ActivityReview(
+        lookback_days=90,
+        activities_7d=0,
+        activities_28d=0,
+        tss_7d=0,
+        avg_weekly_tss_prev_21d=0,
+        elevation_gain_7d=0,
+        avg_weekly_elevation_prev_21d=0,
+        sport_counts_28d={},
+        days_since_last_activity=None,
+        insights=[],
+    )
+
+    from garmin_sync.coach.openai_client import OpenAIError
+
+    mock_gen.side_effect = OpenAIError("unrealistic workout: warmup exceeds cap")
+
+    ensure_sessions(user_id="u1", days=7)
+
+    mock_capture.assert_called_once()
+    assert mock_capture.call_args.kwargs["where"] == "ensure_sessions"
+    assert mock_capture.call_args.kwargs["session_id"] == "s1"
+
+
 @patch("garmin_sync.coach.sessions._load_activity_review")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")

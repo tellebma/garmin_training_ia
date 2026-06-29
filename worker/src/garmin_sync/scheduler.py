@@ -25,6 +25,8 @@ from typing import Any
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from garmin_sync.observability import capture
+
 log = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
@@ -38,8 +40,9 @@ def _wrap_job(name: str, runner: Any) -> Any:
         try:
             result = runner()
             log.info("scheduler: job=%s done result=%s", name, result)
-        except Exception:
+        except Exception as exc:
             log.exception("scheduler: job=%s crashed", name)
+            capture(exc, where="scheduler", job=name)
 
     _job.__name__ = f"scheduled_{name}"
     return _job

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     worker_shared_token: SecretStr
     env: Literal["dev", "test", "staging", "prod"] = Field(default="dev")
     sentry_dsn: SecretStr | None = Field(default=None)
+    sentry_traces_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     openai_api_key: SecretStr = Field(default=SecretStr(""))
     openai_model: str = Field(default="gpt-4o-mini")
     openai_timeout_s: int = Field(default=30)

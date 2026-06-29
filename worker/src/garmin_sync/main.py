@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import sys
-import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field
 from garmin_sync.auth import AuthError, verify_shared_token, verify_supabase_jwt
 from garmin_sync.config import get_settings
 from garmin_sync.cron import run_sync_for_user
+from garmin_sync.observability import init_sentry, report_endpoint_error
 from garmin_sync.supabase_client import get_admin_client
 
 _BEARER_PREFIX = "Bearer "
@@ -51,6 +51,7 @@ def create_app(*, enable_scheduler: bool | None = None) -> FastAPI:
     """
     if enable_scheduler is None:
         enable_scheduler = get_settings().env != "test"
+    init_sentry()
     app_lifespan = scheduler_lifespan if enable_scheduler else None
     created = FastAPI(title="garmin-sync", version="0.1.0", lifespan=app_lifespan)
     created.include_router(router)
@@ -78,10 +79,6 @@ def _require_user_jwt(authorization: str | None) -> str:
         return verify_supabase_jwt(token)
     except AuthError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
-
-
-def _new_error_id() -> str:
-    return uuid.uuid4().hex[:8]
 
 
 _AuthHeader = Annotated[str | None, Header()]
@@ -112,13 +109,7 @@ async def garmin_sync(
 
         return run_ondemand_sync(user_id, trigger)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] garmin_sync endpoint crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="garmin_sync", user_id=user_id)
 
 
 class GarminConnectRequest(BaseModel):
@@ -143,13 +134,7 @@ async def garmin_connect(
 
         return start_connect_flow(user_id=user_id, email=body.email, password=body.password)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] garmin_connect endpoint crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="garmin_connect", user_id=user_id)
 
 
 @router.post("/garmin/mfa")
@@ -163,13 +148,7 @@ async def garmin_mfa(
 
         return resume_connect_flow(user_id=user_id, challenge_id=body.challenge_id, code=body.code)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] garmin_mfa endpoint crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="garmin_mfa", user_id=user_id)
 
 
 @router.post("/garmin/profile-sync")
@@ -187,13 +166,7 @@ async def garmin_profile_sync(
 
         return sync_garmin_profile(user_id)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] garmin_profile_sync endpoint crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="garmin_profile_sync", user_id=user_id)
 
 
 @router.post("/coach/generate-plan")
@@ -207,13 +180,7 @@ async def coach_generate_plan(
 
         return generate_plan(user_id)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] coach_generate_plan crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="coach_generate_plan", user_id=user_id)
 
 
 @router.post("/coach/discipline-levels")
@@ -253,17 +220,7 @@ async def coach_discipline_levels(
         }
         return compute_discipline_levels(declared, activities, today=today).to_dict()
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception(
-            "[%s] coach_discipline_levels crashed for user=%s",
-            error_id,
-            user_id,
-        )
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="coach_discipline_levels", user_id=user_id)
 
 
 class EnsureSessionsRequest(BaseModel):
@@ -290,13 +247,7 @@ async def coach_ensure_sessions(
             return {"status": "rate_limited", "retry_after_seconds": 60}
         return ensure_sessions(user_id=user_id, days=body.days)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] coach_ensure_sessions crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="coach_ensure_sessions", user_id=user_id)
 
 
 @router.post("/coach/daily-briefing")
@@ -322,13 +273,7 @@ async def coach_daily_briefing(
             return {"status": "rate_limited", "retry_after_seconds": 60}
         return compute_and_cache_daily_briefing(user_id=user_id)
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception("[%s] coach_daily_briefing crashed for user=%s", error_id, user_id)
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
+        return report_endpoint_error(e, endpoint="coach_daily_briefing", user_id=user_id)
 
 
 @router.post("/coach/regenerate-session/{session_id}")
@@ -350,18 +295,9 @@ async def coach_regenerate_session(
     except SessionNotFound:
         return {"status": "session_not_found"}
     except Exception as e:
-        error_id = _new_error_id()
-        log.exception(
-            "[%s] coach_regenerate_session crashed for user=%s session=%s",
-            error_id,
-            user_id,
-            session_id,
+        return report_endpoint_error(
+            e, endpoint="coach_regenerate_session", user_id=user_id, session_id=session_id
         )
-        return {
-            "status": "unexpected_error",
-            "error_id": error_id,
-            "type": type(e).__name__,
-        }
 
 
 app = create_app()
