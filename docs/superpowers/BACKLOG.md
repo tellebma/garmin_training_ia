@@ -854,6 +854,11 @@ et `ensure_sessions` générera des séances en double.
   profile par-user, recomputes Banister post-sync. Les 8 endpoints reportent via
   `report_endpoint_error` avec l'`error_id` partagé entre la réponse navigateur et le tag
   Sentry. Config : `SENTRY_TRACES_SAMPLE_RATE`.
+- **Alerting Discord livré (2026-06-30, même branche)** : module `alerting.py`
+  (`notify_discord_error`), branché dans le funnel `capture()` — chaque erreur capturée
+  envoie un embed Discord (titre `type — where`, message, tags env/user_id/session_id…) via
+  webhook. Actif dès que `DISCORD_WEBHOOK_URL` est défini (off sinon), découplé de Sentry,
+  ne lève jamais (échecs avalés + log warning). Push proactif sur le téléphone de l'owner.
 - **Reste à faire** :
   - **Frontend** : SDK Sentry Next.js (client + server + edge) pour les erreurs Server Actions
     et navigateur (P2).
@@ -861,7 +866,8 @@ et `ensure_sessions` générera des séances en double.
     Healthchecks.io) pour détecter « le cron ne s'est pas lancé du tout » (P3).
   - **Logs structurés + métriques** : durée sync, coût/tokens OpenAI (recoupe E18 `llm_usage`),
     taux d'échec génération (P4).
-  - **Règles d'alerte** → email/Discord (P5).
+  - **Affiner l'alerting** : règles email Sentry + dédup/seuils si le volume Discord devient
+    bruyant (actuellement 1 message par erreur, OK pour la beta).
 
 ### P2 — Élargir E2E et Lighthouse aux parcours réels
 

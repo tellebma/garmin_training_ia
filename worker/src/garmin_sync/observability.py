@@ -14,6 +14,7 @@ from typing import Any
 
 import sentry_sdk
 
+from garmin_sync.alerting import notify_discord_error
 from garmin_sync.config import get_settings
 
 log = logging.getLogger("garmin_sync")
@@ -45,6 +46,7 @@ def capture(exc: BaseException, *, where: str, level: str = "error", **tags: Any
 
     No-op when Sentry is disabled. ``where`` identifies the failing operation;
     extra keyword tags (user_id, session_id, error_id…) are attached when set.
+    Also fans out to Discord when a webhook is configured (independent of Sentry).
     """
     with sentry_sdk.new_scope() as scope:
         scope.level = level
@@ -53,6 +55,7 @@ def capture(exc: BaseException, *, where: str, level: str = "error", **tags: Any
             if value is not None:
                 scope.set_tag(key, str(value))
         sentry_sdk.capture_exception(exc)
+    notify_discord_error(exc, where=where, level=level, **tags)
 
 
 def report_endpoint_error(exc: Exception, *, endpoint: str, **context: Any) -> dict[str, Any]:
