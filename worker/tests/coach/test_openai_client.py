@@ -219,6 +219,85 @@ def test_prompt_includes_activity_review_context(mock_get_client):
     assert "Garde une marge" in user_msg
 
 
+def _block(duration_s: int, label: str = "Z2", rpe: int = 4) -> dict:
+    return {"duration_s": duration_s, "target": {"label": label, "rpe": rpe}, "notes": None}
+
+
+def _workout_dict(warmup_s: int, main_s: int, cooldown_s: int) -> dict:
+    return {
+        "warmup": _block(warmup_s, "Z1", 2),
+        "main": [_block(main_s)],
+        "cooldown": _block(cooldown_s, "Z1", 2),
+        "summary_md": "ok",
+        "technical_focus": None,
+    }
+
+
+def _resp(workout_dict: dict) -> MagicMock:
+    resp = MagicMock()
+    resp.choices = [MagicMock(message=MagicMock(parsed=MagicMock(model_dump=lambda: workout_dict)))]
+    return resp
+
+
+def _endurance_session() -> dict:
+    return {
+        "sport": "bike",
+        "session_type": "endurance",
+        "target_duration_s": 3600,
+        "target_tss": 60,
+        "phase": "build",
+    }
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_prompt_includes_numeric_envelope(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(360, 2880, 360))
+    generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+    user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
+    assert "80%" in user_msg  # endurance main-work floor surfaced to the model
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_generate_workout_retries_with_feedback_then_succeeds(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    invalid = _workout_dict(1800, 1500, 300)  # warmup 1800s > endurance cap 900s
+    valid = _workout_dict(360, 2880, 360)
+    mock_client.beta.chat.completions.parse.side_effect = [_resp(invalid), _resp(valid)]
+
+    workout = generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+
+    assert workout.warmup.duration_s == 360
+    assert mock_client.beta.chat.completions.parse.call_count == 2
+    # the corrective feedback (validation error) is fed back into the retry prompt
+    retry_messages = mock_client.beta.chat.completions.parse.call_args_list[1].kwargs["messages"]
+    retry_text = "\n".join(m["content"] for m in retry_messages)
+    assert "warmup" in retry_text  # the failing dimension is named
+    assert "1800" in retry_text  # the offending value is fed back
+
+
+@patch("garmin_sync.coach.openai_client.get_settings")
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_generate_workout_raises_after_max_attempts(mock_get_client, mock_get_settings):
+    mock_get_settings.return_value = MagicMock(openai_model="gpt-4o-mini", openai_max_attempts=2)
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    invalid = _workout_dict(1800, 1500, 300)
+    mock_client.beta.chat.completions.parse.return_value = _resp(invalid)
+
+    with pytest.raises(OpenAIError, match="unrealistic workout"):
+        generate_workout_for_session(
+            session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+        )
+    assert mock_client.beta.chat.completions.parse.call_count == 2
+
+
 @patch("garmin_sync.coach.openai_client._get_client")
 def test_generate_workout_rejects_unrealistic_structure(mock_get_client):
     mock_client = MagicMock()

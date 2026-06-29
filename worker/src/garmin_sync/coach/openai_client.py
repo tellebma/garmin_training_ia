@@ -7,7 +7,11 @@ from typing import Any
 
 from openai import OpenAI
 
-from garmin_sync.coach.workout_schema import Workout, validate_workout_for_session
+from garmin_sync.coach.workout_schema import (
+    Workout,
+    describe_session_envelope,
+    validate_workout_for_session,
+)
 from garmin_sync.config import get_settings
 
 
@@ -122,26 +126,17 @@ def _build_user_prompt(
     lines.extend(_activity_review_lines(race_context.get("activity_review")))
     if session.get("coach_context"):
         lines.extend(["", f"Contexte coach : {session['coach_context']}"])
+    lines.extend(["", describe_session_envelope(session)])
     return "\n".join(lines)
 
 
-def generate_workout_for_session(
-    *,
-    session: dict[str, Any],
-    athlete: dict[str, Any],
-    race_context: dict[str, Any],
+def _call_and_validate(
+    client: Any, model: str, messages: list[dict[str, str]], session: dict[str, Any]
 ) -> Workout:
-    """Call OpenAI with structured output, return a validated Workout."""
-    client = _get_client()
-    settings = get_settings()
+    """One LLM round-trip + validation. Raises OpenAIError on any failure."""
     try:
         resp = client.beta.chat.completions.parse(
-            model=settings.openai_model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": _build_user_prompt(session, athlete, race_context)},
-            ],
-            response_format=Workout,
+            model=model, messages=messages, response_format=Workout
         )
     except Exception as e:
         raise OpenAIError(f"OpenAI call failed: {e}") from e
@@ -153,3 +148,41 @@ def generate_workout_for_session(
         return validate_workout_for_session(workout, session)
     except ValueError as e:
         raise OpenAIError(f"OpenAI returned unrealistic workout: {e}") from e
+
+
+def generate_workout_for_session(
+    *,
+    session: dict[str, Any],
+    athlete: dict[str, Any],
+    race_context: dict[str, Any],
+) -> Workout:
+    """Call OpenAI with structured output, retrying with corrective feedback.
+
+    A small model regularly returns a workout that breaks the numeric envelope
+    (warmup cap, main-work ratio, total duration). Instead of failing the whole
+    session on the first bad draw, re-prompt with the exact validation error so
+    the model can self-correct, up to ``openai_max_attempts`` times.
+    """
+    client = _get_client()
+    settings = get_settings()
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": _build_user_prompt(session, athlete, race_context)},
+    ]
+    last_error: OpenAIError | None = None
+    for _ in range(settings.openai_max_attempts):
+        try:
+            return _call_and_validate(client, settings.openai_model, messages, session)
+        except OpenAIError as e:
+            last_error = e
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"La séance précédente est invalide : {e}. "
+                        "Corrige uniquement ce point en respectant les contraintes chiffrées "
+                        "déjà fournies, et renvoie le workout complet."
+                    ),
+                }
+            )
+    raise last_error or OpenAIError("workout generation failed")
