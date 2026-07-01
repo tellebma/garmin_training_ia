@@ -4,6 +4,9 @@ The worker is packaged as `tellebma/garmin-sync` on Docker Hub and runs
 on the operator's server behind Nginx Proxy Manager at
 `https://garmin-sync.tellebma.fr`.
 
+Need to rotate a secret (Fernet key, shared token, OpenAI key, Supabase
+service role key)? See [`SECRETS_ROTATION.md`](./SECRETS_ROTATION.md).
+
 ## First-time setup
 
 1. Generate secrets locally:
