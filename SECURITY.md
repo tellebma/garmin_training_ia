@@ -94,12 +94,24 @@ le system prompt, fait générer du contenu malveillant). À ce moment :
 
 | Donnée | Stockage | Protection |
 |---|---|---|
-| Garmin OAuth tokens | DB | Chiffrés via Fernet (`crypto.py`) |
+| Garmin OAuth tokens | DB | Chiffrés via Fernet (`crypto.py`) + ciphertext masqué de l'API REST (SEC-1, 2026-07-02) |
 | OpenAI API key | env worker | SecretStr Pydantic + fichier `.env` non versionné |
 | Supabase service role | env worker | SecretStr Pydantic |
 | User passwords | Supabase Auth | Bcrypt managed |
 | User emails, PII | DB | RLS strict |
 | HRV, sleep, body composition | DB | RLS strict |
+
+### Audit 2026-07-02 — SEC-1 DB hardening (issue #78)
+
+Audit sécurité externe sur `garmin_credentials` + advisors Supabase. Migration
+`supabase/migrations/20260702000000_security_db_hardening.sql`.
+
+| Finding | Sévérité | Statut |
+|---|---|---|
+| `garmin_credentials.oauth_tokens_encrypted` lisible par le user propriétaire via PostgREST (`?select=oauth_tokens_encrypted`) — RLS filtre les lignes mais pas les colonnes, et les grants par défaut Supabase exposent la table entière à `anon`/`authenticated` | HIGH | ✅ Fixé. Grant table-level révoqué, re-grant `SELECT` colonne par colonne (toutes sauf `oauth_tokens_encrypted`) à `authenticated` uniquement. Policies RLS insert/update/delete supprimées (mortes : plus aucun grant table-level ne les déclenche pour anon/authenticated). Seul le worker (service_role, bypass RLS + grants) lit/écrit le ciphertext (`worker/src/garmin_sync/connect.py::_persist_tokens`). Vérifié par grep : aucun insert/update/delete client sur cette table dans `app/`, `components/`, `lib/`. |
+| `log_auth_event` (SECURITY DEFINER) exécutable par `anon` sans rate limit propre → spam possible de `auth_events` via appel REST direct | MEDIUM | ✅ Fixé. `EXECUTE` reste accordé à `anon`/`authenticated` (nécessaire : `register_initiated`, `login_failure`, `password_reset_requested` sont loggés avant authentification, voir `app/(auth)/_actions/auth.ts`). La fonction réutilise en interne `check_and_log_auth_rate_limit` (mécanisme I1 existant, table `auth_rate_limits`) : 30 events/5min par IP, insertion silencieusement droppée au-delà — ne casse jamais le flow appelant. |
+| `is_email_allowed` / `email_needs_signup` (SECURITY DEFINER) exécutables par `anon` → énumération de l'allowlist d'emails possible via appel REST direct (indépendamment du rate limit applicatif `register` : 3/h/IP, qui protège le flow UI mais pas un appel RPC direct) | LOW (risque accepté MVP) | ⚠️ Non fixé, documenté. Les deux RPC doivent rester `anon`-exécutables (flow register pré-auth). Un vrai rate-limit interne nécessiterait soit d'ajouter un paramètre `p_ip` (implique de changer la signature + les 2 call sites, risque de fenêtre de déploiement désynchronisée migration/frontend vu que les migrations s'auto-appliquent en CI séparément du déploiement Vercel), soit d'extraire l'IP via `current_setting('request.headers')` côté PostgREST (technique documentée Supabase mais fragile en confiance — `x-forwarded-for` reste falsifiable par l'appelant selon la configuration de l'edge). Impact limité en contexte MVP : allowlist restreinte à l'owner + 5-10 amis triathlètes, invite-only, pas encore de signup public. À traiter avant ouverture beta publique (voir Roadmap étape 1 — captcha — et éventuellement Vercel Firewall / rate limit WAF devant l'app). |
+| Rotation des clés Fernet (`FERNET_KEY`) | — | Hors scope de ce ticket, suivi séparément dans l'issue #79. |
 
 ### 6. CSRF / CORS / XSS
 
@@ -216,6 +228,12 @@ une IP unique).
 - [ ] Pen-test rapide via `sec-audit` profile MCP (semgrep + snyk) ou outil
       équivalent
 - [ ] Doc de rotation secrets prête
+- [x] Ciphertext `garmin_credentials.oauth_tokens_encrypted` masqué de l'API REST (SEC-1, issue #78)
+- [x] Advisors Supabase `log_auth_event` traité (rate-limit interne, SEC-1, issue #78)
+- [ ] Advisors Supabase `is_email_allowed` / `email_needs_signup` — énumération email
+      documentée mais non mitigée (SEC-1, issue #78) — à traiter avant ouverture beta
+      publique
+- [ ] Rotation des clés Fernet (`FERNET_KEY`) — issue #79, PR séparée
 
 ---
 
