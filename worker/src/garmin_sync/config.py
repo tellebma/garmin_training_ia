@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     supabase_url: HttpUrl
     supabase_service_role_key: SecretStr
     fernet_key: SecretStr
+    fernet_keys: SecretStr | None = Field(default=None)
     worker_shared_token: SecretStr
     env: Literal["dev", "test", "staging", "prod"] = Field(default="dev")
     sentry_dsn: SecretStr | None = Field(default=None)
@@ -30,15 +31,45 @@ class Settings(BaseSettings):
     openai_timeout_s: int = Field(default=30)
     gps_backfill_batch: int = Field(default=8)
 
+    @staticmethod
+    def _check_fernet_key_shape(raw: str) -> None:
+        # Fernet keys are 44-char url-safe base64-encoded 32-byte values
+        if len(raw) != 44 or not raw.endswith("="):
+            msg = f"fernet key must be a 44-char url-safe base64 string, got len={len(raw)}"
+            raise ValueError(msg)
+
     @field_validator("fernet_key")
     @classmethod
     def _validate_fernet_key(cls, v: SecretStr) -> SecretStr:
-        raw = v.get_secret_value()
-        # Fernet keys are 44-char url-safe base64-encoded 32-byte values
-        if len(raw) != 44 or not raw.endswith("="):
-            msg = f"fernet_key must be a 44-char url-safe base64 string, got len={len(raw)}"
-            raise ValueError(msg)
+        cls._check_fernet_key_shape(v.get_secret_value())
         return v
+
+    @field_validator("fernet_keys")
+    @classmethod
+    def _validate_fernet_keys(cls, v: SecretStr | None) -> SecretStr | None:
+        if v is None:
+            return v
+        raw = v.get_secret_value()
+        keys = [k.strip() for k in raw.split(",") if k.strip()]
+        if not keys:
+            msg = "fernet_keys must contain at least one non-empty key"
+            raise ValueError(msg)
+        for key in keys:
+            cls._check_fernet_key_shape(key)
+        return v
+
+    def fernet_key_chain(self) -> list[str]:
+        """Ordered list of Fernet keys: active key first, then legacy keys.
+
+        Falls back to the single ``fernet_key`` when ``FERNET_KEYS`` is unset,
+        preserving full backward compatibility with existing deployments. The
+        first key in the chain is always the active encryption key; the rest
+        are only used to decrypt ciphertext written before a rotation.
+        """
+        if self.fernet_keys is None:
+            return [self.fernet_key.get_secret_value()]
+        raw = self.fernet_keys.get_secret_value()
+        return [k.strip() for k in raw.split(",") if k.strip()]
 
 
 @lru_cache(maxsize=1)

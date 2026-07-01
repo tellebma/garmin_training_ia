@@ -59,3 +59,43 @@ def test_gps_backfill_batch_defaults_to_8() -> None:
         worker_shared_token="t",
     )
     assert settings.gps_backfill_batch == 8
+
+
+def test_fernet_key_chain_falls_back_to_single_key_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FERNET_KEYS absent → chain is exactly [fernet_key] (pre-rotation behaviour)."""
+    monkeypatch.delenv("FERNET_KEYS", raising=False)
+    s = Settings()
+    assert s.fernet_keys is None
+    assert s.fernet_key_chain() == [s.fernet_key.get_secret_value()]
+
+
+def test_fernet_key_chain_uses_first_key_as_active(monkeypatch: pytest.MonkeyPatch) -> None:
+    key_a = "a" * 43 + "="
+    key_b = "b" * 43 + "="
+    monkeypatch.setenv("FERNET_KEYS", f"{key_a},{key_b}")
+    s = Settings()
+    assert s.fernet_key_chain() == [key_a, key_b]
+
+
+def test_fernet_key_chain_strips_whitespace_around_commas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key_a = "a" * 43 + "="
+    key_b = "b" * 43 + "="
+    monkeypatch.setenv("FERNET_KEYS", f" {key_a} , {key_b} ")
+    s = Settings()
+    assert s.fernet_key_chain() == [key_a, key_b]
+
+
+def test_settings_rejects_invalid_key_in_fernet_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FERNET_KEYS", "too-short,also-too-short")
+    with pytest.raises(ValueError, match="fernet key"):
+        Settings()
+
+
+def test_settings_rejects_empty_fernet_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FERNET_KEYS", "  ,  ")
+    with pytest.raises(ValueError, match="fernet_keys"):
+        Settings()
