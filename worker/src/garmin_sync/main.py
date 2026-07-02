@@ -1,4 +1,14 @@
-"""FastAPI HTTP entry point: health, manual sync, Garmin connect/MFA."""
+"""FastAPI HTTP entry point: health, manual sync, Garmin connect/MFA.
+
+CORS: this worker is only ever called server-to-server — the Next.js app talks
+to it via Server Actions using the worker shared token or a forwarded Supabase
+user JWT, never directly from a browser. No browser origin is ever legitimate,
+so ``create_app`` attaches an explicit deny-all ``CORSMiddleware``
+(``allow_origins=[]``). Without this middleware, Starlette's default (no CORS
+headers at all) already blocks cross-origin browser reads — the middleware
+below exists to make that a documented, testable decision instead of an
+accident of omission (SEC-2).
+"""
 
 from __future__ import annotations
 
@@ -9,6 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from garmin_sync.auth import AuthError, verify_shared_token, verify_supabase_jwt
@@ -55,6 +66,14 @@ def create_app(*, enable_scheduler: bool | None = None) -> FastAPI:
     app_lifespan = scheduler_lifespan if enable_scheduler else None
     created = FastAPI(title="garmin-sync", version="0.1.0", lifespan=app_lifespan)
     created.include_router(router)
+    # SEC-2: explicit, intentional cross-origin deny (see module docstring).
+    created.add_middleware(
+        CORSMiddleware,
+        allow_origins=[],
+        allow_credentials=False,
+        allow_methods=[],
+        allow_headers=[],
+    )
     return created
 
 

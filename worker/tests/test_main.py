@@ -61,6 +61,27 @@ def test_create_app_can_disable_scheduler_lifespan() -> None:
     shutdown_scheduler.assert_not_called()
 
 
+def test_cors_denies_cross_origin_request(client: ASGITestClient) -> None:
+    """SEC-2: no browser origin is ever legitimate for this worker. A simple
+    cross-origin GET must not come back with an Access-Control-Allow-Origin
+    header — otherwise a browser would treat the response as readable."""
+    r = client.get("/health", headers={"Origin": "https://evil.example.com"})
+    assert r.status_code == 200
+    assert "access-control-allow-origin" not in r.headers
+
+
+def test_cors_denies_preflight_request(client: ASGITestClient) -> None:
+    """A CORS preflight for a cross-origin POST must not be granted."""
+    transport_kwargs = {
+        "headers": {
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "POST",
+        }
+    }
+    r = asyncio.run(client._request("OPTIONS", "/sync/u1", **transport_kwargs))
+    assert "access-control-allow-origin" not in r.headers
+
+
 def test_create_app_can_enable_scheduler_lifespan() -> None:
     from garmin_sync.main import create_app
 
