@@ -21,7 +21,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
   const [syncedAt, setSyncedAt] = useState<string | null>(defaultValues.garmin_synced_at)
   const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
 
   // Auto-fetch only on first visit (garmin_synced_at IS NULL)
   useEffect(() => {
@@ -62,7 +62,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
     setLoading(false)
     if (!result.success) {
       if ('errors' in result) {
-        setErrors(result.errors as Record<string, string[]>)
+        setErrors(result.errors)
         toast.error('Corrige les erreurs avant de continuer.')
       } else {
         toast.error('Erreur de sauvegarde, réessaye.')
