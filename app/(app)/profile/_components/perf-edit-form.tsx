@@ -20,7 +20,7 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
   const [syncedAt, setSyncedAt] = useState<string | null>(initial.garmin_synced_at)
   const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
 
   function handleCancel() {
     setEdit(false)
@@ -113,7 +113,7 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
     })
     setLoading(false)
     if (!r.success) {
-      if ('errors' in r) setErrors(r.errors as Record<string, string[]>)
+      if ('errors' in r) setErrors(r.errors)
       else toast.error('Erreur de sauvegarde, réessaye')
       return
     }
