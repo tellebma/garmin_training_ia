@@ -856,6 +856,55 @@ et `ensure_sessions` générera des séances en double.
   `/plan`, `/profile`, `/stats`.
 - Étendre Lighthouse au-delà de `/login`.
 
+## Bugs et incidents connus (constatés le 2026-06-27)
+
+Erreurs relevées en production (logs worker + données Supabase) lors d'une revue.
+
+### P0 — Worker déployé périmé : `/garmin/sync` renvoie 404 (E15.3 inactif en prod)
+
+- Symptôme logs : `POST /garmin/sync?trigger=auto HTTP/1.1 404 Not Found` (16:01 et 20:58).
+- Cause : l'endpoint on-demand existe dans le code sur `main` (`worker/src/garmin_sync/main.py`,
+  route `@router.post("/garmin/sync")`, livré par #64) mais le container worker sur UNRAID
+  tourne une **image Docker antérieure à #64**. Piège déjà documenté dans CLAUDE.md
+  (« l'image reste old tant que les changements ne sont pas redéployés »).
+- Impact : la sync on-demand (auto à l'ouverture + bouton manuel) ne fait rien ;
+  `garmin_credentials.last_sync_trigger_at` reste `null`. Seul le cron remplit les données.
+- Fix : redéployer le worker (`docker pull tellebma/garmin-sync:latest` + restart du container),
+  puis vérifier que `/garmin/sync?trigger=manual` renvoie `started` / `cooldown`.
+
+### P1 — Génération de séances LLM en échec répété (workouts hors bornes)
+
+- Symptôme logs : `OpenAI returned unrealistic workout` en boucle pour plusieurs séances :
+  `main work below 80% for endurance`, `warmup 600s exceeds cap 300s`,
+  `warmup 1200s exceeds cap 900s`, `cooldown 900s exceeds cap 600s`.
+- Cause : `validate_workout_for_session` (`coach/workout_schema.py`) rejette la sortie LLM
+  qui viole les bornes ; `generate_workout_for_session` relève l'erreur et l'appel échoue.
+  À chaque `/coach/ensure-sessions` les mêmes séances sont re-tentées et re-échouent →
+  certaines séances n'obtiennent **jamais** de workout.
+- Impact : séances sans workout détaillé pour l'athlète, surcoût d'appels OpenAI répétés.
+- Pistes : retry borné avec feedback de l'erreur au prompt (reprompt « respecte ces bornes »),
+  réparation déterministe (clamp warmup/cooldown/main aux bornes) ou fallback workout simple
+  si le LLM échoue N fois ; éviter de re-tenter indéfiniment les séances en échec persistant.
+
+### P1 — Données d'activité grossières/tronquées pour les longues sorties
+
+- Constat données : `activity_samples` plafonne à ~2000 points quelle que soit la durée
+  (run 31 min = 1906 samples, vélo 2h54 = 1758) — c'est le downsampling Garmin par défaut.
+- Deux plafonds à relever **ensemble** sous peine de tracé partiel :
+  - worker : `get_activity_details(...)` est appelé sans params → `maxchart=2000` /
+    `maxpoly=4000` par défaut ;
+  - frontend : `.limit(2000)` sur `activity_samples` dans `app/(app)/history/[id]/page.tsx`.
+- Aujourd'hui complet (activités < 2000 samples) mais une sortie de 6h serait grossière, et
+  relever `maxchart` sans relever `.limit` reproduirait un tracé partiel (boucle non fermée).
+- Chantier dédié en cours (voir spec « données complètes longues sorties »).
+
+### P2 — Samples GPS « nus » potentiellement écartés
+
+- `transform_activity_samples` ne conserve un sample que s'il porte un signal
+  distance/altitude/FC/puissance/cadence/vitesse (`_has_sample_signal`) ; un point GPS
+  sans aucune de ces métriques (rare : début/fin, pause) serait écarté du tracé.
+- Impact marginal aujourd'hui (chaque point GPS porte vitesse/distance), à garder en tête.
+
 ## Post-MVP technique
 
 - Custom SMTP Supabase (Resend gratuit 100/jour) — rate limits du SMTP intégré.
