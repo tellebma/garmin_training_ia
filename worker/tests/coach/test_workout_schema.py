@@ -6,9 +6,26 @@ from garmin_sync.coach.workout_schema import (
     IntervalSet,
     IntervalTarget,
     Workout,
+    describe_session_envelope,
     structure_caps_for_type,
     validate_workout_for_session,
 )
+
+
+def test_describe_session_envelope_states_numeric_bounds():
+    text = describe_session_envelope({"session_type": "endurance", "target_duration_s": 3600})
+    # warmup cap 900s, cooldown cap 600s, main >= 80%, window 54-66 min (±10%, min ±5min)
+    assert "15min" in text  # warmup max 900s
+    assert "10min" in text  # cooldown max 600s
+    assert "80%" in text  # main min ratio
+    assert "54" in text  # duration window low bound (min)
+    assert "66" in text  # duration window high bound (min)
+
+
+def test_describe_session_envelope_recovery_tighter_caps():
+    text = describe_session_envelope({"session_type": "recovery", "target_duration_s": 2400})
+    assert "5min" in text  # warmup + cooldown caps 300s
+    assert "90%" in text
 
 
 def test_target_minimal_z_label_only():

@@ -243,6 +243,16 @@ Spec et critères d'acceptation :
   `tests/coach/test_duration_bounds.py`.
   - Suite éventuelle : vérifier que la charge hebdo agrège bien ces durées crédibles et
     étendre les cas de tests `workout_schema` / `openai_client` par discipline et phase.
+- **Régression (2026-06-29, logs prod) — corrigée** : la validation post-LLM (E13.1)
+  rejetait massivement les workouts (`warmup exceeds cap`, `main work below 80/90%`,
+  `duration too far from target`) et faisait **échouer durement** la génération — un seul
+  tirage invalide laissait la séance sans `workout` (NULL), le cron suivant ré-échouant
+  pareil. Causes : (1) le prompt ne communiquait pas les bornes chiffrées que le validateur
+  applique (le petit modèle volait à l'aveugle) ; (2) aucun retry. Corrigé sans assouplir les
+  garde-fous : `describe_session_envelope` injecte l'enveloppe numérique exacte de la séance
+  dans le prompt, et `generate_workout_for_session` ré-essaie avec feedback correctif
+  (`openai_max_attempts`, défaut 3) avant d'échouer. Couvert par `test_openai_client.py` /
+  `test_workout_schema.py`.
 - **Repos = repos (UI) — V1 livrée (E13.4)** : un jour de repos affiche un message de
   repos clair côté briefing / `/today` / `/plan`, **pas un compte rendu ni une structure de
   séance**. Variante repos de `SessionCard` sur `/plan`, masquage badge readiness + revue

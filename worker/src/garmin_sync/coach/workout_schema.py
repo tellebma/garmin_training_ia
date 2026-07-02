@@ -99,6 +99,34 @@ def structure_caps_for_type(session_type: str) -> StructureCaps:
     return _CAPS_BY_TYPE.get(session_type, _DEFAULT_CAPS)
 
 
+def duration_tolerance_s(target_duration_s: int) -> int:
+    """Allowed deviation between generated total and the planned target."""
+    return max(300, round(target_duration_s * 0.10))
+
+
+def describe_session_envelope(session: dict[str, object]) -> str:
+    """Human-readable numeric envelope the workout MUST satisfy, for the LLM prompt.
+
+    Mirrors `validate_workout_for_session` so the model is told the exact bounds
+    it will be checked against (the small model can't infer them otherwise).
+    """
+    stype = str(session.get("session_type") or "endurance")
+    caps = structure_caps_for_type(stype)
+    target = session.get("target_duration_s")
+    target_s = target if isinstance(target, int) and target > 0 else 0
+    tol = duration_tolerance_s(target_s)
+    lo_min = max(0, (target_s - tol)) // 60
+    hi_min = (target_s + tol) // 60
+    return (
+        "Contraintes chiffrées à respecter impérativement (la séance sera rejetée sinon) :\n"
+        f"- Durée totale entre {lo_min}min et {hi_min}min (cible {target_s // 60}min).\n"
+        f"- Échauffement (warmup) ≤ {caps.warmup_max_s // 60}min.\n"
+        f"- Retour au calme (cooldown) ≤ {caps.cooldown_max_s // 60}min.\n"
+        f"- Le corps de séance (main) doit représenter ≥ {caps.main_min_ratio:.0%} "
+        "de la durée totale."
+    )
+
+
 def validate_workout_for_session(workout: Workout, session: dict[str, object]) -> Workout:
     """Validate a generated workout against the planned session envelope."""
     target_duration = session.get("target_duration_s")
@@ -122,7 +150,7 @@ def validate_workout_for_session(workout: Workout, session: dict[str, object]) -
     if workout.main_duration_s() / total < caps.main_min_ratio:
         raise ValueError(f"main work below {caps.main_min_ratio:.0%} for {stype}")
 
-    tolerance_s = max(300, round(target_duration * 0.10))
+    tolerance_s = duration_tolerance_s(target_duration)
     if abs(total - target_duration) > tolerance_s:
         raise ValueError(f"workout duration {total}s is too far from target {target_duration}s")
     return workout

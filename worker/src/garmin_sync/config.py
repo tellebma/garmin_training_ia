@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = Field(default=SecretStr(""))
     openai_model: str = Field(default="gpt-4o-mini")
     openai_timeout_s: int = Field(default=30)
+    openai_max_attempts: int = Field(default=3, ge=1)
     gps_backfill_batch: int = Field(default=8)
 
     @field_validator("fernet_key")
