@@ -873,9 +873,28 @@ et `ensure_sessions` générera des séances en double.
 
 ### P0 — Observabilité production (remontée P1 → P0 le 2026-06-28 — visibilité des erreurs beta)
 
-- Initialiser Sentry côté worker.
-- Ajouter logs structurés et métriques : durée sync, erreurs Garmin, erreurs OpenAI,
-  jobs scheduler, rate limits, génération de plan/séance.
+- **V1 worker livrée (2026-06-29, feat/observabilite-worker)** : module `observability.py`
+  (`init_sentry`, `new_error_id`, `capture`, `report_endpoint_error`). Sentry s'active dès
+  que `SENTRY_DSN` est défini (off en dev/test), initialisé au boot FastAPI (`create_app`) et
+  dans l'entrée cron `__main__`. **Capture aux points d'échec auparavant silencieux** :
+  génération de séance (`ensure_sessions`, le bug du retry), jobs du scheduler, crons sync /
+  profile par-user, recomputes Banister post-sync. Les 8 endpoints reportent via
+  `report_endpoint_error` avec l'`error_id` partagé entre la réponse navigateur et le tag
+  Sentry. Config : `SENTRY_TRACES_SAMPLE_RATE`.
+- **Alerting Discord livré (2026-06-30, même branche)** : module `alerting.py`
+  (`notify_discord_error`), branché dans le funnel `capture()` — chaque erreur capturée
+  envoie un embed Discord (titre `type — where`, message, tags env/user_id/session_id…) via
+  webhook. Actif dès que `DISCORD_WEBHOOK_URL` est défini (off sinon), découplé de Sentry,
+  ne lève jamais (échecs avalés + log warning). Push proactif sur le téléphone de l'owner.
+- **Reste à faire** :
+  - **Frontend** : SDK Sentry Next.js (client + server + edge) pour les erreurs Server Actions
+    et navigateur (P2).
+  - **Cron health / dead-man's switch** : check-in à chaque run (Sentry Cron Monitoring ou
+    Healthchecks.io) pour détecter « le cron ne s'est pas lancé du tout » (P3).
+  - **Logs structurés + métriques** : durée sync, coût/tokens OpenAI (recoupe E18 `llm_usage`),
+    taux d'échec génération (P4).
+  - **Affiner l'alerting** : règles email Sentry + dédup/seuils si le volume Discord devient
+    bruyant (actuellement 1 message par erreur, OK pour la beta).
 
 ### P2 — Élargir E2E et Lighthouse aux parcours réels
 

@@ -10,6 +10,7 @@ from garmin_sync.coach.activity_review import ActivityReview, build_activity_rev
 from garmin_sync.coach.briefing import build_next_session_adjustment
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
+from garmin_sync.observability import capture
 from garmin_sync.supabase_client import get_admin_client
 
 log = logging.getLogger(__name__)
@@ -147,6 +148,13 @@ def _generate_and_persist(
         )
     except OpenAIError as e:
         log.exception("openai failed for session=%s: %s", session["id"], e)
+        capture(
+            e,
+            where="ensure_sessions",
+            session_id=session["id"],
+            sport=session.get("sport"),
+            session_type=session.get("session_type"),
+        )
         return False
     db.table("planned_sessions").update(
         {
