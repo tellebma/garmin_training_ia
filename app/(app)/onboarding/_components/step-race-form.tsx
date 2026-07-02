@@ -86,7 +86,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
     defaultValues?.legs ?? defaultLegsFor(defaultValues?.discipline ?? 'triathlon')
   )
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
 
   const isAutre = discipline === 'autre'
   const totals = computeTotals(legs)
@@ -131,7 +131,7 @@ export function StepRaceForm({ defaultValues, onDone }: Readonly<Props>) {
     setLoading(false)
     if (!result.success) {
       if ('errors' in result) {
-        setErrors(result.errors as Record<string, string[]>)
+        setErrors(result.errors)
         toast.error('Corrige les erreurs avant de continuer.')
       } else {
         toast.error('Erreur de sauvegarde, réessaye.')
