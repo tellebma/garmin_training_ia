@@ -14,7 +14,7 @@ l'instant. Conséquences :
 - **Remontés en P0** : E16.1 (double appel auth, plafond de latence transversal),
   « Worker : filtrer le plan actif » (correctness multi-users), « Observabilité production »
   (Sentry — voir les erreurs des amis), E9.4 (progression par discipline, spec+plan prêts).
-  E13.2 (déjà P0) reste prioritaire et est **en cours** (branche `feat/e13.2-...`).
+  E13.2 (déjà P0) est **V1 livrée** (PR #75, mergée 2026-07-02).
 - **Rétrogradés en P2** (polish UX différé) : « Identité numérique / `DESIGN.md` »
   (était P0), E14.3 bulles explicatives, carte « dernière activité » de `/today`.
 - Inchangés : E15.1 Strava (P1, plus gros chantier), E18 admin/coût IA (P1).
@@ -243,7 +243,7 @@ Spec et critères d'acceptation :
   `tests/coach/test_duration_bounds.py`.
   - Suite éventuelle : vérifier que la charge hebdo agrège bien ces durées crédibles et
     étendre les cas de tests `workout_schema` / `openai_client` par discipline et phase.
-- **Régression (2026-06-29, logs prod) — corrigée** : la validation post-LLM (E13.1)
+- **Régression (2026-06-29, logs prod) — corrigée (PR #76, mergée 2026-07-02)** : la validation post-LLM (E13.1)
   rejetait massivement les workouts (`warmup exceeds cap`, `main work below 80/90%`,
   `duration too far from target`) et faisait **échouer durement** la génération — un seul
   tirage invalide laissait la séance sans `workout` (NULL), le cron suivant ré-échouant
@@ -276,6 +276,9 @@ Spec et critères d'acceptation :
 
 ### P0 — Adapter le plan au niveau par discipline (E13.2)
 
+- **V1 livrée (PR #75, mergée 2026-07-02)** : gaps A + B — niveau effectif par discipline
+  dans la régénération de séances, biais progressif de volume vers la discipline faible,
+  garde-fou ramp cap hebdo par sport, rebond post-deload autorisé au-delà du cap.
 - **Problème principal** : le niveau par discipline est déjà déclaré par l'athlète à
   l'onboarding, mais cette métrique est **insuffisamment prise en compte** dans la
   génération du plan et des recommandations. La première action est de la brancher
@@ -873,7 +876,7 @@ et `ensure_sessions` générera des séances en double.
 
 ### P0 — Observabilité production (remontée P1 → P0 le 2026-06-28 — visibilité des erreurs beta)
 
-- **V1 worker livrée (2026-06-29, feat/observabilite-worker)** : module `observability.py`
+- **V1 worker livrée (PR #77, mergée 2026-07-02)** : module `observability.py`
   (`init_sentry`, `new_error_id`, `capture`, `report_endpoint_error`). Sentry s'active dès
   que `SENTRY_DSN` est défini (off en dev/test), initialisé au boot FastAPI (`create_app`) et
   dans l'entrée cron `__main__`. **Capture aux points d'échec auparavant silencieux** :
