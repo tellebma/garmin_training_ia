@@ -61,9 +61,12 @@ compréhensibles pour un athlète non expert.
 
 - **E14.1 P1 — Graphiques pro** : profil d'altitude, FC dans le temps, allure/vitesse,
   puissance, cadence, zones, splits/tours, distribution d'effort — lisibles, soignés,
-  interactifs. S'appuyer sur `activity_samples`. ⚠ **Régression lisibilité connue
-  (retour owner 2026-06-27)** : les courbes d'activité partagent un axe Y unique → la FC
-  s'écrase en quasi-ligne plate (voir détail § « Graphiques pro et carte d'activité »).
+  interactifs. S'appuyer sur `activity_samples`. ✅ **Régression lisibilité « courbe FC plate »
+  (E14.1b) — V1 livrée (PR #74)** : `ActivitySamplesChart` refondu en panneaux empilés
+  synchronisés (`syncId`), un axe Y réel par métrique (FC plus jamais plate), toggle
+  temps/distance + chips de visibilité, axe allure inversé. Voir détail § « Graphiques pro et
+  carte d'activité ». Reste E14.1 « graphiques pro » au sens large (splits/tours, distribution
+  d'effort) et le tooltip combiné unique (suite post-V1).
 - **E14.2 P1 — Carte d'activité** : afficher le tracé GPS dans `/history/[id]` avec
   dénivelé et survol corrélé FC/allure. Recoupe E9.5 et la spec E8a.
   Livrable B livré : vignettes SVG dans l'historique, trace colorée par métrique (FC/vitesse/altitude) sur le détail, heatmap globale sur /stats.
@@ -116,11 +119,12 @@ qui répond chaque semaine à quatre questions : qu'est-ce qui a été réalisé
 comment la charge a été assimilée, où l'athlète progresse et quelle décision
 prendre ensuite.
 
-- **E9.1 P0 — Cockpit hebdomadaire** : prévu vs réalisé, charge, durée, distance,
-  dénivelé, assiduité, répartition par zones et équilibre intensité/récupération.
-- **E9.2 P0 — Feedback subjectif** : RPE post-séance, fatigue, douleurs,
-  courbatures et humeur ; calcul de charge session-RPE et comparaison entre
-  difficulté prévue et ressentie.
+- **E9.1 P0 — Cockpit hebdomadaire — V1 livrée** : prévu vs réalisé, charge, durée,
+  distance, dénivelé, assiduité, répartition par zones et équilibre intensité/récupération.
+  Voir « Statut incrément 1 » ci-dessous (E9.1 V1). Reste-à-faire suivi via E9.4/E9.5/E9.6.
+- **E9.2 P0 — Feedback subjectif — V1 livrée** : RPE post-séance, fatigue, douleurs,
+  courbatures et humeur ; calcul de charge session-RPE et comparaison entre difficulté
+  prévue et ressentie. Voir « Statut incrément 1 » ci-dessous (E9.2 V1).
 - **E9.3 P1 — Récupération individualisée — V1 livrée** (PR #67) : baselines
   personnelles (médiane glissante 28j) pour HRV, FC repos, sommeil, stress et Body
   Battery, avec tendance orientée physiologiquement, confiance par couverture de données
@@ -651,8 +655,10 @@ pour montrer quoi que ce soit.
 - Lien : recoupe E9.5 (analyse avancée d'activité) et la spec E8a parcours géolocalisés.
 - Critère produit : un athlète habitué à Garmin/Strava doit trouver les graphes au
   moins aussi clairs et complets.
-- **P1 — Lisibilité des « Courbes d'activité » : axe Y unique → courbes écrasées
-  (retour owner 2026-06-27)** :
+- **P0 — Lisibilité des « Courbes d'activité » : axe Y unique → courbes écrasées
+  (retour owner 2026-06-27) — V1 livrée (E14.1b, PR #74)** : panneaux empilés synchronisés,
+  un axe Y réel par métrique, curseur partagé, toggle temps/distance, chips de visibilité,
+  axe allure inversé. Détail de la solution conservé ci-dessous pour mémoire :
   - **Problème** : dans `app/(app)/_components/charts/activity-samples-chart.tsx`, les 5
     métriques (FC, altitude, puissance, cadence, allure) sont tracées sur **un seul axe Y
     partagé**. Comme leurs échelles sont incompatibles (FC ~120-180 bpm, altitude des
@@ -677,7 +683,10 @@ pour montrer quoi que ce soit.
   - **Critère d'acceptation** : sur une activité avec FC + altitude + puissance, chaque
     courbe est lisible avec sa propre amplitude, la FC n'est plus un trait plat, et
     l'utilisateur peut lire la valeur réelle de chaque métrique à un instant donné.
-- **P1 — Vitesse/allure natation dans la courbe d'activité piscine (retour owner 2026-06-27)** :
+- **P2 — Vitesse/allure natation dans la courbe d'activité piscine — V1 livrée (E14.1b, PR #74)** :
+  la natation affiche désormais l'allure en **min/100m** via le helper central
+  `formatSpeedForSport`, la courbe vitesse n'apparaît que si `speed_m_s` est présent.
+  _(englobé par l'item « Convention d'unités par discipline » et la refonte multi-panneaux)_
   - **Problème** : `app/(app)/_components/charts/activity-samples-chart.tsx` convertit
     systématiquement `speed_m_s` en **allure min/km** (label « Allure min/km »), une unité
     inadaptée à la natation où la métrique standard est l'**allure min/100m**. Le composant
@@ -702,7 +711,15 @@ pour montrer quoi que ce soit.
     courbe d'allure/vitesse dans une unité pertinente pour la natation ; aucune courbe
     trompeuse quand la donnée manque.
 
-### P1 — Convention d'unités vitesse/allure par discipline (Strava-like) (retour owner 2026-06-27)
+### P1 — Convention d'unités vitesse/allure par discipline (Strava-like) — V1 livrée (E14.1b, PR #74)
+
+> **Statut V1** : helper central `lib/dashboard/format.ts` (`formatSpeedForSport`,
+> `formatTargetForSport`, `paceUnitForSport`, `speedToSportValue`) appliquant **vélo km/h,
+> course min/km, natation min/100m**, propagé aux courbes d'activité, à la fiche
+> `/history/[id]` (vitesse moyenne + tableau terrain) et aux **cibles de séance des plans**
+> (course passait en km/h → désormais min/km). Worker laissé en km/h pour la VMA (légitime).
+> Suite éventuelle : propager au briefing / `/stats` si de nouveaux affichages vitesse y apparaissent.
+
 
 - **Demande owner** : normaliser l'affichage de la vitesse/allure selon la discipline,
   comme sur Strava (unités auxquelles la plupart des athlètes sont habitués) :
