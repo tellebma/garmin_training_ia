@@ -40,7 +40,7 @@ export function DispoEditForm({ initial }: Readonly<Props>) {
   const [bike, setBike] = useState<number>(initial.sports_strengths?.bike ?? 3)
   const [run, setRun] = useState<number>(initial.sports_strengths?.run ?? 3)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
 
   function toggleDay(d: (typeof DAYS)[number]) {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
@@ -97,7 +97,7 @@ export function DispoEditForm({ initial }: Readonly<Props>) {
     })
     setLoading(false)
     if (!r.success) {
-      if ('errors' in r) setErrors(r.errors as Record<string, string[]>)
+      if ('errors' in r) setErrors(r.errors)
       else toast.error('Erreur de sauvegarde, réessaye')
       return
     }

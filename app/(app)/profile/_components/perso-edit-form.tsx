@@ -17,7 +17,7 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
   const [edit, setEdit] = useState(false)
   const [values, setValues] = useState<PersonInput>(initial)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
 
   function handleCancel() {
     setEdit(false)
@@ -56,7 +56,7 @@ export function PersoEditForm({ initial }: Readonly<Props>) {
     const r = await saveStepPerso(values)
     setLoading(false)
     if (!r.success) {
-      if ('errors' in r) setErrors(r.errors as Record<string, string[]>)
+      if ('errors' in r) setErrors(r.errors)
       else toast.error('Erreur de sauvegarde, réessaye')
       return
     }
