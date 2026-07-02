@@ -39,7 +39,7 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
   const [bike, setBike] = useState<number>(defaultValues.sports_strengths?.bike ?? 3)
   const [run, setRun] = useState<number>(defaultValues.sports_strengths?.run ?? 3)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
   const [, startTransition] = useTransition()
 
   function toggleDay(d: (typeof DAYS)[number]) {
@@ -58,7 +58,7 @@ export function StepDispoForm({ defaultValues, onDone }: Readonly<Props>) {
     if (!result.success) {
       setLoading(false)
       if ('errors' in result) {
-        setErrors(result.errors as Record<string, string[]>)
+        setErrors(result.errors)
         toast.error('Corrige les erreurs avant de continuer.')
       } else {
         toast.error('Erreur de sauvegarde, réessaye.')
