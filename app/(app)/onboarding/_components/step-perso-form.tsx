@@ -28,7 +28,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
   const [country, setCountry] = useState(defaultValues?.country ?? '')
   const [consent, setConsent] = useState<boolean>(defaultValues?.consent_data_processing ?? false)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [errors, setErrors] = useState<Partial<Record<string, string[]>>>({})
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -45,7 +45,7 @@ export function StepPersoForm({ defaultValues, onDone }: Readonly<Props>) {
     setLoading(false)
     if (!result.success) {
       if ('errors' in result) {
-        setErrors(result.errors as Record<string, string[]>)
+        setErrors(result.errors)
         toast.error('Corrige les erreurs avant de continuer.')
       } else {
         toast.error('Erreur de sauvegarde, réessaye.')
