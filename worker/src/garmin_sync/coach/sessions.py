@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.briefing import build_next_session_adjustment
+from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
 from garmin_sync.supabase_client import get_admin_client
 
@@ -16,6 +17,15 @@ log = logging.getLogger(__name__)
 
 class SessionNotFound(Exception):
     """Raised when a session_id does not exist for the given user."""
+
+
+def _inject_effective_strengths(
+    db: Any, user_id: str, athlete: dict[str, Any], today: date | None = None
+) -> dict[str, Any]:
+    """Remplace les niveaux déclarés de l'athlète par les niveaux effectifs (90 j)."""
+    declared = athlete.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
+    effective = load_effective_strengths(db, user_id, declared, today=today)
+    return {**athlete, "sports_strengths": effective}
 
 
 def _load_profile_and_race(
@@ -30,6 +40,7 @@ def _load_profile_and_race(
         .execute()
     )
     profile = cast("dict[str, Any]", profile_resp.data or {})
+    profile = _inject_effective_strengths(db, user_id, profile)
 
     race_resp = (
         db.table("race_goals")

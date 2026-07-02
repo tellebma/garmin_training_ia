@@ -153,3 +153,30 @@ def compute_discipline_levels(
         signals = _signals(grouped.get(disc, []), total_tss, today)
         disciplines[disc] = _reconcile(disc, decl, signals)
     return DisciplineLevels(disciplines=disciplines)
+
+
+def load_effective_strengths(
+    db: Any,
+    user_id: str,
+    declared: dict[str, int],
+    today: date | None = None,
+    activities: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    """Niveaux effectifs par discipline (déclaré reconcilié avec l'historique 90 j).
+
+    ``activities`` peut être fourni par un appelant qui les a déjà chargées
+    (ex. ``generate_plan``) pour éviter une requête redondante ; sinon on charge
+    les 90 derniers jours pour ``user_id``.
+    """
+    today = today or date.today()
+    if activities is None:
+        start = (today - timedelta(days=WINDOW_DAYS)).isoformat()
+        resp = (
+            db.table("activities")
+            .select("start_time, sport, duration_s, tss")
+            .eq("user_id", user_id)
+            .gte("start_time", start)
+            .execute()
+        )
+        activities = list(resp.data or [])
+    return compute_discipline_levels(declared, activities, today=today).effective_strengths

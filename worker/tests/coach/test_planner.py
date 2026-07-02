@@ -10,6 +10,8 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    _progress_for_offset,
+    cap_weekly_ramp_by_sport,
     compute_first_week_tss_multiplier,
     distribute_weekly_tss_by_sport,
     generate_plan,
@@ -60,6 +62,37 @@ def test_distribute_weekly_tss_weak_sport_gets_more() -> None:
     assert abs(sum(out.values()) - 300) < 0.5
 
 
+def test_progress_zero_is_more_balanced_than_progress_one() -> None:
+    # swim faible (1), bike fort (5). À progress faible le biais est moindre
+    # -> part swim plus proche de l'équilibre ; à progress=1 le biais est plein.
+    early = distribute_weekly_tss_by_sport(
+        weekly_tss=200,
+        sports_in_race=["swim", "bike"],
+        sports_strengths={"swim": 1, "bike": 5},
+        progress=0.0,
+    )
+    late = distribute_weekly_tss_by_sport(
+        weekly_tss=200,
+        sports_in_race=["swim", "bike"],
+        sports_strengths={"swim": 1, "bike": 5},
+        progress=1.0,
+    )
+    assert late["swim"] > early["swim"]  # on investit plus sur le faible en fin de build
+    assert abs(sum(early.values()) - 200) < 0.01  # toujours normalisé
+    assert abs(sum(late.values()) - 200) < 0.01
+
+
+def test_default_progress_is_backward_compatible() -> None:
+    # défaut progress=1.0 -> identique à l'ancien comportement statique.
+    out = distribute_weekly_tss_by_sport(
+        weekly_tss=300,
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 5, "run": 3},
+    )
+    # ancien : poids 1.25 / 0.85 / 1.05 -> somme 3.15 ; swim = 300*1.25/3.15
+    assert out["swim"] == round(300 * 1.25 / 3.15, 2)
+
+
 def test_pick_session_types_for_base_phase() -> None:
     types = pick_session_types_for_phase("base")
     assert "endurance" in types
@@ -89,6 +122,19 @@ def test_ramp_rates_consistent_with_spec() -> None:
     """Sanity check : deload < normal, taper << normal."""
     assert DELOAD_RAMP_RATE < NORMAL_RAMP_RATE
     assert TAPER_RAMP_RATE < DELOAD_RAMP_RATE
+
+
+def test_progress_for_offset_ramps_over_build() -> None:
+    phases = [(0, "base"), (1, "base"), (2, "build"), (3, "build"), (4, "peak"), (5, "taper")]
+    assert _progress_for_offset(0, phases) == 0.0
+    assert _progress_for_offset(3, phases) == 1.0  # dernière semaine de build
+    assert _progress_for_offset(5, phases) == 1.0  # tenu en taper (clamp)
+
+
+def test_progress_for_offset_no_build_uses_last_offset() -> None:
+    phases = [(0, "base"), (1, "base"), (2, "taper")]
+    assert _progress_for_offset(0, phases) == 0.0
+    assert _progress_for_offset(2, phases) == 1.0
 
 
 def test_first_week_multiplier_keeps_normal_load_without_risk() -> None:
@@ -278,13 +324,14 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
     week_start = today - timedelta(days=today.weekday())
 
     # 6 available days, weekly_tss = 420 (= 8h/wk * 50 / 7 * 7 * ramp 1.05 = ~420)
+    # With equal strengths=3, each sport gets an equal share: 420 / 3 = 140.0
     sessions = _build_week_sessions(
         week_offset=0,
         phase="base",
         week_start=week_start,
-        weekly_tss=420.0,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -384,9 +431,9 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         week_offset=0,
         phase="base",
         week_start=week_start,
-        weekly_tss=420.0,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -422,9 +469,9 @@ def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
         week_offset=0,
         phase="base",
         week_start=week_start,
-        weekly_tss=420.0,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -545,13 +592,14 @@ def _count(sessions, stype):
 def test_build_week_caps_training_days_when_all_available() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
+    # With equal strengths=3, each sport gets an equal share: round(400/3, 2) = 133.33
     sessions = _build_week_sessions(
         week_offset=0,
         phase="build",
         week_start=date(2026, 6, 22),  # Monday
-        weekly_tss=400,
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"swim": 133.33, "bike": 133.33, "run": 133.33},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
@@ -571,9 +619,9 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
         week_offset=0,
         phase="base",
         week_start=date(2026, 6, 22),
-        weekly_tss=120,
         sports_in_race=["bike"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
+        tss_by_sport={"bike": 120.0},
         available_days=["mon", "wed", "fri"],
         hours_per_week=6,
         is_last_week=False,
@@ -658,8 +706,8 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
     )
     monkeypatch.setattr(
         p_mod,
-        "compute_discipline_levels",
-        lambda *_a, **_kw: fake_levels,
+        "load_effective_strengths",
+        lambda *_a, **_kw: fake_levels.effective_strengths,
     )
 
     captured_kwargs: list[dict] = []
@@ -678,3 +726,96 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
         assert kw["sports_strengths"] == {"swim": 3, "bike": 3, "run": 3}, (
             f"Expected effective strengths, got {kw['sports_strengths']}"
         )
+
+
+def test_cap_limits_run_increase_to_10pct() -> None:
+    out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
+    assert out["run"] == 110.0  # +10% max
+
+
+def test_cap_does_not_limit_decreases() -> None:
+    out = cap_weekly_ramp_by_sport({"run": 70.0}, {"run": 100.0})
+    assert out["run"] == 70.0  # baisse (deload) non bridée
+
+
+def test_cap_no_prev_is_passthrough() -> None:
+    assert cap_weekly_ramp_by_sport({"run": 200.0}, None) == {"run": 200.0}
+
+
+def test_cap_missing_sport_in_prev_not_capped() -> None:
+    out = cap_weekly_ramp_by_sport({"swim": 80.0, "run": 150.0}, {"run": 100.0})
+    assert out["swim"] == 80.0  # pas de précédent swim -> non bridé
+    assert out["run"] == 110.0
+
+
+def test_cap_bike_uses_its_own_cap() -> None:
+    out = cap_weekly_ramp_by_sport({"bike": 200.0}, {"bike": 100.0})
+    assert out["bike"] == 120.0  # vélo +20%
+
+
+def test_post_deload_rebound_not_throttled() -> None:
+    """Post-deload week must rebound to the pre-deload sustained level, not
+    be throttled to deload_tss * 1.10.
+
+    Simulates the conditional-prev threading for three consecutive weeks:
+      offset=2 (normal, build)   → prev updated to sustained level
+      offset=3 (deload, build)   → (offset+1)%4==0 → prev NOT updated
+      offset=4 (normal, build)   → rebound allowed (prev still = week3 level)
+
+    Without the fix, prev would be updated to the deload TSS and week5 run
+    would be capped at deload*1.10 ≈ 0.77*S.  With the fix, prev stays at S
+    and the rebound week is only capped at S*1.10, allowing full recovery.
+    """
+    sports = ["run"]
+    strengths = {"run": 3}
+    sustained_tss = 100.0
+    deload_tss = 70.0  # ~0.7 * sustained (mirrors DELOAD_RAMP_RATE)
+
+    prev: dict[str, float] | None = None
+    deload_run = 0.0
+    rebound_run = 0.0
+    for offset, weekly_tss in [(2, sustained_tss), (3, deload_tss), (4, sustained_tss)]:
+        phase: str = "build"
+        tss_by_sport = distribute_weekly_tss_by_sport(
+            weekly_tss=weekly_tss, sports_in_race=sports, sports_strengths=strengths
+        )
+        tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev)
+        is_reduction_week = phase == "taper" or (offset + 1) % 4 == 0
+        if not is_reduction_week:
+            prev = tss_by_sport
+        if offset == 3:
+            deload_run = tss_by_sport["run"]
+        if offset == 4:
+            rebound_run = tss_by_sport["run"]
+
+    # The rebound must NOT be capped at deload*1.10 (≈ 77)
+    # because prev was preserved at the sustained level during the deload.
+    assert rebound_run > deload_run * 1.10, (
+        f"Post-deload rebound was throttled: rebound={rebound_run}, "
+        f"deload={deload_run}, 10%-above-deload={deload_run * 1.10:.2f}"
+    )
+    # And the rebound must not wildly overshoot (capped at sustained*1.10)
+    assert rebound_run <= sustained_tss * 1.10 + 0.01
+
+
+def test_distribute_then_cap_run_never_exceeds_10pct_week_over_week() -> None:
+    # simule 2 semaines consécutives : la 2e demande +50% sur run -> bridée à +10%.
+    w1 = cap_weekly_ramp_by_sport(
+        distribute_weekly_tss_by_sport(
+            weekly_tss=200,
+            sports_in_race=["run", "bike"],
+            sports_strengths={"run": 1, "bike": 5},
+            progress=0.5,
+        ),
+        None,
+    )
+    w2 = cap_weekly_ramp_by_sport(
+        distribute_weekly_tss_by_sport(
+            weekly_tss=320,
+            sports_in_race=["run", "bike"],
+            sports_strengths={"run": 1, "bike": 5},
+            progress=1.0,
+        ),
+        w1,
+    )
+    assert w2["run"] <= round(w1["run"] * 1.10, 2) + 0.01
