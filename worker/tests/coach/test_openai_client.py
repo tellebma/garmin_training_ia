@@ -123,7 +123,7 @@ def test_generate_workout_returns_validated_workout(mock_get_client):
                             }
                         ],
                         "cooldown": {
-                            "duration_s": 600,
+                            "duration_s": 480,
                             "target": {
                                 "label": "Z1",
                                 "rpe": 2,
@@ -169,8 +169,8 @@ def test_prompt_includes_race_context(mock_get_client):
     parsed = MagicMock(
         model_dump=lambda: {
             "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
-            "main": [{"duration_s": 2400, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
-            "cooldown": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
+            "main": [{"duration_s": 2520, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "cooldown": {"duration_s": 480, "target": {"label": "Z1", "rpe": 2}, "notes": None},
             "summary_md": "ok",
             "technical_focus": None,
         }
@@ -198,8 +198,8 @@ def test_prompt_includes_activity_review_context(mock_get_client):
     parsed = MagicMock(
         model_dump=lambda: {
             "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
-            "main": [{"duration_s": 2400, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
-            "cooldown": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
+            "main": [{"duration_s": 2520, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "cooldown": {"duration_s": 480, "target": {"label": "Z1", "rpe": 2}, "notes": None},
             "summary_md": "ok",
             "technical_focus": None,
         }
@@ -253,12 +253,12 @@ def _endurance_session() -> dict:
 def test_prompt_includes_numeric_envelope(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
-    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(360, 2880, 360))
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
     generate_workout_for_session(
         session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
     )
     user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
-    assert "80%" in user_msg  # endurance main-work floor surfaced to the model
+    assert "75%" in user_msg  # endurance main-work floor surfaced to the model
 
 
 @patch("garmin_sync.coach.openai_client._get_client")
@@ -266,14 +266,14 @@ def test_generate_workout_retries_with_feedback_then_succeeds(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     invalid = _workout_dict(1800, 1500, 300)  # warmup 1800s > endurance cap 900s
-    valid = _workout_dict(360, 2880, 360)
+    valid = _workout_dict(300, 3000, 300)
     mock_client.beta.chat.completions.parse.side_effect = [_resp(invalid), _resp(valid)]
 
     workout = generate_workout_for_session(
         session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
     )
 
-    assert workout.warmup.duration_s == 360
+    assert workout.warmup.duration_s == 300
     assert mock_client.beta.chat.completions.parse.call_count == 2
     # the corrective feedback (validation error) is fed back into the retry prompt
     retry_messages = mock_client.beta.chat.completions.parse.call_args_list[1].kwargs["messages"]
