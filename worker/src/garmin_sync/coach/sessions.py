@@ -15,6 +15,21 @@ from garmin_sync.supabase_client import get_admin_client
 
 log = logging.getLogger(__name__)
 
+# Après un échec de génération LLM, ne pas retenter la session avant ce délai :
+# chaque tentative brûle openai_max_attempts appels et une alerte Discord.
+_GENERATION_BACKOFF = timedelta(hours=6)
+
+
+def _in_generation_backoff(session: dict[str, Any], now: datetime) -> bool:
+    raw = session.get("workout_generation_failed_at")
+    if not isinstance(raw, str) or not raw:
+        return False
+    try:
+        failed_at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return now - failed_at < _GENERATION_BACKOFF
+
 
 class SessionNotFound(Exception):
     """Raised when a session_id does not exist for the given user."""
@@ -155,11 +170,15 @@ def _generate_and_persist(
             sport=session.get("sport"),
             session_type=session.get("session_type"),
         )
+        db.table("planned_sessions").update(
+            {"workout_generation_failed_at": datetime.now(UTC).isoformat()}
+        ).eq("id", session["id"]).execute()
         return False
     db.table("planned_sessions").update(
         {
             "workout": workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
+            "workout_generation_failed_at": None,
         }
     ).eq("id", session["id"]).execute()
     return True
@@ -175,7 +194,7 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
         db.table("planned_sessions")
         .select(
             "id, sport, session_type, target_duration_s, target_tss, "
-            "target_elevation_gain_m, phase, date"
+            "target_elevation_gain_m, phase, date, workout_generation_failed_at"
         )
         .eq("user_id", user_id)
         .is_("workout", "null")
@@ -186,12 +205,21 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
     pending = cast("list[dict[str, Any]]", pending_resp.data or [])
 
     if not pending:
-        return {"generated_count": 0, "failed_count": 0, "skipped_count": 0}
+        return {"generated_count": 0, "failed_count": 0, "skipped_count": 0, "deferred_count": 0}
 
-    generatable = [session for session in pending if not _should_skip_workout_generation(session)]
-    skipped = len(pending) - len(generatable)
+    now = datetime.now(UTC)
+    ready = [s for s in pending if not _in_generation_backoff(s, now)]
+    deferred = len(pending) - len(ready)
+
+    generatable = [session for session in ready if not _should_skip_workout_generation(session)]
+    skipped = len(ready) - len(generatable)
     if not generatable:
-        return {"generated_count": 0, "failed_count": 0, "skipped_count": skipped}
+        return {
+            "generated_count": 0,
+            "failed_count": 0,
+            "skipped_count": skipped,
+            "deferred_count": deferred,
+        }
 
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, today)
@@ -205,7 +233,12 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
             generated += 1
         else:
             failed += 1
-    return {"generated_count": generated, "failed_count": failed, "skipped_count": skipped}
+    return {
+        "generated_count": generated,
+        "failed_count": failed,
+        "skipped_count": skipped,
+        "deferred_count": deferred,
+    }
 
 
 def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
@@ -240,6 +273,7 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
         {
             "workout": workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
+            "workout_generation_failed_at": None,
         }
     ).eq("id", session_id).execute()
     return {"status": "ok", "workout": workout.model_dump()}
