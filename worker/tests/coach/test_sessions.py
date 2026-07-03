@@ -42,7 +42,12 @@ def test_ensure_sessions_skips_already_generated(mock_db, mock_gen):
     mock_db.return_value = db
     _planned_select_chain(db).data = []
     result = ensure_sessions(user_id="u1", days=7)
-    assert result == {"generated_count": 0, "failed_count": 0, "skipped_count": 0}
+    assert result == {
+        "generated_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "deferred_count": 0,
+    }
     mock_gen.assert_not_called()
 
 
@@ -110,7 +115,12 @@ def test_ensure_sessions_skips_rest_days(mock_db, mock_gen):
 
     result = ensure_sessions(user_id="u1", days=7)
 
-    assert result == {"generated_count": 0, "failed_count": 0, "skipped_count": 1}
+    assert result == {
+        "generated_count": 0,
+        "failed_count": 0,
+        "skipped_count": 1,
+        "deferred_count": 0,
+    }
     mock_gen.assert_not_called()
 
 
@@ -345,3 +355,132 @@ def test_inject_effective_strengths_uses_reconciled_levels(mock_load) -> None:
     assert out["sports_strengths"] == {"swim": 2, "bike": 5, "run": 3}
     # le reste du profil est préservé
     assert out["ftp_watts"] == 240
+
+
+def _pending_session(session_id: str = "s1", **overrides) -> dict:
+    base = {
+        "id": session_id,
+        "sport": "run",
+        "session_type": "endurance",
+        "target_duration_s": 3000,
+        "target_tss": 50,
+        "phase": "base",
+        "date": "2026-07-03",
+        "workout_generation_failed_at": None,
+    }
+    return {**base, **overrides}
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_defers_recently_failed(mock_db, mock_gen):
+    from datetime import UTC, datetime, timedelta
+
+    db = MagicMock()
+    mock_db.return_value = db
+    recent_fail = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    _planned_select_chain(db).data = [
+        _pending_session("s1", workout_generation_failed_at=recent_fail)
+    ]
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["deferred_count"] == 1
+    assert result["generated_count"] == 0
+    mock_gen.assert_not_called()
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_retries_after_backoff_expiry(mock_db, mock_gen):
+    from datetime import UTC, datetime, timedelta
+
+    db = MagicMock()
+    mock_db.return_value = db
+    old_fail = (datetime.now(UTC) - timedelta(hours=7)).isoformat()
+    _planned_select_chain(db).data = [_pending_session("s1", workout_generation_failed_at=old_fail)]
+    _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
+    _race_chain(db).data = None
+    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["generated_count"] == 1
+    assert result["deferred_count"] == 0
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_backoff_tolerates_naive_timestamp(mock_db, mock_gen):
+    """Un timestamp sans offset (naïf) ne doit pas crasher ensure_sessions :
+    il est interprété comme UTC et le backoff s'applique."""
+    from datetime import UTC, datetime, timedelta
+
+    db = MagicMock()
+    mock_db.return_value = db
+    naive_recent = (datetime.now(UTC) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+    _planned_select_chain(db).data = [
+        _pending_session("s1", workout_generation_failed_at=naive_recent)
+    ]
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["deferred_count"] == 1
+    mock_gen.assert_not_called()
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_generation_failure_marks_backoff(mock_db, mock_gen):
+    from garmin_sync.coach.openai_client import OpenAIError
+
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [_pending_session("s1")]
+    _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
+    _race_chain(db).data = None
+    mock_gen.side_effect = OpenAIError("boom")
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["failed_count"] == 1
+    update_payloads = [c.args[0] for c in db.table.return_value.update.call_args_list]
+    assert any(isinstance(p.get("workout_generation_failed_at"), str) for p in update_payloads)
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_backoff_marking_failure_does_not_abort_loop(mock_db, mock_gen):
+    """Si l'update du marqueur d'échec lève, ensure_sessions contient l'erreur."""
+    from garmin_sync.coach.openai_client import OpenAIError
+
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [_pending_session("s1")]
+    _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
+    _race_chain(db).data = None
+    mock_gen.side_effect = OpenAIError("boom")
+    db.table.return_value.update.return_value.eq.return_value.execute.side_effect = Exception(
+        "db down"
+    )
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["failed_count"] == 1
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_generation_success_resets_backoff(mock_db, mock_gen):
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [_pending_session("s1")]
+    _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
+    _race_chain(db).data = None
+    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+
+    ensure_sessions(user_id="u1", days=7)
+
+    update_payloads = [c.args[0] for c in db.table.return_value.update.call_args_list]
+    success = next(p for p in update_payloads if "workout" in p)
+    assert success["workout_generation_failed_at"] is None

@@ -123,7 +123,7 @@ def test_generate_workout_returns_validated_workout(mock_get_client):
                             }
                         ],
                         "cooldown": {
-                            "duration_s": 600,
+                            "duration_s": 480,
                             "target": {
                                 "label": "Z1",
                                 "rpe": 2,
@@ -169,8 +169,8 @@ def test_prompt_includes_race_context(mock_get_client):
     parsed = MagicMock(
         model_dump=lambda: {
             "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
-            "main": [{"duration_s": 2400, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
-            "cooldown": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
+            "main": [{"duration_s": 2520, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "cooldown": {"duration_s": 480, "target": {"label": "Z1", "rpe": 2}, "notes": None},
             "summary_md": "ok",
             "technical_focus": None,
         }
@@ -187,7 +187,7 @@ def test_prompt_includes_race_context(mock_get_client):
     assert "12 semaines" in user_msg
     assert "350m" in user_msg
     system_msg = call_args.kwargs["messages"][0]["content"]
-    assert "au moins 55%" in system_msg
+    assert "55%" not in system_msg  # plus de ratio codé en dur : l'enveloppe par séance fait foi
     assert "Ne génère jamais de workout" in system_msg
 
 
@@ -198,8 +198,8 @@ def test_prompt_includes_activity_review_context(mock_get_client):
     parsed = MagicMock(
         model_dump=lambda: {
             "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
-            "main": [{"duration_s": 2400, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
-            "cooldown": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
+            "main": [{"duration_s": 2520, "target": {"label": "Z2", "rpe": 4}, "notes": None}],
+            "cooldown": {"duration_s": 480, "target": {"label": "Z1", "rpe": 2}, "notes": None},
             "summary_md": "ok",
             "technical_focus": None,
         }
@@ -253,12 +253,12 @@ def _endurance_session() -> dict:
 def test_prompt_includes_numeric_envelope(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
-    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(360, 2880, 360))
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
     generate_workout_for_session(
         session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
     )
     user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
-    assert "80%" in user_msg  # endurance main-work floor surfaced to the model
+    assert "75%" in user_msg  # endurance main-work floor surfaced to the model
 
 
 @patch("garmin_sync.coach.openai_client._get_client")
@@ -266,20 +266,56 @@ def test_generate_workout_retries_with_feedback_then_succeeds(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     invalid = _workout_dict(1800, 1500, 300)  # warmup 1800s > endurance cap 900s
-    valid = _workout_dict(360, 2880, 360)
+    valid = _workout_dict(300, 3000, 300)
     mock_client.beta.chat.completions.parse.side_effect = [_resp(invalid), _resp(valid)]
 
     workout = generate_workout_for_session(
         session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
     )
 
-    assert workout.warmup.duration_s == 360
+    assert workout.warmup.duration_s == 300
     assert mock_client.beta.chat.completions.parse.call_count == 2
     # the corrective feedback (validation error) is fed back into the retry prompt
     retry_messages = mock_client.beta.chat.completions.parse.call_args_list[1].kwargs["messages"]
     retry_text = "\n".join(m["content"] for m in retry_messages)
     assert "warmup" in retry_text  # the failing dimension is named
     assert "1800" in retry_text  # the offending value is fed back
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_retry_feeds_previous_assistant_response(mock_get_client):
+    """Le retry doit inclure la réponse assistant fautive : sans elle, le message
+    'la séance précédente est invalide' réfère à un contenu que le modèle ne voit pas."""
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    invalid = _workout_dict(1800, 1500, 300)
+    valid = _workout_dict(300, 3000, 300)
+    mock_client.beta.chat.completions.parse.side_effect = [_resp(invalid), _resp(valid)]
+
+    generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+
+    retry_messages = mock_client.beta.chat.completions.parse.call_args_list[1].kwargs["messages"]
+    roles = [m["role"] for m in retry_messages]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert "1800" in retry_messages[2]["content"]  # le workout fautif complet est visible
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_api_failure_retry_has_no_assistant_message(mock_get_client):
+    """Un échec réseau (pas de payload) ne doit pas injecter de message assistant vide."""
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    valid = _workout_dict(300, 3000, 300)
+    mock_client.beta.chat.completions.parse.side_effect = [Exception("boom"), _resp(valid)]
+
+    generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+
+    retry_messages = mock_client.beta.chat.completions.parse.call_args_list[1].kwargs["messages"]
+    assert [m["role"] for m in retry_messages] == ["system", "user", "user"]
 
 
 @patch("garmin_sync.coach.openai_client.get_settings")

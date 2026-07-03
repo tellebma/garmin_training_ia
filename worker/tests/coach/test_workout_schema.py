@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -7,6 +9,7 @@ from garmin_sync.coach.workout_schema import (
     IntervalTarget,
     Workout,
     describe_session_envelope,
+    envelope_for_session,
     structure_caps_for_type,
     validate_workout_for_session,
 )
@@ -14,18 +17,21 @@ from garmin_sync.coach.workout_schema import (
 
 def test_describe_session_envelope_states_numeric_bounds():
     text = describe_session_envelope({"session_type": "endurance", "target_duration_s": 3600})
-    # warmup cap 900s, cooldown cap 600s, main >= 80%, window 54-66 min (±10%, min ±5min)
-    assert "15min" in text  # warmup max 900s
-    assert "10min" in text  # cooldown max 600s
-    assert "80%" in text  # main min ratio
-    assert "54" in text  # duration window low bound (min)
-    assert "66" in text  # duration window high bound (min)
+    # warmup eff 486s, cooldown eff 324s, main >= 75%, fenêtre 54-66 min (±10%)
+    assert "8min" in text
+    assert "5min" in text
+    assert "75%" in text
+    assert "54" in text
+    assert "66" in text
 
 
 def test_describe_session_envelope_recovery_tighter_caps():
+    # recovery 2400s : budget int(0.2*2100)=419 ; warmup int(419*0.6)=251 -> 4min
+    # cooldown 419-251=168 -> 2min
     text = describe_session_envelope({"session_type": "recovery", "target_duration_s": 2400})
-    assert "5min" in text  # warmup + cooldown caps 300s
-    assert "90%" in text
+    assert "4min" in text
+    assert "2min" in text
+    assert "80%" in text
 
 
 def test_target_minimal_z_label_only():
@@ -116,11 +122,12 @@ def test_workout_rejects_too_much_warmup_and_cooldown():
 
 
 def test_validate_workout_for_session_accepts_close_duration():
+    # endurance effective caps @3000s : warmup<=405s, cooldown<=270s
     target = IntervalTarget(label="Z2", rpe=4)
     workout = Workout(
         warmup=IntervalBlock(duration_s=300, target=target),
         main=[IntervalBlock(duration_s=2400, target=target)],
-        cooldown=IntervalBlock(duration_s=300, target=target),
+        cooldown=IntervalBlock(duration_s=270, target=target),
         summary_md="Endurance réaliste",
     )
 
@@ -130,11 +137,12 @@ def test_validate_workout_for_session_accepts_close_duration():
 
 
 def test_validate_workout_for_session_rejects_duration_far_from_target():
+    # endurance effective caps @1800s : warmup<=270s, cooldown<=180s
     target = IntervalTarget(label="Z2", rpe=4)
     workout = Workout(
-        warmup=IntervalBlock(duration_s=300, target=target),
+        warmup=IntervalBlock(duration_s=270, target=target),
         main=[IntervalBlock(duration_s=2400, target=target)],
-        cooldown=IntervalBlock(duration_s=300, target=target),
+        cooldown=IntervalBlock(duration_s=180, target=target),
         summary_md="Too long",
     )
 
@@ -150,7 +158,7 @@ def test_structure_caps_endurance():
     caps = structure_caps_for_type("endurance")
     assert caps.warmup_max_s == 15 * 60
     assert caps.cooldown_max_s == 10 * 60
-    assert caps.main_min_ratio == 0.80
+    assert caps.main_min_ratio == 0.75
 
 
 def test_long_session_rejects_huge_warmup():
@@ -172,3 +180,76 @@ def test_absolute_floor_rejects_too_short_endurance():
         validate_workout_for_session(
             wk, {"target_duration_s": 17 * 60, "session_type": "endurance"}
         )
+
+
+def test_envelope_for_session_endurance_effective_caps():
+    env = envelope_for_session({"session_type": "endurance", "target_duration_s": 3600})
+    # budget = int(0.25 * (3600 - 360)) = 810 ; warmup = int(810 * 0.6) = 486 ; cooldown = 324
+    assert env.warmup_max_s == 486
+    assert env.cooldown_max_s == 324
+    assert env.main_min_ratio == 0.75
+    assert env.tolerance_s == 360
+
+
+def test_envelope_caps_bounded_by_fixed_type_caps():
+    # Séance très longue : le budget dépasse les caps fixes, qui restent la borne.
+    env = envelope_for_session({"session_type": "endurance", "target_duration_s": 14400})
+    assert env.warmup_max_s == 900
+    assert env.cooldown_max_s == 600
+
+
+@pytest.mark.parametrize(
+    ("session_type", "target_s"),
+    [
+        ("recovery", 2400),
+        ("endurance", 3600),
+        ("endurance", 2700),
+        ("long", 7200),
+        ("threshold", 3600),
+        ("intervals", 3600),
+        ("unknown", 3000),
+    ],
+)
+def test_workout_following_announced_caps_passes_validation(session_type, target_s):
+    """Anti-régression bug prod 2026-07-03 : un workout qui suit exactement les bornes
+    annoncées au LLM (warmup/cooldown au max, total = cible) doit passer la validation."""
+    session = {"session_type": session_type, "target_duration_s": target_s}
+    env = envelope_for_session(session)
+    workout = Workout(
+        warmup=_block(env.warmup_max_s, "Z1", 2),
+        main=[_block(target_s - env.warmup_max_s - env.cooldown_max_s)],
+        cooldown=_block(env.cooldown_max_s, "Z1", 2),
+        summary_md="x",
+    )
+    assert validate_workout_for_session(workout, session) is workout
+
+
+def test_envelope_prompt_announces_combined_budget():
+    text = describe_session_envelope({"session_type": "endurance", "target_duration_s": 3600})
+    assert "8min" in text  # warmup 486s -> 8min
+    assert "5min" in text  # cooldown 324s -> 5min
+    assert "13min au total" in text  # budget combiné 810s -> 13min
+    assert "75%" in text
+
+
+@pytest.mark.parametrize(
+    ("session_type", "target_s"),
+    [
+        ("recovery", 1300),  # target-tol sous le floor : lo doit être clampé au floor
+        ("endurance", 3270),  # floor-division 49min serait hors tolérance (330 > 327)
+        ("endurance", 2450),  # borne basse proche de la limite du ratio
+    ],
+)
+def test_workout_at_announced_low_bound_passes_validation(session_type, target_s):
+    """La borne basse de durée annoncée au LLM doit toujours être satisfiable."""
+    session = {"session_type": session_type, "target_duration_s": target_s}
+    text = describe_session_envelope(session)
+    lo_s = int(re.search(r"entre (\d+)min", text).group(1)) * 60
+    env = envelope_for_session(session)
+    workout = Workout(
+        warmup=_block(env.warmup_max_s, "Z1", 2),
+        main=[_block(lo_s - env.warmup_max_s - env.cooldown_max_s)],
+        cooldown=_block(env.cooldown_max_s, "Z1", 2),
+        summary_md="x",
+    )
+    assert validate_workout_for_session(workout, session) is workout

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Any
 
@@ -16,7 +17,15 @@ from garmin_sync.config import get_settings
 
 
 class OpenAIError(Exception):
-    """Raised when the OpenAI API call or response is unusable."""
+    """Raised when the OpenAI API call or response is unusable.
+
+    ``raw_payload`` porte le JSON du workout rejeté par la validation, pour
+    ré-injection en message assistant lors du retry correctif.
+    """
+
+    def __init__(self, message: str, raw_payload: str | None = None) -> None:
+        super().__init__(message)
+        self.raw_payload = raw_payload
 
 
 _SYSTEM_PROMPT = """Tu es un coach triathlon expert. Tu produis des séances d'entraînement
@@ -27,7 +36,8 @@ en dehors du schema.
 Règles :
 - Ne génère jamais de workout pour une séance "rest".
 - La durée totale warmup + main + cooldown doit rester proche de la durée cible.
-- Le corps de séance doit représenter au moins 55% de la durée totale.
+- Le corps de séance doit respecter la part minimale de la durée totale donnée dans
+  les contraintes chiffrées de la demande.
 - Échauffement et retour calme sont proportionnels : courts sur récupération/endurance courte,
   plus longs seulement pour seuil/intervalles.
 - Évite les découpages artificiels type 45min avec 15min échauffement, 18min travail,
@@ -143,11 +153,15 @@ def _call_and_validate(
     parsed = resp.choices[0].message.parsed
     if parsed is None:
         raise OpenAIError("OpenAI returned no parsed payload")
+    payload = parsed.model_dump()
     try:
-        workout = Workout.model_validate(parsed.model_dump())
+        workout = Workout.model_validate(payload)
         return validate_workout_for_session(workout, session)
     except ValueError as e:
-        raise OpenAIError(f"OpenAI returned unrealistic workout: {e}") from e
+        raise OpenAIError(
+            f"OpenAI returned unrealistic workout: {e}",
+            raw_payload=json.dumps(payload, ensure_ascii=False),
+        ) from e
 
 
 def generate_workout_for_session(
@@ -175,6 +189,8 @@ def generate_workout_for_session(
             return _call_and_validate(client, settings.openai_model, messages, session)
         except OpenAIError as e:
             last_error = e
+            if e.raw_payload:
+                messages.append({"role": "assistant", "content": e.raw_payload})
             messages.append(
                 {
                     "role": "user",
