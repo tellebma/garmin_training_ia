@@ -172,9 +172,12 @@ def _generate_and_persist(
             sport=session.get("sport"),
             session_type=session.get("session_type"),
         )
-        db.table("planned_sessions").update(
-            {"workout_generation_failed_at": datetime.now(UTC).isoformat()}
-        ).eq("id", session["id"]).execute()
+        try:
+            db.table("planned_sessions").update(
+                {"workout_generation_failed_at": datetime.now(UTC).isoformat()}
+            ).eq("id", session["id"]).execute()
+        except Exception:
+            log.exception("failed to mark generation backoff for session=%s", session["id"])
         return False
     db.table("planned_sessions").update(
         {

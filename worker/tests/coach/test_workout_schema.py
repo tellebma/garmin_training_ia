@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -228,3 +230,26 @@ def test_envelope_prompt_announces_combined_budget():
     assert "5min" in text  # cooldown 324s -> 5min
     assert "13min au total" in text  # budget combiné 810s -> 13min
     assert "75%" in text
+
+
+@pytest.mark.parametrize(
+    ("session_type", "target_s"),
+    [
+        ("recovery", 1300),  # target-tol sous le floor : lo doit être clampé au floor
+        ("endurance", 3270),  # floor-division 49min serait hors tolérance (330 > 327)
+        ("endurance", 2450),  # borne basse proche de la limite du ratio
+    ],
+)
+def test_workout_at_announced_low_bound_passes_validation(session_type, target_s):
+    """La borne basse de durée annoncée au LLM doit toujours être satisfiable."""
+    session = {"session_type": session_type, "target_duration_s": target_s}
+    text = describe_session_envelope(session)
+    lo_s = int(re.search(r"entre (\d+)min", text).group(1)) * 60
+    env = envelope_for_session(session)
+    workout = Workout(
+        warmup=_block(env.warmup_max_s, "Z1", 2),
+        main=[_block(lo_s - env.warmup_max_s - env.cooldown_max_s)],
+        cooldown=_block(env.cooldown_max_s, "Z1", 2),
+        summary_md="x",
+    )
+    assert validate_workout_for_session(workout, session) is workout

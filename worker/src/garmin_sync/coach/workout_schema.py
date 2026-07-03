@@ -154,7 +154,7 @@ def describe_session_envelope(session: dict[str, object]) -> str:
     lesquelles il sera vérifié.
     """
     env = envelope_for_session(session)
-    lo_min = max(0, env.target_s - env.tolerance_s) // 60
+    lo_min = -(-max(env.floor_s, env.target_s - env.tolerance_s) // 60)  # ceil, clampé au floor
     hi_min = (env.target_s + env.tolerance_s) // 60
     combined_min = (env.warmup_max_s + env.cooldown_max_s) // 60
     return (

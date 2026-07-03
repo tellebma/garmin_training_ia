@@ -450,6 +450,27 @@ def test_generation_failure_marks_backoff(mock_db, mock_gen):
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
+def test_backoff_marking_failure_does_not_abort_loop(mock_db, mock_gen):
+    """Si l'update du marqueur d'échec lève, ensure_sessions contient l'erreur."""
+    from garmin_sync.coach.openai_client import OpenAIError
+
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [_pending_session("s1")]
+    _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
+    _race_chain(db).data = None
+    mock_gen.side_effect = OpenAIError("boom")
+    db.table.return_value.update.return_value.eq.return_value.execute.side_effect = Exception(
+        "db down"
+    )
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["failed_count"] == 1
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
 def test_generation_success_resets_backoff(mock_db, mock_gen):
     db = MagicMock()
     mock_db.return_value = db
