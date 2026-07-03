@@ -411,6 +411,26 @@ def test_ensure_sessions_retries_after_backoff_expiry(mock_db, mock_gen):
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
+def test_backoff_tolerates_naive_timestamp(mock_db, mock_gen):
+    """Un timestamp sans offset (naïf) ne doit pas crasher ensure_sessions :
+    il est interprété comme UTC et le backoff s'applique."""
+    from datetime import UTC, datetime, timedelta
+
+    db = MagicMock()
+    mock_db.return_value = db
+    naive_recent = (datetime.now(UTC) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+    _planned_select_chain(db).data = [
+        _pending_session("s1", workout_generation_failed_at=naive_recent)
+    ]
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["deferred_count"] == 1
+    mock_gen.assert_not_called()
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
 def test_generation_failure_marks_backoff(mock_db, mock_gen):
     from garmin_sync.coach.openai_client import OpenAIError
 

@@ -28,6 +28,8 @@ def _in_generation_backoff(session: dict[str, Any], now: datetime) -> bool:
         failed_at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return False
+    if failed_at.tzinfo is None:
+        failed_at = failed_at.replace(tzinfo=UTC)
     return now - failed_at < _GENERATION_BACKOFF
 
 
