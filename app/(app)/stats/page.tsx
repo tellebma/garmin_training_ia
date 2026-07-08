@@ -371,7 +371,7 @@ async function ColsWidgetLoader({ userId }: { readonly userId: string }) {
     .eq('user_id', userId)
     .maybeSingle()
 
-  if (!profile?.lat || !profile.lon) {
+  if (profile?.lat == null || profile.lon == null) {
     return (
       <ChartCard title="Mes cols" description="Cols dans un rayon de 50 km autour de chez toi">
         <EmptyState

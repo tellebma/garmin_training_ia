@@ -27,6 +27,9 @@ class _FakeQuery:
     def is_(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
+    def limit(self, *_a: Any, **_k: Any) -> _FakeQuery:
+        return self
+
     def gt(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 

@@ -19,6 +19,13 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
     full-resolution `activity_samples`, and upserts one `col_crossings` row per
     (col, activity) pair within 150m. Advances the cursor to the latest processed
     activity's `start_time`.
+
+    Note: `col_matching_cursor` only guards against re-scanning already-processed
+    activities, not against re-matching them when a new col is added to the shared
+    `cols` table later (e.g. a periodic Overpass refresh). A col added after an
+    activity's cursor has passed is never matched against that activity again, so
+    it can show "0 fois" even if the user actually rode past it. Accepted limitation
+    for this gadget feature.
     """
     db = get_admin_client()
 
@@ -71,6 +78,7 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
             .eq("user_id", user_id)
             .eq("garmin_activity_id", activity_id)
             .not_.is_("latitude", "null")
+            .limit(5000)
             .execute()
             .data
             or [],

@@ -37,5 +37,6 @@ describe('ColsWidget', () => {
   it('shows an empty state when there are no cols in range', () => {
     render(<ColsWidget summaries={[]} />)
     expect(screen.getByText(/Aucun col recensé/)).not.toBeNull()
+    expect(screen.getByText(/Aucun col dans un rayon de 50 km autour de chez toi/)).not.toBeNull()
   })
 })
