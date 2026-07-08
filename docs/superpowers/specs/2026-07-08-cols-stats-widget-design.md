@@ -86,6 +86,10 @@ create policy "users read own col crossings"
 alter table public.athlete_profiles
   add column home_computed_at timestamptz,
   add column cols_cache_updated_at timestamptz,
+  -- position du domicile au moment du dernier fetch Overpass réussi (pour détecter
+  -- un déplacement > 5km et redéclencher un refresh même si < 30 jours)
+  add column cols_cache_home_lat numeric(9,6),
+  add column cols_cache_home_lon numeric(9,6),
   add column col_matching_cursor timestamptz;
 ```
 
@@ -124,8 +128,8 @@ Nouveau module `worker/src/garmin_sync/coach/overpass.py`.
   réseau) :
   - `cols_cache_updated_at` est `null` (jamais fetché) ;
   - `cols_cache_updated_at` a plus de 30 jours ;
-  - le domicile a bougé de plus de 5 km depuis le dernier fetch (comparaison avec le
-    home utilisé lors du dernier `cols_cache_updated_at`).
+  - le domicile a bougé de plus de 5 km depuis le dernier fetch (comparaison avec
+    `cols_cache_home_lat`/`cols_cache_home_lon`, mis à jour à chaque fetch réussi).
 - Timeout explicite sur l'appel HTTP (Overpass est un service public, parfois lent ou
   indisponible) ; toute erreur réseau est loggée + capturée Sentry, sans lever
   d'exception qui remonterait au cron.
