@@ -1,5 +1,10 @@
 # E18 — Console d'administration & observabilité beta
 
+> **Remplacé par**
+> [`2026-07-08-e18-console-admin-ouverture-publique-design.md`](./2026-07-08-e18-console-admin-ouverture-publique-design.md),
+> qui reprend le Bloc finops ci-dessous sans changement de fond et ajoute feature flags
+> + gestion allowlist UI. Ce fichier est conservé pour l'historique de décision.
+
 **Date** : 2026-06-28
 **Statut** : spec validé (brainstorming) — plan d'implémentation à venir
 **Priorité** : P1
