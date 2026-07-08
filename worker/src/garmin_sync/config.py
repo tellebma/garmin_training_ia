@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     discord_webhook_url: SecretStr | None = Field(default=None)
     openai_api_key: SecretStr = Field(default=SecretStr(""))
+    openai_admin_api_key: SecretStr = Field(default=SecretStr(""))
     openai_model: str = Field(default="gpt-4o-mini")
     openai_timeout_s: int = Field(default=30)
     openai_max_attempts: int = Field(default=3, ge=1)
