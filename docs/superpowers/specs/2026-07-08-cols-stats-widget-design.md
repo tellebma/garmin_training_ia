@@ -154,12 +154,27 @@ Ce découpage en 3 fonctions pures/testables isolément suit le pattern existant
 
 ## Frontend
 
-### Widget sur `/stats`
+### Widget sur `/stats` — chargement asynchrone, non bloquant
 
-Nouvelle section (`ChartCard` ou équivalent) ajoutée dans `CockpitBody`
-(`app/(app)/stats/page.tsx`), après la carte de chaleur des parcours existante.
+**Contrainte performance** : ce widget ne doit **jamais ralentir le rendu initial** de
+la page stats. Il est donc **isolé du `Promise.all` principal** de `CockpitBody` :
 
-Requêtes Supabase server-side, dans le même `Promise.all` que le reste de la page :
+- Nouveau composant serveur async dédié, ex. `<ColsWidget userId={userId} />`, qui fait
+  ses propres requêtes Supabase (`athlete_profiles.home_latitude/longitude`, `cols`,
+  `col_crossings`) indépendamment du reste du cockpit.
+- Rendu dans sa **propre frontière `<Suspense>`**, avec un fallback skeleton dédié
+  (nouveau `ColsWidgetSkeleton`, à l'image de `CockpitSkeleton` déjà utilisé pour
+  l'ensemble de la page — voir `app/(app)/_components/skeletons/`).
+- Placé dans `StatsPage` (ou `CockpitBody`) de façon à démarrer son fetch **en
+  parallèle** du reste (pas en cascade après le `Promise.all` principal) : le composant
+  et son Suspense sont montés dès le rendu du parent, React/Next déclenche le fetch dès
+  que le composant async démarre, indépendamment de la résolution du `Promise.all` du
+  cockpit.
+- Résultat perçu : le cockpit principal (déjà rapide) s'affiche sans attendre les
+  données cols ; le widget cols affiche son skeleton puis se peuple dès que ses
+  requêtes répondent — jamais l'inverse.
+
+Requêtes Supabase server-side, propres à ce composant :
 
 - `athlete_profiles` : `home_latitude`, `home_longitude`.
 - `cols` : tous les cols (dataset global de petite taille), filtrage par distance
@@ -199,6 +214,13 @@ worker et la base.
     curseur, cas sans activité GPS, cas aucun col à proximité.
 - **Frontend (Vitest)** : `lib/dashboard/cols.ts` — groupement par col, tri, cas 0
   franchissement, cas liste de cols vide.
+
+## Workflow d'implémentation
+
+Implémentation dans un **git worktree dédié** (pas dans le clone principal), sur une
+branche `feat/cols-widget`, poussée puis mergée via PR en fin de travail — cf.
+`superpowers:using-git-worktrees`. La spec elle-même peut rester committée sur `main`
+en local.
 
 ## Hors scope
 
