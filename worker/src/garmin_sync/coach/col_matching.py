@@ -35,7 +35,13 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
     if not nearby_cols:
         return
 
-    profile_response = db.table("athlete_profiles").select("col_matching_cursor").eq("user_id", user_id).maybe_single().execute()
+    profile_response = (
+        db.table("athlete_profiles")
+        .select("col_matching_cursor")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
     profile = cast(
         "dict[str, Any] | None",
         profile_response.data if profile_response else None,
