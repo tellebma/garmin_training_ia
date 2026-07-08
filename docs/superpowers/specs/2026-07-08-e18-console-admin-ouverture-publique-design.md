@@ -173,8 +173,17 @@ appel :
 - **IA estimé** : `total_tokens` et `cost_usd` 7j depuis `llm_usage`
 - **IA facturé** : `cost_usd` depuis `openai_billing_snapshot` sur la même fenêtre —
   affiché à côté de l'estimé, pas fusionné (écart normal, pas un bug à corriger à 100%)
-- **Santé sync** : succès/échecs des derniers crons (`garmin_sync_status`)
+- **Santé sync** : succès/échecs des derniers crons — agrégé depuis les colonnes
+  `last_sync_status` / `last_sync_status_at` de `garmin_credentials` (pas une table
+  dédiée : `garmin_sync_status` désigne ce jeu de colonnes, ajouté par la migration
+  `20260521010000_e7_garmin_sync_status.sql`)
 - **Série coût/jour** : `cost_usd` (estimé) agrégé par jour sur 7j, pour le graphe
+
+> **Précision (vérifiée dans le code)** : seul `coach/sessions.py` (génération/régénération
+> de séance) appelle OpenAI aujourd'hui — le briefing quotidien (`coach/briefing.py`) est
+> 100% règles/scores, aucun appel LLM. `llm_usage.feature` n'a donc qu'une seule valeur
+> possible en V1, `'session_workout'` ; la colonne reste `text` (pas d'enum) pour ne pas
+> bloquer un futur ajout sans migration.
 
 ### Bloc B — Feature flags
 
@@ -251,16 +260,24 @@ Composant front `AllowlistPanel` :
 `app/(app)/admin/page.tsx`, Server Component :
 - Garde d'accès : appel à la RPC `is_admin_caller()` ; si `false` → `redirect('/today')`.
   La RPC reste la source de vérité (defense in depth) ; le front n'est qu'un filtre UX.
-- Un seul chargement groupé au montage : `admin_overview()` étendue +
-  `admin_list_feature_flags()` + `admin_list_allowed_emails()`.
-- Trois panneaux dans l'ordre de priorité produit :
-  1. **Finops** — cartes users/activités/coût estimé vs facturé + graphe coût/jour 7j
-     (réutilise les composants chart d'E14.1).
-  2. **Feature flags** — liste de toggles, avec le sélecteur de durée pour
-     `public_registration_enabled`.
-  3. **Allowlist** — formulaire + table.
-- Bandeau global en haut de la page si `maintenance_mode` ou `public_registration_enabled`
-  est actif — visibilité immédiate des états à risque.
+- **Chargement async indépendant par panneau, jamais un `Promise.all` bloquant commun** :
+  chaque panneau est son propre Server Component async avec sa propre requête RPC et sa
+  propre frontière `<Suspense fallback={<XxxSkeleton />}>`, monté au même niveau (pas en
+  cascade après un fetch principal) pour que les trois fetches démarrent en parallèle.
+  L'affichage d'un panneau ne doit jamais attendre les deux autres. Convention déjà en
+  place sur `/stats` (voir `app/(app)/_components/skeletons/cockpit-skeleton.tsx`).
+- Trois panneaux dans l'ordre de priorité produit, chacun `<Suspense>` séparément :
+  1. **`FinopsPanel`** (`admin_overview()`) — cartes users/activités/coût estimé vs
+     facturé + graphe coût/jour 7j (nouveau composant `CostPerDayChart`, calqué sur
+     `banister-chart.tsx` : `LineChart` recharts + CSS vars theme-aware, pas une
+     réutilisation littérale des composants d'E14.1 qui sont spécialisés samples
+     intra-activité).
+  2. **`FeatureFlagsPanel`** (`admin_list_feature_flags()`) — liste de toggles, avec le
+     sélecteur de durée pour `public_registration_enabled`.
+  3. **`AllowlistPanel`** (`admin_list_allowed_emails()`) — formulaire + table.
+- Bandeau global (hors Suspense, calculé à partir du panneau Feature flags une fois
+  chargé, ou d'un appel léger dédié) si `maintenance_mode` ou
+  `public_registration_enabled` est actif — visibilité immédiate des états à risque.
 
 ## Hors scope V1 (→ items « Suite » séparés)
 
