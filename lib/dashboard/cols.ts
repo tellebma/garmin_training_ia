@@ -59,7 +59,7 @@ export function computeColsSummary({
     }
   }
 
-  const summaries: ColSummary[] = cols
+  const summaries: (ColSummary & { _distanceKm: number })[] = cols
     .map((col): ColSummary & { _distanceKm: number } => {
       const distanceKm = haversineKm(homeLat, homeLon, col.latitude, col.longitude)
       const crossing = crossingsByCol.get(col.id)
