@@ -80,11 +80,10 @@ create policy "users read own col crossings"
   using (auth.uid() = user_id);
 
 -- Colonnes ajoutées à athlete_profiles
+-- Note : `lat`/`lon` existent déjà dans le schéma initial (E1) mais ne sont
+-- utilisées nulle part dans le code — on les réutilise pour le domicile calculé
+-- au lieu d'ajouter des colonnes redondantes.
 alter table public.athlete_profiles
-  add column home_latitude numeric(9,6)
-    check (home_latitude is null or home_latitude between -90 and 90),
-  add column home_longitude numeric(9,6)
-    check (home_longitude is null or home_longitude between -180 and 180),
   add column home_computed_at timestamptz,
   add column cols_cache_updated_at timestamptz,
   add column col_matching_cursor timestamptz;
@@ -108,7 +107,8 @@ Nouveau module `worker/src/garmin_sync/coach/home_location.py`.
 - Récupère le premier point (`route_polyline[0]`, format `[lng, lat]`) de chaque
   activité GPS de l'utilisateur (`activities.route_polyline is not null`).
 - Calcule la médiane de latitude et la médiane de longitude séparément.
-- Écrit `home_latitude`, `home_longitude`, `home_computed_at` dans `athlete_profiles`.
+- Écrit `lat`, `lon`, `home_computed_at` dans `athlete_profiles` (colonnes `lat`/`lon`
+  existantes, réutilisées).
 - Si aucune activité GPS : ne touche à rien (colonnes restent `null`, le reste du
   pipeline est skip côté frontend via l'état vide).
 
@@ -160,7 +160,7 @@ Ce découpage en 3 fonctions pures/testables isolément suit le pattern existant
 la page stats. Il est donc **isolé du `Promise.all` principal** de `CockpitBody` :
 
 - Nouveau composant serveur async dédié, ex. `<ColsWidget userId={userId} />`, qui fait
-  ses propres requêtes Supabase (`athlete_profiles.home_latitude/longitude`, `cols`,
+  ses propres requêtes Supabase (`athlete_profiles.lat/lon`, `cols`,
   `col_crossings`) indépendamment du reste du cockpit.
 - Rendu dans sa **propre frontière `<Suspense>`**, avec un fallback skeleton dédié
   (nouveau `ColsWidgetSkeleton`, à l'image de `CockpitSkeleton` déjà utilisé pour
@@ -176,7 +176,7 @@ la page stats. Il est donc **isolé du `Promise.all` principal** de `CockpitBody
 
 Requêtes Supabase server-side, propres à ce composant :
 
-- `athlete_profiles` : `home_latitude`, `home_longitude`.
+- `athlete_profiles` : `lat`, `lon`.
 - `cols` : tous les cols (dataset global de petite taille), filtrage par distance
   ≤ 50 km du domicile fait côté TypeScript après fetch.
 - `col_crossings` de l'utilisateur, groupés par `col_id` (count + `max(crossed_at)`).
@@ -195,7 +195,7 @@ Rendu (table simple, cohérent avec les autres widgets texte de la page) :
 
 ### États vides
 
-- `home_latitude` / `home_longitude` absents (pas assez d'activités GPS) : message
+- `lat` / `lon` absents (pas assez d'activités GPS) : message
   « Pas encore assez de données GPS pour situer chez toi. »
 - Domicile connu mais aucun col dans le rayon de 50 km (région sans relief significatif
   au sens OSM) : message « Aucun col recensé dans un rayon de 50 km autour de chez
