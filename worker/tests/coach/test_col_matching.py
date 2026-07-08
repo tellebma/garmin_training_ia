@@ -15,32 +15,32 @@ class _FakeQuery:
         self.updated: dict[str, Any] | None = None
 
     @property
-    def not_(self) -> "_FakeQuery":
+    def not_(self) -> _FakeQuery:
         return self
 
-    def select(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def select(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def eq(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def eq(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def is_(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def gt(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def gt(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def order(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def order(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def maybe_single(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def maybe_single(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def upsert(self, rows: list[dict[str, Any]], **_k: Any) -> "_FakeQuery":
+    def upsert(self, rows: list[dict[str, Any]], **_k: Any) -> _FakeQuery:
         self.upserted = rows
         return self
 
-    def update(self, values: dict[str, Any]) -> "_FakeQuery":
+    def update(self, values: dict[str, Any]) -> _FakeQuery:
         self.updated = values
         return self
 
@@ -59,7 +59,7 @@ class _FakeSamplesQuery(_FakeQuery):
         self._samples_by_activity = samples_by_activity
         self._activity_id: int | None = None
 
-    def eq(self, key: str, value: Any) -> "_FakeSamplesQuery":
+    def eq(self, key: str, value: Any) -> _FakeSamplesQuery:
         if key == "garmin_activity_id":
             self._activity_id = value
         return self

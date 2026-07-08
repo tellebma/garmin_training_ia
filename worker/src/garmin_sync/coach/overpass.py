@@ -58,15 +58,14 @@ def _should_refresh(profile: dict[str, Any], home_lat: float, home_lon: float) -
 def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     """Refresh the shared `cols` cache from Overpass if stale or the user moved."""
     db = get_admin_client()
-    profile = cast(
-        "dict[str, Any] | None",
+    profile_resp = (
         db.table("athlete_profiles")
         .select("cols_cache_updated_at, cols_cache_home_lat, cols_cache_home_lon")
         .eq("user_id", user_id)
         .maybe_single()
         .execute()
-        .data,
     )
+    profile = cast("dict[str, Any] | None", profile_resp.data if profile_resp else None)
     if profile is not None and not _should_refresh(profile, home_lat, home_lon):
         return
 

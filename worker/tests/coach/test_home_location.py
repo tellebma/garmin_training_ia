@@ -11,19 +11,19 @@ class _FakeQuery:
         self.updated: dict[str, Any] | None = None
 
     @property
-    def not_(self) -> "_FakeQuery":
+    def not_(self) -> _FakeQuery:
         return self
 
-    def select(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def select(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def eq(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def eq(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def is_(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def update(self, values: dict[str, Any]) -> "_FakeQuery":
+    def update(self, values: dict[str, Any]) -> _FakeQuery:
         self.updated = values
         return self
 

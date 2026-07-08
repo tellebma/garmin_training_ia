@@ -12,20 +12,20 @@ class _FakeQuery:
         self.upserted: list[dict[str, Any]] | None = None
         self.updated: dict[str, Any] | None = None
 
-    def select(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def select(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def eq(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def eq(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def maybe_single(self, *_a: Any, **_k: Any) -> "_FakeQuery":
+    def maybe_single(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def upsert(self, rows: list[dict[str, Any]], **_k: Any) -> "_FakeQuery":
+    def upsert(self, rows: list[dict[str, Any]], **_k: Any) -> _FakeQuery:
         self.upserted = rows
         return self
 
-    def update(self, values: dict[str, Any]) -> "_FakeQuery":
+    def update(self, values: dict[str, Any]) -> _FakeQuery:
         self.updated = values
         return self
 
@@ -138,7 +138,9 @@ def test_refresh_fetches_when_home_moved_more_than_5km(monkeypatch: Any) -> None
 
 
 def test_refresh_always_fetches_when_never_cached(monkeypatch: Any) -> None:
-    db = _FakeDb({"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None})
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
     monkeypatch.setattr(mod, "get_admin_client", lambda: db)
     httpx_mock = MagicMock()
     httpx_mock.get.return_value.json.return_value = {"elements": []}
