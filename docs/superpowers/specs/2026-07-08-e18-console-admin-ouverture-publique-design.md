@@ -53,7 +53,7 @@ adoption, coût IA réel, feature flags, et gestion de l'allowlist / inscription
 |---|---|
 | Périmètre V1 | Finops (users, activités, coût IA estimé + facturé) + feature flags (kill switch IA, maintenance, inscription ouverte) + allowlist UI (ajout/liste/retrait) |
 | Tracking coût | Double source : instrumentation locale par appel (`llm_usage`) **et** vérité terrain OpenAI (`openai_billing_snapshot`, cron quotidien) — affichées côte à côte, pas fusionnées |
-| Accès | Route `/admin` gardée par email owner ; RPCs `security definer` avec garde owner factorisée dans une fonction unique `is_admin_caller()` |
+| Accès | Route `/admin` gardée par appartenance à la table `admins` ; RPCs `security definer` avec garde factorisée dans une fonction unique `is_admin_caller()` |
 | Devise | Stockage `cost_usd`, affichage en `$`. Conversion € = hors scope |
 | Feature flags | Globaux uniquement (pas de ciblage par utilisateur), table générique unique avec expiration optionnelle évaluée à la lecture |
 | Retrait allowlist | Bloque uniquement les **futures** inscriptions ; ne révoque pas un compte déjà actif (banissement = hors scope, cf. section dédiée) |
@@ -70,7 +70,28 @@ Toutes les nouvelles tables suivent le modèle déjà en place pour `allowed_ema
 `llm_usage` : **RLS deny-all**, aucune policy, accès uniquement via RPC
 `security definer`.
 
+L'appartenance admin est portée par une **table dédiée** plutôt qu'un email hardcodé en
+SQL ou une colonne sur `athlete_profiles` : cette dernière a déjà des policies UPDATE qui
+laissent l'utilisateur modifier son propre profil, donc y ajouter un flag de droits serait
+un risque RLS (un utilisateur pourrait potentiellement se l'auto-attribuer si une policy
+est mal bornée). Une table à part, deny-all, jamais mélangée à une table où l'utilisateur
+a des droits d'écriture — même logique que `allowed_emails` / `llm_usage`.
+
 ```sql
+create table public.admins (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  note       text,
+  created_at timestamptz not null default now()
+);
+-- RLS deny-all, pas de policy, accès uniquement via is_admin_caller() / RPCs.
+
+-- Seed : l'owner devient admin au déploiement de la migration.
+insert into public.admins (user_id, note)
+select id, 'owner'
+from auth.users
+where lower(email) = 'pdmtc.bellet@gmail.com'
+on conflict (user_id) do nothing;
+
 create or replace function public.is_admin_caller()
 returns boolean
 language sql
@@ -78,17 +99,25 @@ security definer
 set search_path = public
 stable
 as $$
-  select exists (
-    select 1 from auth.users
-    where id = auth.uid() and lower(email) = 'pdmtc.bellet@gmail.com'
-  )
+  select exists (select 1 from public.admins where user_id = auth.uid())
 $$;
+
+grant execute on function public.is_admin_caller() to authenticated;
 ```
+
+`is_admin_caller()` est réutilisée telle quelle par la garde de la page `/admin` (le
+front appelle la même RPC que celle utilisée en interne par les autres RPCs admin) —
+un seul point de vérité, pas de logique dupliquée entre front et DB.
 
 Chaque RPC d'écriture/lecture admin appelle `is_admin_caller()` en première ligne et
 lève une exception sinon (`raise exception 'not authorized'`). Un seul endroit à auditer
 et faire évoluer plutôt qu'une vérification dupliquée dans chaque RPC (amélioration par
 rapport au spec E18 initial, qui prévoyait la garde dans chaque RPC séparément).
+
+Cette table structure le chemin vers le multi-admin (ajouter un `user_id` à `admins`)
+sans retoucher `is_admin_caller()` ni les RPCs le jour où un 2e admin est nécessaire —
+mais **gérer plusieurs admins depuis l'UI reste hors scope V1** (cf. section dédiée) :
+V1 se limite à la ligne seedée pour l'owner, ajoutée en SQL si un 2e admin est nécessaire.
 
 ### Bloc A — Finops (instrumentation + vérité terrain OpenAI)
 
@@ -220,8 +249,8 @@ Composant front `AllowlistPanel` :
 ### Bloc D — Page `/admin` (assemblage)
 
 `app/(app)/admin/page.tsx`, Server Component :
-- Garde d'accès : email connecté ≠ owner → `redirect('/today')`. La RPC reste la source
-  de vérité (defense in depth) ; le front n'est qu'un filtre UX.
+- Garde d'accès : appel à la RPC `is_admin_caller()` ; si `false` → `redirect('/today')`.
+  La RPC reste la source de vérité (defense in depth) ; le front n'est qu'un filtre UX.
 - Un seul chargement groupé au montage : `admin_overview()` étendue +
   `admin_list_feature_flags()` + `admin_list_allowed_emails()`.
 - Trois panneaux dans l'ordre de priorité produit :
@@ -237,7 +266,9 @@ Composant front `AllowlistPanel` :
 
 - Détail par utilisateur (dernière sync, activités, tokens par user) — donnée sensible.
 - Alerting / budget cap IA (seuil de coût hebdo qui déclenche une notification).
-- Multi-admin (flag `is_admin` généralisé) — V1 garde sur l'email owner hardcodé.
+- Gestion multi-admin depuis l'UI (ajouter/retirer un admin) — la table `admins` le
+  permet structurellement, mais V1 se limite à la ligne owner seedée par migration ;
+  ajouter un 2e admin reste une opération SQL manuelle en attendant.
 - Affichage du coût converti en € (taux de change).
 - Bannissement d'un compte déjà actif (retrait allowlist = futures inscriptions
   uniquement).
@@ -251,16 +282,16 @@ Composant front `AllowlistPanel` :
   erreur de l'API OpenAI (n'interrompt pas le cron Garmin).
 - **DB** :
   - `admin_overview()` renvoie les bons agrégats sur un jeu de données seedé (estimé et
-    facturé séparés) ; refuse un appelant non-owner.
+    facturé séparés) ; refuse un appelant absent de `admins`.
   - `is_feature_flag_active` : true / false / expiré (edge case `expires_at` passé).
   - `is_email_allowed` : bypass effectif quand `public_registration_enabled` est actif ;
     retour automatique au comportement normal après expiration, sans action manuelle.
-  - RPCs feature flags et allowlist : rejettent un appelant non-owner.
+  - RPCs feature flags et allowlist : rejettent un appelant absent de `admins`.
   - `admin_remove_allowed_email` : n'affecte pas un utilisateur déjà
     `password_set = true`.
-- **Front** : `/admin` redirige un non-owner ; rend les trois panneaux pour l'owner ;
-  bandeau affiché/masqué selon l'état des flags ; ajout/retrait d'un email met à jour la
-  liste sans reload.
+- **Front** : `/admin` redirige un utilisateur non-admin ; rend les trois panneaux pour
+  l'owner ; bandeau affiché/masqué selon l'état des flags ; ajout/retrait d'un email met
+  à jour la liste sans reload.
 
 ## Risques / points d'attention
 
@@ -273,7 +304,9 @@ Composant front `AllowlistPanel` :
 - **`public_registration_enabled` sans expiration** : explicitement interdit par le
   schéma de décision (expiration obligatoire) pour éviter un oubli qui laisserait
   l'inscription ouverte indéfiniment.
-- **Garde owner dupliquée front + RPC** : la RPC (`is_admin_caller()`) est la source de
+- **Garde admin dupliquée front + RPC** : la RPC (`is_admin_caller()`) est la source de
   vérité (defense in depth) ; le front n'est qu'un filtre UX, jamais la seule protection.
-- **Un seul owner géré (email hardcodé)** : cohérent avec la décision initiale d'E18 ;
-  multi-admin reste hors scope V1.
+- **Table `admins`** : deny-all comme les autres tables sensibles, jamais mélangée à
+  `athlete_profiles` (qui a des policies UPDATE utilisateur) pour éviter tout risque
+  d'auto-attribution de droits. V1 ne contient qu'une ligne (owner, seedée par
+  migration) ; gestion multi-admin UI hors scope V1.
