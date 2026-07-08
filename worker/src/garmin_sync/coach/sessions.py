@@ -11,6 +11,7 @@ from garmin_sync.coach.briefing import build_next_session_adjustment
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.llm_usage import record_llm_usage
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
+from garmin_sync.feature_flags import is_flag_active
 from garmin_sync.observability import capture
 from garmin_sync.supabase_client import get_admin_client
 
@@ -235,6 +236,15 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
             "deferred_count": deferred,
         }
 
+    if not is_flag_active(db, "llm_generation_enabled"):
+        return {
+            "generated_count": 0,
+            "failed_count": 0,
+            "skipped_count": skipped + len(generatable),
+            "deferred_count": deferred,
+            "llm_generation_disabled": True,
+        }
+
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, today)
     race_ctx = _race_context(race, weeks, activity_review)
@@ -274,6 +284,9 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
         raise SessionNotFound(f"session {session_id} not found for user {user_id}")
     if _should_skip_workout_generation(session):
         return {"status": "ok", "workout": None, "skipped": True}
+
+    if not is_flag_active(db, "llm_generation_enabled"):
+        return {"status": "generation_disabled"}
 
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, date.today())
