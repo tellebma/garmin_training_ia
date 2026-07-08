@@ -2040,6 +2040,13 @@ git commit -m "feat(app): show maintenance page to non-admins when maintenance_m
 ```ts
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
+const revalidatePath = vi.fn()
+vi.mock('next/cache', () => ({
+  revalidatePath: (path: string): void => {
+    revalidatePath(path)
+  },
+}))
+
 const mockSupabase = { rpc: vi.fn() }
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => mockSupabase }))
 
@@ -2047,10 +2054,11 @@ import { setFeatureFlag } from '@/app/(app)/admin/actions'
 
 beforeEach(() => {
   mockSupabase.rpc.mockReset()
+  revalidatePath.mockReset()
 })
 
 describe('setFeatureFlag', () => {
-  it('calls admin_set_feature_flag with the right args', async () => {
+  it('calls admin_set_feature_flag with the right args and revalidates /admin', async () => {
     mockSupabase.rpc.mockResolvedValueOnce({ data: { key: 'maintenance_mode' }, error: null })
     const result = await setFeatureFlag({ key: 'maintenance_mode', enabled: true, expiresAt: null })
     expect(mockSupabase.rpc).toHaveBeenCalledWith('admin_set_feature_flag', {
@@ -2059,6 +2067,7 @@ describe('setFeatureFlag', () => {
       p_expires_at: null,
     })
     expect(result).toEqual({ success: true })
+    expect(revalidatePath).toHaveBeenCalledWith('/admin')
   })
 
   it('rejects enabling public_registration_enabled without an expiry (client-side guard)', async () => {
@@ -2071,10 +2080,11 @@ describe('setFeatureFlag', () => {
     expect(mockSupabase.rpc).not.toHaveBeenCalled()
   })
 
-  it('returns save_failed when the RPC errors', async () => {
+  it('returns save_failed when the RPC errors, without revalidating', async () => {
     mockSupabase.rpc.mockResolvedValueOnce({ data: null, error: { message: 'not authorized' } })
     const result = await setFeatureFlag({ key: 'maintenance_mode', enabled: true, expiresAt: null })
     expect(result).toEqual({ success: false, error: 'save_failed' })
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 })
 ```
@@ -2088,9 +2098,14 @@ Expected: FAIL — module doesn't exist.
 
 `app/(app)/admin/actions.ts`:
 
+Follow the codebase's existing mutation convention (see `app/actions/sessions.ts` and
+`app/(app)/onboarding/actions.ts`, both of which call `revalidatePath(...)` at the end of
+every mutating Server Action, rather than relying on the client to force a reload):
+
 ```ts
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 
 export type AdminActionError = 'expiry_required' | 'save_failed'
@@ -2113,6 +2128,7 @@ export async function setFeatureFlag(input: SetFeatureFlagInput): Promise<Action
     p_expires_at: input.expiresAt,
   })
   if (error) return { success: false, error: 'save_failed' }
+  revalidatePath('/admin')
   return { success: true }
 }
 ```
@@ -2213,9 +2229,14 @@ Create the client sub-component `app/(app)/admin/_components/feature-flags-list.
 (kept separate from the async server panel so only the interactive part is `'use
 client'`):
 
+Follow the same post-mutation pattern as `components/auth/sign-out-button.tsx` (call the
+action, then `router.refresh()` — never `window.location.reload()`, which would throw
+away client-side state and defeats Next.js's cache-aware re-render):
+
 ```tsx
 'use client'
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { setFeatureFlag } from '../actions'
 import { isFlagActive, type FeatureFlagRow } from '@/lib/admin/types'
@@ -2227,6 +2248,7 @@ const DURATIONS: { label: string; hours: number }[] = [
 ]
 
 export function FeatureFlagsList({ flags }: { readonly flags: FeatureFlagRow[] }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [durationHours, setDurationHours] = useState<number>(24)
 
@@ -2239,7 +2261,7 @@ export function FeatureFlagsList({ flags }: { readonly flags: FeatureFlagRow[] }
         : null
     startTransition(async () => {
       await setFeatureFlag({ key: flag.key, enabled: nextEnabled, expiresAt })
-      window.location.reload()
+      router.refresh()
     })
   }
 
@@ -2477,13 +2499,14 @@ describe('addAllowedEmail', () => {
 })
 
 describe('removeAllowedEmail', () => {
-  it('calls admin_remove_allowed_email', async () => {
+  it('calls admin_remove_allowed_email and revalidates /admin', async () => {
     mockSupabase.rpc.mockResolvedValueOnce({ data: null, error: null })
     const result = await removeAllowedEmail('ami@example.com')
     expect(mockSupabase.rpc).toHaveBeenCalledWith('admin_remove_allowed_email', {
       p_email: 'ami@example.com',
     })
     expect(result).toEqual({ success: true })
+    expect(revalidatePath).toHaveBeenCalledWith('/admin')
   })
 })
 ```
@@ -2516,6 +2539,7 @@ export async function addAllowedEmail(input: {
     p_note: parsed.data.note,
   })
   if (error) return { success: false, error: 'save_failed' }
+  revalidatePath('/admin')
   return { success: true }
 }
 
@@ -2523,6 +2547,7 @@ export async function removeAllowedEmail(email: string): Promise<ActionResult> {
   const supabase = await createClient()
   const { error } = await supabase.rpc('admin_remove_allowed_email', { p_email: email })
   if (error) return { success: false, error: 'save_failed' }
+  revalidatePath('/admin')
   return { success: true }
 }
 ```
@@ -2571,6 +2596,7 @@ export function AllowlistPanelSkeleton() {
 ```tsx
 'use client'
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -2584,6 +2610,7 @@ import { addAllowedEmail, removeAllowedEmail } from '../actions'
 import type { AllowedEmailRow } from '@/lib/admin/types'
 
 export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [email, setEmail] = useState('')
   const [note, setNote] = useState('')
@@ -2591,14 +2618,14 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
   function handleAdd() {
     startTransition(async () => {
       await addAllowedEmail({ email, note: note || null })
-      window.location.reload()
+      router.refresh()
     })
   }
 
   function handleRemove(target: string) {
     startTransition(async () => {
       await removeAllowedEmail(target)
-      window.location.reload()
+      router.refresh()
     })
   }
 
