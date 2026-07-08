@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from garmin_sync.coach.activity_review import ActivityInsight, ActivityReview
+from garmin_sync.coach.openai_client import LlmUsage, WorkoutResult
 from garmin_sync.coach.sessions import (
     SessionNotFound,
     _inject_effective_strengths,
@@ -20,6 +21,13 @@ def _mock_workout():
         "summary_md": "ok",
         "technical_focus": None,
     }
+
+
+def _workout_result(workout_dict=None):
+    return WorkoutResult(
+        workout=MagicMock(model_dump=lambda: workout_dict or _mock_workout()),
+        usage=LlmUsage(model="gpt-4o-mini", prompt_tokens=100, completion_tokens=50),
+    )
 
 
 def _planned_select_chain(db):
@@ -51,9 +59,10 @@ def test_ensure_sessions_skips_already_generated(mock_db, mock_gen):
     mock_gen.assert_not_called()
 
 
+@patch("garmin_sync.coach.sessions.record_llm_usage")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
-def test_ensure_sessions_generates_for_each_pending(mock_db, mock_gen):
+def test_ensure_sessions_generates_for_each_pending(mock_db, mock_gen, mock_record):
     db = MagicMock()
     mock_db.return_value = db
     _planned_select_chain(db).data = [
@@ -88,12 +97,12 @@ def test_ensure_sessions_generates_for_each_pending(mock_db, mock_gen):
         "race_date": "2026-08-15",
     }
 
-    workout_obj = MagicMock(model_dump=lambda: _mock_workout())
-    mock_gen.return_value = workout_obj
+    mock_gen.return_value = _workout_result()
 
     result = ensure_sessions(user_id="u1", days=7)
     assert result["generated_count"] == 2
     assert mock_gen.call_count == 2
+    assert mock_record.call_count == 2
 
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
@@ -124,9 +133,10 @@ def test_ensure_sessions_skips_rest_days(mock_db, mock_gen):
     mock_gen.assert_not_called()
 
 
+@patch("garmin_sync.coach.sessions.record_llm_usage")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
-def test_ensure_sessions_continues_on_error(mock_db, mock_gen):
+def test_ensure_sessions_continues_on_error(mock_db, mock_gen, mock_record):
     db = MagicMock()
     mock_db.return_value = db
     _planned_select_chain(db).data = [
@@ -159,12 +169,12 @@ def test_ensure_sessions_continues_on_error(mock_db, mock_gen):
 
     from garmin_sync.coach.openai_client import OpenAIError
 
-    workout_obj = MagicMock(model_dump=lambda: _mock_workout())
-    mock_gen.side_effect = [OpenAIError("boom"), workout_obj]
+    mock_gen.side_effect = [OpenAIError("boom"), _workout_result()]
 
     result = ensure_sessions(user_id="u1", days=7)
     assert result["generated_count"] == 1
     assert result["failed_count"] == 1
+    mock_record.assert_called_once()
 
 
 @patch("garmin_sync.coach.sessions.capture")
@@ -211,10 +221,13 @@ def test_ensure_sessions_reports_failure_to_sentry(mock_db, mock_gen, mock_revie
     assert mock_capture.call_args.kwargs["session_id"] == "s1"
 
 
+@patch("garmin_sync.coach.sessions.record_llm_usage")
 @patch("garmin_sync.coach.sessions._load_activity_review")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
-def test_ensure_sessions_passes_activity_review_to_generation(mock_db, mock_gen, mock_review):
+def test_ensure_sessions_passes_activity_review_to_generation(
+    mock_db, mock_gen, mock_review, mock_record
+):
     db = MagicMock()
     mock_db.return_value = db
     _planned_select_chain(db).data = [
@@ -258,7 +271,7 @@ def test_ensure_sessions_passes_activity_review_to_generation(mock_db, mock_gen,
             )
         ],
     )
-    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+    mock_gen.return_value = _workout_result()
 
     result = ensure_sessions(user_id="u1", days=7)
 
@@ -269,11 +282,13 @@ def test_ensure_sessions_passes_activity_review_to_generation(mock_db, mock_gen,
     assert "Charge récente" in call_kwargs["session"]["coach_context"]
     assert "Ajustement coach proposé" in call_kwargs["session"]["coach_context"]
     assert "baisse l'intensité" in call_kwargs["session"]["coach_context"]
+    mock_record.assert_called_once()
 
 
+@patch("garmin_sync.coach.sessions.record_llm_usage")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
-def test_regenerate_session_updates_existing(mock_db, mock_gen):
+def test_regenerate_session_updates_existing(mock_db, mock_gen, mock_record):
     db = MagicMock()
     mock_db.return_value = db
     # session lookup
@@ -295,11 +310,18 @@ def test_regenerate_session_updates_existing(mock_db, mock_gen):
         "sports_strengths": {"swim": 2, "bike": 4, "run": 3},
     }
     _race_chain(db).data = None
-    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+    mock_gen.return_value = _workout_result()
 
     result = regenerate_session(user_id="u1", session_id="s1")
     assert result["status"] == "ok"
     mock_gen.assert_called_once()
+    mock_record.assert_called_once_with(
+        user_id="u1",
+        feature="session_workout",
+        model="gpt-4o-mini",
+        prompt_tokens=100,
+        completion_tokens=50,
+    )
 
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
@@ -390,9 +412,10 @@ def test_ensure_sessions_defers_recently_failed(mock_db, mock_gen):
     mock_gen.assert_not_called()
 
 
+@patch("garmin_sync.coach.sessions.record_llm_usage")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
-def test_ensure_sessions_retries_after_backoff_expiry(mock_db, mock_gen):
+def test_ensure_sessions_retries_after_backoff_expiry(mock_db, mock_gen, mock_record):
     from datetime import UTC, datetime, timedelta
 
     db = MagicMock()
@@ -401,7 +424,7 @@ def test_ensure_sessions_retries_after_backoff_expiry(mock_db, mock_gen):
     _planned_select_chain(db).data = [_pending_session("s1", workout_generation_failed_at=old_fail)]
     _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
     _race_chain(db).data = None
-    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+    mock_gen.return_value = _workout_result()
 
     result = ensure_sessions(user_id="u1", days=7)
 
@@ -469,15 +492,16 @@ def test_backoff_marking_failure_does_not_abort_loop(mock_db, mock_gen):
     assert result["failed_count"] == 1
 
 
+@patch("garmin_sync.coach.sessions.record_llm_usage")
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
-def test_generation_success_resets_backoff(mock_db, mock_gen):
+def test_generation_success_resets_backoff(mock_db, mock_gen, mock_record):
     db = MagicMock()
     mock_db.return_value = db
     _planned_select_chain(db).data = [_pending_session("s1")]
     _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
     _race_chain(db).data = None
-    mock_gen.return_value = MagicMock(model_dump=lambda: _mock_workout())
+    mock_gen.return_value = _workout_result()
 
     ensure_sessions(user_id="u1", days=7)
 
