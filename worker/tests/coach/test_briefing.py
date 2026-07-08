@@ -11,6 +11,7 @@ from garmin_sync.coach.briefing import (
     ReadinessFactor,
     SuggestedSession,
     _hard_session_guardrail_factors,
+    _score_steps,
     build_coach_recommendation,
     build_next_session_adjustment,
     compute_and_cache_daily_briefing,
@@ -607,7 +608,7 @@ def _recovery_row(**overrides):
         "days_covered": 0,
         "last_date": None,
     }
-    row = {k: dict(base) for k in ("hrv", "resting_hr", "sleep", "stress", "body_battery")}
+    row = {k: dict(base) for k in ("hrv", "resting_hr", "sleep", "stress", "body_battery", "steps")}
     row.update(overrides)
     return row
 
@@ -661,6 +662,54 @@ def test_compute_briefing_stress_high_against_baseline(mock_db_fn):
     mock_db_fn.return_value = db
     b = compute_briefing("u1", today=date(2026, 5, 20))
     assert b.readiness_score < BASELINE_SCORE
+
+
+def test_score_steps_no_daily_returns_empty():
+    assert _score_steps(None, 8000.0) == []
+
+
+def test_score_steps_no_baseline_returns_empty():
+    assert _score_steps({"steps": 15000}, None) == []
+    assert _score_steps({"steps": 15000}, 0.0) == []
+
+
+def test_score_steps_missing_value_returns_empty():
+    assert _score_steps({}, 8000.0) == []
+
+
+def test_score_steps_below_threshold_returns_empty():
+    # 8000 * 1.5 = 12000 ; 11000 <= 12000 -> pas de facteur
+    assert _score_steps({"steps": 11000}, 8000.0) == []
+
+
+def test_score_steps_above_threshold_returns_penalty():
+    factors = _score_steps({"steps": 13000}, 8000.0)
+    assert len(factors) == 1
+    assert factors[0].name == "steps_high"
+    assert factors[0].impact == -5
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_steps_high_against_baseline(mock_db_fn):
+    rb = _recovery_row(
+        steps={
+            "baseline": 8000.0,
+            "recent": 13000.0,
+            "trend": "declining",
+            "confidence": "high",
+            "freshness": "fresh",
+            "days_covered": 28,
+            "last_date": "2026-05-19",
+        }
+    )
+    db = _mock_db_with(
+        daily={"resting_hr": 50, "stress_avg": 30, "body_battery_low": 60, "steps": 13000},
+        recovery_baselines=rb,
+    )
+    mock_db_fn.return_value = db
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+    assert b.readiness_score == BASELINE_SCORE - 5
+    assert any(f.name == "steps_high" for f in b.factors)
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
