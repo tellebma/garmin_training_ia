@@ -15,6 +15,7 @@ _RADIUS_M = 50_000
 _TIMEOUT_S = 30.0
 _CACHE_MAX_AGE_DAYS = 30
 _CACHE_MOVE_THRESHOLD_M = 5_000
+_MAX_NAME_LENGTH = 200
 # Overpass rejects requests without an identifying User-Agent (406 Not Acceptable),
 # per its usage policy: https://operations.osmfoundation.org/policies/overpass/
 _HEADERS = {"User-Agent": "garmin-training-coach/1.0 (github.com/tellebma/garmin_training_ia)"}
@@ -84,7 +85,9 @@ def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     rows = [
         {
             "osm_id": element["id"],
-            "name": element.get("tags", {}).get("name") or f"Col (OSM #{element['id']})",
+            "name": (element.get("tags", {}).get("name") or f"Col (OSM #{element['id']})")[
+                :_MAX_NAME_LENGTH
+            ],
             "latitude": element["lat"],
             "longitude": element["lon"],
             "elevation_m": _parse_elevation(element.get("tags", {}).get("ele")),

@@ -67,6 +67,15 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
     if not activities:
         return
 
+    # One `activity_samples` query per activity (N+1) is deliberate here, not an
+    # oversight: batching all activities' samples into a single `.in_(...)` query
+    # would multiply the row count returned per request, making it *more* likely to
+    # hit PostgREST's server-side row cap and silently truncate — exactly the
+    # correctness risk the per-activity `.limit(5000)` above was added to prevent.
+    # This runs in the nightly background cron (not a user-facing request path), and
+    # the cursor bounds it to a handful of new activities per user per day after the
+    # first backfill run, so the extra round-trips are an acceptable trade for
+    # guaranteed-bounded, non-truncating reads.
     max_start_time: str | None = cursor
     for activity in activities:
         activity_id = activity["garmin_activity_id"]

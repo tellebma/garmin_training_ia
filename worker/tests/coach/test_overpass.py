@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 import garmin_sync.coach.overpass as mod
 
 
@@ -138,6 +140,42 @@ def test_refresh_fetches_when_home_moved_more_than_5km(monkeypatch: Any) -> None
     mod.refresh_nearby_cols("user-1", 45.1, 6.0)
 
     httpx_mock.get.assert_called_once()
+
+
+def test_refresh_propagates_network_errors_without_swallowing(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    real_connect_error = mod.httpx.ConnectError
+    httpx_mock = MagicMock()
+    httpx_mock.get.side_effect = real_connect_error("connection refused")
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    # Must propagate (no internal try/except) — the cron.py caller is responsible
+    # for logging/capturing, per this feature's error-handling convention.
+    with pytest.raises(real_connect_error, match="connection refused"):
+        mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+
+def test_refresh_truncates_overly_long_col_names(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    httpx_mock = MagicMock()
+    long_name = "A" * 500
+    httpx_mock.get.return_value.json.return_value = {
+        "elements": [
+            {"type": "node", "id": 789, "lat": 45.0, "lon": 6.0, "tags": {"name": long_name}}
+        ]
+    }
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+    assert db.cols_query.upserted is not None
+    assert len(db.cols_query.upserted[0]["name"]) == 200
 
 
 def test_refresh_always_fetches_when_never_cached(monkeypatch: Any) -> None:
