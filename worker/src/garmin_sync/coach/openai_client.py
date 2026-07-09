@@ -53,14 +53,19 @@ Règles :
 - Le corps de séance doit respecter la part minimale de la durée totale donnée dans
   les contraintes chiffrées de la demande.
 - Échauffement et retour calme sont proportionnels : courts sur récupération/endurance courte,
-  plus longs seulement pour seuil/intervalles.
+  plus longs seulement pour seuil/PMA/sprint/intervalles.
 - Évite les découpages artificiels type 45min avec 15min échauffement, 18min travail,
   12min retour calme.
 - Séance "recovery" : Z1 seulement, durée courte, échauffement intégré ou minimal.
 - Séance "endurance" : un bloc principal Z2-Z3 majoritaire.
 - Séance "long" : un seul gros bloc continu (pas d'intervalles).
 - Séance "intervals" : des sets répétés (work + rest).
-- Séance "threshold" : 1-2 sets longs (>=8min work, 2-3min rest).
+- Séance "threshold" : 2-4 sets de 6-10min à intensité seuil (Z4), récupération 2-5min.
+- Séance "pma" : répétitions de 1 à 3min à 110-130% du seuil (Z4-Z5), récupération
+  égale au temps de travail — vise le plafond aérobie (VO2max).
+- Séance "sprint" : répétitions très courtes de 5 à 15s à intensité maximale (Z5),
+  récupération large (6 à 10 fois le temps de travail) — vise la force explosive et
+  la vitesse de pointe, pas l'endurance.
 - summary_md : 1-2 phrases FR conseil du jour, motivant mais bref.
 - technical_focus : 1 phrase FR sur l'aspect technique spécifique au sport.
 """
@@ -83,6 +88,7 @@ def _athlete_lines(*, athlete: dict[str, Any], sport: str) -> list[str]:
     fc = athlete.get("fc_max_bpm")
     ftp = athlete.get("ftp_watts")
     vma = athlete.get("vma_kmh")
+    css = athlete.get("css_per_100m_s")
 
     lines = [
         "Athlète :",
@@ -92,6 +98,8 @@ def _athlete_lines(*, athlete: dict[str, Any], sport: str) -> list[str]:
         lines.append(f"- FTP : {ftp} W" if ftp else "- FTP : non connue")
     if sport == "run":
         lines.append(f"- VMA : {vma} km/h" if vma else "- VMA : non connue")
+    if sport == "swim":
+        lines.append(f"- CSS : {css} s/100m" if css else "- CSS : non connue")
     lines.append(f"- Niveau (1-5) : swim={swim}, bike={bike}, run={run}")
     weak = [s for s in ("swim", "bike", "run") if isinstance(sports.get(s), int) and sports[s] <= 2]
     if weak:
