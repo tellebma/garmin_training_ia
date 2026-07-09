@@ -53,6 +53,7 @@ const baseInitial: PerfInitial = {
   ftp_watts: 245,
   vma_kmh: 16.5,
   fc_max_bpm: 185,
+  css_per_100m_s: 95,
   garmin_synced_at: '2026-05-15T10:00:00Z',
 }
 
@@ -60,6 +61,7 @@ const emptyInitial: PerfInitial = {
   ftp_watts: undefined,
   vma_kmh: undefined,
   fc_max_bpm: undefined,
+  css_per_100m_s: undefined,
   garmin_synced_at: null,
 }
 
@@ -71,6 +73,7 @@ describe('PerfEditForm', () => {
     expect(screen.getByText(/245 W/)).toBeTruthy()
     expect(screen.getByText(/16\.5 km\/h/)).toBeTruthy()
     expect(screen.getByText(/185 bpm/)).toBeTruthy()
+    expect(screen.getByText(/95 s\/100m/)).toBeTruthy()
     expect(screen.getByText(/Synchronisé de Garmin le/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /Modifier/ })).toBeTruthy()
   })
@@ -79,7 +82,7 @@ describe('PerfEditForm', () => {
     const { PerfEditForm } = await import('@/app/(app)/profile/_components/perf-edit-form')
     render(<PerfEditForm initial={emptyInitial} />)
     const dashes = screen.getAllByText('—')
-    expect(dashes.length).toBe(3)
+    expect(dashes.length).toBe(4)
     expect(screen.queryByText(/Synchronisé de Garmin le/)).toBeNull()
   })
 
@@ -90,6 +93,7 @@ describe('PerfEditForm', () => {
     expect(screen.getByLabelText(/FTP/)).toBeTruthy()
     expect(screen.getByLabelText(/VMA/)).toBeTruthy()
     expect(screen.getByLabelText(/FC max/)).toBeTruthy()
+    expect(screen.getByLabelText(/CSS/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /Enregistrer/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Annuler/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Sync Garmin/ })).toBeTruthy()
@@ -102,6 +106,7 @@ describe('PerfEditForm', () => {
     expect(screen.getByLabelText<HTMLInputElement>(/FTP/).value).toBe('245')
     expect(screen.getByLabelText<HTMLInputElement>(/VMA/).value).toBe('16.5')
     expect(screen.getByLabelText<HTMLInputElement>(/FC max/).value).toBe('185')
+    expect(screen.getByLabelText<HTMLInputElement>(/CSS/).value).toBe('95')
   })
 
   it('updates numeric inputs in edit mode', async () => {
@@ -145,6 +150,7 @@ describe('PerfEditForm', () => {
     expect(call.ftp_watts).toBe(245)
     expect(call.vma_kmh).toBe(16.5)
     expect(call.fc_max_bpm).toBe(185)
+    expect(call.css_per_100m_s).toBe(95)
     await waitFor(() => {
       expect(toastSuccess).toHaveBeenCalled()
     })
@@ -166,6 +172,7 @@ describe('PerfEditForm', () => {
     expect(call.ftp_watts).toBeUndefined()
     expect(call.vma_kmh).toBeUndefined()
     expect(call.fc_max_bpm).toBeUndefined()
+    expect(call.css_per_100m_s).toBeUndefined()
   })
 
   it('renders field errors when action returns errors map', async () => {
