@@ -96,6 +96,8 @@ _CAPS_BY_TYPE: dict[str, StructureCaps] = {
     "long": StructureCaps(15 * 60, 10 * 60, 0.80, 50 * 60),
     "threshold": StructureCaps(20 * 60, 15 * 60, 0.60, 40 * 60),
     "intervals": StructureCaps(25 * 60, 15 * 60, 0.50, 40 * 60),
+    "pma": StructureCaps(20 * 60, 15 * 60, 0.35, 30 * 60),
+    "sprint": StructureCaps(15 * 60, 10 * 60, 0.25, 25 * 60),
 }
 _DEFAULT_CAPS = StructureCaps(20 * 60, 15 * 60, 0.55, 25 * 60)
 
