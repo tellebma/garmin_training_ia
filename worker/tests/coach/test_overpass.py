@@ -106,6 +106,9 @@ def test_refresh_fetches_and_upserts_when_cache_is_stale(monkeypatch: Any) -> No
     mod.refresh_nearby_cols("user-1", 45.0, 6.0)
 
     httpx_mock.get.assert_called_once()
+    # Overpass rejects requests without an identifying User-Agent (406 Not Acceptable) —
+    # verified against the live API during manual QA (2026-07-09).
+    assert "User-Agent" in httpx_mock.get.call_args.kwargs["headers"]
     assert db.cols_query.upserted is not None
     assert len(db.cols_query.upserted) == 2
     named = next(r for r in db.cols_query.upserted if r["osm_id"] == 123)

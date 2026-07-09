@@ -15,6 +15,9 @@ _RADIUS_M = 50_000
 _TIMEOUT_S = 30.0
 _CACHE_MAX_AGE_DAYS = 30
 _CACHE_MOVE_THRESHOLD_M = 5_000
+# Overpass rejects requests without an identifying User-Agent (406 Not Acceptable),
+# per its usage policy: https://operations.osmfoundation.org/policies/overpass/
+_HEADERS = {"User-Agent": "garmin-training-coach/1.0 (github.com/tellebma/garmin_training_ia)"}
 
 
 def _now() -> datetime:
@@ -72,6 +75,7 @@ def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     response = httpx.get(
         _OVERPASS_URL,
         params={"data": _build_query(home_lat, home_lon)},
+        headers=_HEADERS,
         timeout=_TIMEOUT_S,
     )
     response.raise_for_status()
