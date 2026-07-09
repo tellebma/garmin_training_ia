@@ -42,4 +42,11 @@ describe('workout-types', () => {
     // 600 + 5*(300+120) + 600 = 600 + 2100 + 600 = 3300
     expect(totalDurationS(w)).toBe(3300)
   })
+
+  it('accepts optional cadence fields on IntervalTarget', () => {
+    const target = { label: 'Z2', rpe: 5, cadence_low: 100, cadence_high: 110 } as const
+    const b: IntervalBlock = { duration_s: 60, target, notes: null }
+    expect(b.target.cadence_low).toBe(100)
+    expect(b.target.cadence_high).toBe(110)
+  })
 })
