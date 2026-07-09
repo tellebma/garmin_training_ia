@@ -29,3 +29,12 @@ export function isFlagActive(flag: FeatureFlagRow): boolean {
   if (!flag.expires_at) return true
   return new Date(flag.expires_at) > new Date()
 }
+
+export interface AllowedEmailRow {
+  email: string
+  note: string | null
+  invited_by: string | null
+  created_at: string
+  status: 'pending' | 'active'
+  registered_at: string | null
+}
