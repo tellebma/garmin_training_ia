@@ -6,6 +6,7 @@ import { AllowlistPanel } from './_components/allowlist-panel'
 import { FinopsPanelSkeleton } from './_components/skeletons/finops-panel-skeleton'
 import { FeatureFlagsPanelSkeleton } from './_components/skeletons/feature-flags-panel-skeleton'
 import { AllowlistPanelSkeleton } from './_components/skeletons/allowlist-panel-skeleton'
+import { Toaster } from '@/components/ui/sonner'
 
 export const revalidate = 60
 
@@ -30,6 +31,8 @@ export default async function AdminPage() {
       <Suspense fallback={<AllowlistPanelSkeleton />}>
         <AllowlistPanel />
       </Suspense>
+
+      <Toaster />
     </div>
   )
 }
