@@ -38,7 +38,7 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
     startTransition(async () => {
       const result = await addAllowedEmail({ email, note: note || null })
       if (!result.success) {
-        toast.error("Ajout impossible — vérifie l'email.")
+        toast.error("Ajout impossible. Vérifie l'email ou réessaie plus tard.")
         return
       }
       setEmail('')
