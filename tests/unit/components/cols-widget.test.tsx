@@ -39,4 +39,26 @@ describe('ColsWidget', () => {
     expect(screen.getByText(/Aucun col recensé/)).not.toBeNull()
     expect(screen.getByText(/Aucun col dans un rayon de 50 km autour de chez toi/)).not.toBeNull()
   })
+
+  it('shows all rows unfolded when there are 10 or fewer', () => {
+    const summaries = Array.from({ length: 10 }, (_, i) =>
+      mkSummary({ id: `col-${String(i)}`, name: `Col ${String(i)}` })
+    )
+    render(<ColsWidget summaries={summaries} />)
+    expect(screen.getAllByRole('row')).toHaveLength(11) // 10 data rows + header
+    expect(screen.queryByText(/Afficher les/)).toBeNull()
+  })
+
+  it('truncates past 10 rows behind a details/summary toggle', () => {
+    const summaries = Array.from({ length: 13 }, (_, i) =>
+      mkSummary({ id: `col-${String(i)}`, name: `Col ${String(i)}` })
+    )
+    render(<ColsWidget summaries={summaries} />)
+    expect(screen.getByText('Col 0')).not.toBeNull()
+    expect(screen.getByText('Col 9')).not.toBeNull()
+    expect(screen.getByText('Afficher les 3 autres')).not.toBeNull()
+    // The remaining rows are present in the DOM (native <details>, no JS needed)
+    // even though collapsed by default.
+    expect(screen.getByText('Col 12')).not.toBeNull()
+  })
 })
