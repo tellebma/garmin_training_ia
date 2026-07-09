@@ -5,13 +5,24 @@ import { createClient } from '@/lib/supabase/server'
 import { workerEnsureSessions, workerRegenerateSession } from '@/lib/worker'
 
 type Result = { success: true; data: unknown } | { success: false; error: string }
-type SessionType = 'endurance' | 'threshold' | 'intervals' | 'long' | 'recovery' | 'race' | 'rest'
+type SessionType =
+  | 'endurance'
+  | 'threshold'
+  | 'intervals'
+  | 'pma'
+  | 'sprint'
+  | 'long'
+  | 'recovery'
+  | 'race'
+  | 'rest'
 type AdjustmentDecision = 'accepted' | 'ignored'
 
 const ALLOWED_SESSION_TYPES = new Set<SessionType>([
   'endurance',
   'threshold',
   'intervals',
+  'pma',
+  'sprint',
   'long',
   'recovery',
   'race',

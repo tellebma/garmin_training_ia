@@ -45,6 +45,25 @@ def test_target_with_bpm_range():
     assert t.bpm_high == 160
 
 
+def test_target_with_cadence_range():
+    t = IntervalTarget(label="Z2", rpe=5, cadence_low=100, cadence_high=110)
+    assert t.cadence_low == 100
+    assert t.cadence_high == 110
+
+
+def test_target_cadence_defaults_to_none():
+    t = IntervalTarget(label="Z2", rpe=5)
+    assert t.cadence_low is None
+    assert t.cadence_high is None
+
+
+def test_target_rejects_negative_cadence():
+    with pytest.raises(ValidationError):
+        IntervalTarget(label="Z2", rpe=5, cadence_low=-1)
+    with pytest.raises(ValidationError):
+        IntervalTarget(label="Z2", rpe=5, cadence_high=-1)
+
+
 def test_target_rpe_out_of_range_rejects():
     with pytest.raises(ValidationError):
         IntervalTarget(label="Z2", rpe=11)
@@ -198,6 +217,58 @@ def test_envelope_caps_bounded_by_fixed_type_caps():
     assert env.cooldown_max_s == 600
 
 
+def test_structure_caps_pma():
+    caps = structure_caps_for_type("pma")
+    assert caps.warmup_max_s == 20 * 60
+    assert caps.cooldown_max_s == 15 * 60
+    assert caps.main_min_ratio == 0.35
+    assert caps.floor_s == 30 * 60
+
+
+def test_structure_caps_sprint():
+    caps = structure_caps_for_type("sprint")
+    assert caps.warmup_max_s == 15 * 60
+    assert caps.cooldown_max_s == 10 * 60
+    assert caps.main_min_ratio == 0.25
+    assert caps.floor_s == 25 * 60
+
+
+def test_sprint_example_workout_passes_validation():
+    """Régression : la séance sprint 10x10s/90s (exemple qui a motivé cette feature)
+    doit être satisfiable par l'enveloppe de validation pour une cible ~45min."""
+    session = {"session_type": "sprint", "target_duration_s": 2700}
+    z5 = IntervalTarget(label="Z5", rpe=10)
+    z1 = IntervalTarget(label="Z1", rpe=2)
+    work = IntervalBlock(duration_s=10, target=z5)
+    rest = IntervalBlock(duration_s=90, target=z1)
+    sprint_set = IntervalSet(reps=10, work=work, rest=rest)
+    workout = Workout(
+        warmup=IntervalBlock(duration_s=850, target=z1),
+        main=[sprint_set],
+        cooldown=IntervalBlock(duration_s=600, target=z1),
+        summary_md="10x10s à fond",
+    )
+    assert validate_workout_for_session(workout, session) is workout
+
+
+def test_pma_example_workout_passes_validation():
+    """Régression : la séance PMA 5x1min30 (exemple qui a motivé cette feature)
+    doit être satisfiable par l'enveloppe de validation pour une cible ~45min."""
+    session = {"session_type": "pma", "target_duration_s": 2700}
+    z4 = IntervalTarget(label="Z4", rpe=9)
+    z1 = IntervalTarget(label="Z1", rpe=2)
+    work = IntervalBlock(duration_s=90, target=z4)
+    rest = IntervalBlock(duration_s=90, target=z1)
+    pma_set = IntervalSet(reps=5, work=work, rest=rest)
+    workout = Workout(
+        warmup=IntervalBlock(duration_s=930, target=z1),
+        main=[pma_set],
+        cooldown=IntervalBlock(duration_s=620, target=z1),
+        summary_md="5x1min30 PMA",
+    )
+    assert validate_workout_for_session(workout, session) is workout
+
+
 @pytest.mark.parametrize(
     ("session_type", "target_s"),
     [
@@ -207,6 +278,8 @@ def test_envelope_caps_bounded_by_fixed_type_caps():
         ("long", 7200),
         ("threshold", 3600),
         ("intervals", 3600),
+        ("pma", 2700),
+        ("sprint", 2700),
         ("unknown", 3000),
     ],
 )

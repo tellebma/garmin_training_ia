@@ -12,6 +12,8 @@ export type SessionType =
   | 'endurance'
   | 'threshold'
   | 'intervals'
+  | 'pma'
+  | 'sprint'
   | 'long'
   | 'recovery'
   | 'race'
@@ -29,6 +31,8 @@ const TYPE_LABEL: Record<SessionType, string> = {
   endurance: 'Endurance',
   threshold: 'Seuil',
   intervals: 'Fractionné',
+  pma: 'PMA',
+  sprint: 'Sprint',
   long: 'Sortie longue',
   recovery: 'Récupération',
   race: 'Course',

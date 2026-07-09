@@ -27,7 +27,13 @@ export function OnboardingWizard({ initial, initialStep }: Readonly<Props>) {
     const s = new Set<Step>()
     if (initial.perso) s.add('perso')
     if (initial.race) s.add('race')
-    if (initial.perf.ftp_watts ?? initial.perf.vma_kmh ?? initial.perf.fc_max_bpm) s.add('perf')
+    if (
+      initial.perf.ftp_watts ??
+      initial.perf.vma_kmh ??
+      initial.perf.fc_max_bpm ??
+      initial.perf.css_per_100m_s
+    )
+      s.add('perf')
     if (initial.dispo.hours_per_week) s.add('dispo')
     return s
   })

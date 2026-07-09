@@ -32,6 +32,8 @@ export const SESSION_TYPE_LABEL: Record<SessionType, string> = {
   endurance: 'Endurance',
   threshold: 'Seuil',
   intervals: 'Intervalles',
+  pma: 'PMA',
+  sprint: 'Sprint',
   long: 'Sortie longue',
   recovery: 'Récupération',
   race: 'Course',

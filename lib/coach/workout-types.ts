@@ -9,6 +9,10 @@ export interface IntervalTarget {
   watts_high?: number | null
   pace_low_kmh?: number | null
   pace_high_kmh?: number | null
+  // Cadence : interprétation dépendante du sport (rpm vélo, foulées/min course,
+  // coups de bras/min natation), jamais validée numériquement côté serveur.
+  cadence_low?: number | null
+  cadence_high?: number | null
 }
 
 export interface IntervalBlock {

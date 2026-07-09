@@ -10,6 +10,7 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    _pick_session_type,
     _progress_for_offset,
     cap_weekly_ramp_by_sport,
     compute_first_week_tss_multiplier,
@@ -109,12 +110,80 @@ def test_pick_session_types_for_build_phase() -> None:
 
 def test_pick_session_types_for_peak_phase() -> None:
     types = pick_session_types_for_phase("peak")
-    assert "intervals" in types
+    assert "pma" in types
+    assert "sprint" in types
 
 
 def test_pick_session_types_for_taper_phase() -> None:
     types = pick_session_types_for_phase("taper")
     assert "endurance" in types
+    assert "long" not in types
+
+
+def test_pick_session_types_for_build_phase_includes_pma_at_high_level() -> None:
+    types = pick_session_types_for_phase("build", max_level=5)
+    assert "pma" in types
+    assert "threshold" in types
+
+
+def test_build_phase_excludes_pma_at_level3() -> None:
+    types = pick_session_types_for_phase("build", max_level=3)
+    assert "pma" not in types
+    assert "threshold" in types  # threshold reste accessible dès le niveau 3
+
+
+def test_peak_phase_excludes_sprint_and_pma_for_low_level() -> None:
+    types = pick_session_types_for_phase("peak", max_level=2)
+    assert "sprint" not in types
+    assert "pma" not in types
+    assert "endurance" in types
+
+
+def test_build_phase_excludes_pma_in_first_half_even_at_high_level() -> None:
+    # progress < 0.5 -> 1re moitié de build : pma pas encore introduit, même à
+    # un niveau athlète élevé.
+    types = pick_session_types_for_phase("build", max_level=5, progress=0.3)
+    assert "pma" not in types
+
+
+def test_build_phase_includes_pma_in_second_half_at_high_level() -> None:
+    # progress >= 0.5 -> 2e moitié de build : pma apparaît.
+    types = pick_session_types_for_phase("build", max_level=5, progress=0.6)
+    assert "pma" in types
+
+
+def test_build_phase_default_progress_keeps_pma_backward_compatible() -> None:
+    # Sans argument progress (défaut 1.0), le comportement existant est
+    # inchangé : pma reste présent, comme avant l'introduction du gating.
+    types = pick_session_types_for_phase("build", max_level=5)
+    assert "pma" in types
+
+
+def test_pick_session_type_avoids_pma_the_day_after_a_pma_day() -> None:
+    # day_idx=1 (mardi) n'est pas un slot réservé (long=dimanche, recovery=lundi/jeudi),
+    # donc _pick_session_type applique la logique anti back-to-back hard.
+    picked = _pick_session_type(
+        day_idx=1, types_for_phase=["pma", "sprint", "endurance"], used_types=["pma"]
+    )
+    assert picked not in ("pma", "sprint")
+
+
+def test_pick_session_type_avoids_sprint_the_day_after_a_sprint_day() -> None:
+    picked = _pick_session_type(
+        day_idx=1, types_for_phase=["pma", "sprint", "endurance"], used_types=["sprint"]
+    )
+    assert picked not in ("pma", "sprint")
+
+
+def test_peak_phase_allows_sprint_not_pma_at_level3() -> None:
+    types = pick_session_types_for_phase("peak", max_level=3)
+    assert "sprint" in types
+    assert "pma" not in types
+
+
+def test_taper_phase_includes_sprint_at_default_level() -> None:
+    types = pick_session_types_for_phase("taper")
+    assert "sprint" in types
     assert "long" not in types
 
 
@@ -388,6 +457,44 @@ def test_build_week_sessions_bike_longer_than_run_and_tss_consistent() -> None:
         assert s["target_tss"] == expected
 
 
+def test_training_day_session_pma_uses_dedicated_tss_per_hour() -> None:
+    from garmin_sync.coach.planner import _training_day_session, _tss_per_hour
+
+    session = _training_day_session(
+        day=date.today(),
+        phase="peak",
+        week_offset=0,
+        stype="pma",
+        sport="bike",
+        tss_by_sport={"bike": 60.0},
+        sport_weight_total={"bike": 1.0},
+        weekly_elevation_by_sport={},
+        sport_elevation_weight_total={},
+    )
+    assert session["session_type"] == "pma"
+    expected_tss = round(session["target_duration_s"] / 3600 * _tss_per_hour("bike", "pma"), 2)
+    assert session["target_tss"] == expected_tss
+    # pma bike peak bounds: 40-60min (Task 4)
+    assert 40 * 60 <= session["target_duration_s"] <= 60 * 60
+
+
+def test_training_day_session_sprint_gets_no_elevation_target() -> None:
+    from garmin_sync.coach.planner import _training_day_session
+
+    session = _training_day_session(
+        day=date.today(),
+        phase="peak",
+        week_offset=0,
+        stype="sprint",
+        sport="bike",
+        tss_by_sport={"bike": 60.0},
+        sport_weight_total={"bike": 1.0},
+        weekly_elevation_by_sport={"bike": 200},
+        sport_elevation_weight_total={"bike": 1.0},
+    )
+    assert not session.get("target_elevation_gain_m")
+
+
 def test_compute_elevation_per_sport_sums_legs() -> None:
     from garmin_sync.coach.planner import compute_elevation_per_sport
 
@@ -564,6 +671,7 @@ def test_beginner_build_has_no_hard_intervals() -> None:
     types = pick_session_types_for_phase("build", max_level=1)
     assert "threshold" not in types
     assert "intervals" not in types
+    assert "pma" not in types
     assert "endurance" in types
 
 
@@ -571,11 +679,13 @@ def test_level3_build_allows_threshold_not_intervals() -> None:
     types = pick_session_types_for_phase("build", max_level=3)
     assert "threshold" in types
     assert "intervals" not in types
+    assert "pma" not in types
 
 
-def test_advanced_peak_allows_intervals() -> None:
+def test_advanced_peak_allows_pma_and_sprint() -> None:
     types = pick_session_types_for_phase("peak", max_level=5)
-    assert "intervals" in types
+    assert "pma" in types
+    assert "sprint" in types
 
 
 def test_weekly_tss_floor_scales_with_hours() -> None:

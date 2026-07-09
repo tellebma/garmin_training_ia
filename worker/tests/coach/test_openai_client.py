@@ -26,6 +26,25 @@ def test_athlete_lines_no_intensity_warning_when_all_strong():
     assert "Consigne intensité" not in text
 
 
+def test_athlete_lines_includes_css_for_swim_when_known():
+    lines = _athlete_lines(athlete={"css_per_100m_s": 95}, sport="swim")
+    text = "\n".join(lines)
+    assert "CSS" in text
+    assert "95" in text
+
+
+def test_athlete_lines_css_unknown_for_swim():
+    lines = _athlete_lines(athlete={}, sport="swim")
+    text = "\n".join(lines)
+    assert "CSS : non connue" in text
+
+
+def test_athlete_lines_no_css_line_for_bike():
+    lines = _athlete_lines(athlete={"css_per_100m_s": 95}, sport="bike")
+    text = "\n".join(lines)
+    assert "CSS" not in text
+
+
 def _athlete_full():
     return {
         "ftp_watts": 240,
@@ -207,6 +226,20 @@ def test_prompt_includes_race_context(mock_get_client):
     system_msg = call_args.kwargs["messages"][0]["content"]
     assert "55%" not in system_msg  # plus de ratio codé en dur : l'enveloppe par séance fait foi
     assert "Ne génère jamais de workout" in system_msg
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_system_prompt_documents_sprint_and_pma_rules(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+    generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+    system_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][0]["content"]
+    assert '"pma"' in system_msg
+    assert '"sprint"' in system_msg
+    assert "VO2max" in system_msg or "plafond aérobie" in system_msg
 
 
 @patch("garmin_sync.coach.openai_client._get_client")

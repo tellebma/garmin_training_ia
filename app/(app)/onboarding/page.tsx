@@ -13,6 +13,7 @@ interface ProfileRow {
   ftp_watts: number | null
   vma_kmh: number | null
   fc_max_bpm: number | null
+  css_per_100m_s: number | null
   hours_per_week: number | null
   available_days: string[] | null
   sports_strengths: { swim?: number; bike?: number; run?: number } | null
@@ -39,7 +40,10 @@ function computeInitialStep(profile: ProfileRow | null, race: RaceRow | null): S
   if (!profile?.first_name || !profile.dob || !profile.sex) return 'perso'
   if (!race) return 'race'
   const hasPerf =
-    profile.ftp_watts !== null || profile.vma_kmh !== null || profile.fc_max_bpm !== null
+    profile.ftp_watts !== null ||
+    profile.vma_kmh !== null ||
+    profile.fc_max_bpm !== null ||
+    profile.css_per_100m_s !== null
   if (!hasPerf && !profile.garmin_synced_at) return 'perf'
   if (!profile.hours_per_week) return 'dispo'
   return 'dispo'
@@ -92,6 +96,7 @@ export default async function OnboardingPage() {
       ftp_watts: profile?.ftp_watts ?? undefined,
       vma_kmh: profile?.vma_kmh ?? undefined,
       fc_max_bpm: profile?.fc_max_bpm ?? undefined,
+      css_per_100m_s: profile?.css_per_100m_s ?? undefined,
       garmin_synced_at: profile?.garmin_synced_at ?? null,
     },
     dispo: {

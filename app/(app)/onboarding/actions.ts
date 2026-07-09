@@ -121,6 +121,7 @@ export async function saveStepPerf(input: PerfInput): Promise<StepResult> {
   if (parsed.data.ftp_watts !== undefined) patch.ftp_watts = parsed.data.ftp_watts
   if (parsed.data.vma_kmh !== undefined) patch.vma_kmh = parsed.data.vma_kmh
   if (parsed.data.fc_max_bpm !== undefined) patch.fc_max_bpm = parsed.data.fc_max_bpm
+  if (parsed.data.css_per_100m_s !== undefined) patch.css_per_100m_s = parsed.data.css_per_100m_s
 
   if (Object.keys(patch).length > 0) {
     const { error } = await supabase

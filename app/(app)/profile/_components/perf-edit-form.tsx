@@ -17,6 +17,7 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
   const [ftp, setFtp] = useState<string>(initial.ftp_watts?.toString() ?? '')
   const [vma, setVma] = useState<string>(initial.vma_kmh?.toString() ?? '')
   const [fcmax, setFcmax] = useState<string>(initial.fc_max_bpm?.toString() ?? '')
+  const [css, setCss] = useState<string>(initial.css_per_100m_s?.toString() ?? '')
   const [syncedAt, setSyncedAt] = useState<string | null>(initial.garmin_synced_at)
   const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -27,6 +28,7 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
     setFtp(initial.ftp_watts?.toString() ?? '')
     setVma(initial.vma_kmh?.toString() ?? '')
     setFcmax(initial.fc_max_bpm?.toString() ?? '')
+    setCss(initial.css_per_100m_s?.toString() ?? '')
     setErrors({})
   }
 
@@ -80,7 +82,7 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
             Modifier
           </Button>
         </div>
-        <dl className="text-muted-foreground grid grid-cols-3 gap-x-4 text-sm">
+        <dl className="text-muted-foreground grid grid-cols-4 gap-x-4 text-sm">
           <div>
             <dt className="text-xs tracking-wide uppercase">FTP</dt>
             <dd className="text-foreground">{ftp ? `${ftp} W` : '—'}</dd>
@@ -92,6 +94,10 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
           <div>
             <dt className="text-xs tracking-wide uppercase">FC max</dt>
             <dd className="text-foreground">{fcmax ? `${fcmax} bpm` : '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-xs tracking-wide uppercase">CSS</dt>
+            <dd className="text-foreground">{css ? `${css} s/100m` : '—'}</dd>
           </div>
         </dl>
         {fmtSynced && (
@@ -110,6 +116,7 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
       ftp_watts: ftp ? Number.parseInt(ftp, 10) : undefined,
       vma_kmh: vma ? Number.parseFloat(vma) : undefined,
       fc_max_bpm: fcmax ? Number.parseInt(fcmax, 10) : undefined,
+      css_per_100m_s: css ? Number.parseInt(css, 10) : undefined,
     })
     setLoading(false)
     if (!r.success) {
@@ -195,6 +202,24 @@ export function PerfEditForm({ initial }: Readonly<Props>) {
         />
         {errors.fc_max_bpm?.[0] && (
           <p className="text-destructive text-xs">{errors.fc_max_bpm[0]}</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="perf-css">CSS (s/100m natation)</Label>
+        <Input
+          id="perf-css"
+          type="number"
+          min={40}
+          max={300}
+          value={css}
+          onChange={(e) => {
+            setCss(e.target.value)
+          }}
+          placeholder="ex: 95"
+        />
+        {errors.css_per_100m_s?.[0] && (
+          <p className="text-destructive text-xs">{errors.css_per_100m_s[0]}</p>
         )}
       </div>
 

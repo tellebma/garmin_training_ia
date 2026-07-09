@@ -54,7 +54,7 @@ def _load_profile_and_race(
     """Returns (athlete, race_or_None, weeks_to_race_or_0)."""
     profile_resp = (
         db.table("athlete_profiles")
-        .select("ftp_watts, vma_kmh, fc_max_bpm, sports_strengths")
+        .select("ftp_watts, vma_kmh, fc_max_bpm, css_per_100m_s, sports_strengths")
         .eq("user_id", user_id)
         .single()
         .execute()
