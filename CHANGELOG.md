@@ -1,3 +1,9 @@
+## [1.7.0](https://github.com/tellebma/garmin_training_ia/compare/v1.6.0...v1.7.0) (2026-07-09)
+
+### Features
+
+* **coach:** séances ciblées sprint/PMA + CSS natation ([573639c](https://github.com/tellebma/garmin_training_ia/commit/573639c5622933a47ea35e723137c20f15dc29c8))
+
 ## [1.6.0](https://github.com/tellebma/garmin_training_ia/compare/v1.5.1...v1.6.0) (2026-07-09)
 
 ### Features
