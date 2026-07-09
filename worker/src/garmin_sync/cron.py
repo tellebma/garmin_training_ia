@@ -44,6 +44,32 @@ def _run_post_sync_recomputes(user_id: str) -> None:
         log.exception("recompute_recovery_baselines failed for user=%s", user_id)
         capture(exc, where="recompute_recovery_baselines", user_id=user_id)
 
+    home: tuple[float, float] | None = None
+    try:
+        from garmin_sync.coach.home_location import compute_home_location
+
+        home = compute_home_location(user_id)
+    except Exception as exc:
+        log.exception("compute_home_location failed for user=%s", user_id)
+        capture(exc, where="compute_home_location", user_id=user_id)
+
+    if home is not None:
+        home_lat, home_lon = home
+        try:
+            from garmin_sync.coach.overpass import refresh_nearby_cols
+
+            refresh_nearby_cols(user_id, home_lat, home_lon)
+        except Exception as exc:
+            log.exception("refresh_nearby_cols failed for user=%s", user_id)
+            capture(exc, where="refresh_nearby_cols", user_id=user_id)
+        try:
+            from garmin_sync.coach.col_matching import recompute_col_crossings
+
+            recompute_col_crossings(user_id, home_lat, home_lon)
+        except Exception as exc:
+            log.exception("recompute_col_crossings failed for user=%s", user_id)
+            capture(exc, where="recompute_col_crossings", user_id=user_id)
+
 
 def run_sync_for_user(
     user_id: str, *, initial: bool = False, mode: SyncMode = SYNC_MODE_FULL
