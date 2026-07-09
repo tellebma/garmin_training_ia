@@ -18,7 +18,7 @@ export async function FinopsPanel() {
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold">Finops</h2>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">Utilisateurs</CardTitle>
@@ -59,6 +59,21 @@ export async function FinopsPanel() {
           <CardContent>
             <p className="text-2xl font-semibold">{formatUsd(overview.llm_billed.cost_usd_7d)}</p>
             <p className="text-muted-foreground text-xs">Source OpenAI, délai ~24-48h</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Santé sync Garmin</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">
+              {overview.sync_health.ok} / {overview.sync_health.ok + overview.sync_health.failed}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {overview.sync_health.failed > 0
+                ? `${overview.sync_health.failed.toString()} en échec`
+                : 'Toutes les syncs OK'}
+            </p>
           </CardContent>
         </Card>
       </div>
