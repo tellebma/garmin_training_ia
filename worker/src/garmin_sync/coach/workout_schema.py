@@ -26,6 +26,11 @@ class IntervalTarget(BaseModel):
     watts_high: int | None = None
     pace_low_kmh: float | None = None
     pace_high_kmh: float | None = None
+    # Cadence : interprétation dépendante du sport, jamais validée numériquement
+    # (pas de bornes physiologiques universelles) — rpm en vélo, foulées/min en
+    # course, coups de bras/min en natation. Champ informatif transmis tel quel.
+    cadence_low: int | None = None
+    cadence_high: int | None = None
 
 
 class IntervalBlock(BaseModel):

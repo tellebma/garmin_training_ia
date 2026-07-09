@@ -45,6 +45,18 @@ def test_target_with_bpm_range():
     assert t.bpm_high == 160
 
 
+def test_target_with_cadence_range():
+    t = IntervalTarget(label="Z2", rpe=5, cadence_low=100, cadence_high=110)
+    assert t.cadence_low == 100
+    assert t.cadence_high == 110
+
+
+def test_target_cadence_defaults_to_none():
+    t = IntervalTarget(label="Z2", rpe=5)
+    assert t.cadence_low is None
+    assert t.cadence_high is None
+
+
 def test_target_rpe_out_of_range_rejects():
     with pytest.raises(ValidationError):
         IntervalTarget(label="Z2", rpe=11)
