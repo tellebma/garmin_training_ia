@@ -42,4 +42,15 @@ describe('SideNav', () => {
     const statsLink = screen.getByText('Stats').closest('a')
     expect(statsLink?.className).toContain('text-muted-foreground')
   })
+
+  it('does not render an Admin link for a non-admin', () => {
+    render(<SideNav isAdmin={false} />)
+    expect(screen.queryByText('Admin')).toBeNull()
+  })
+
+  it('renders an Admin link pointing to /admin when isAdmin is true', () => {
+    render(<SideNav isAdmin />)
+    const adminLink = screen.getByText('Admin').closest('a')
+    expect(adminLink?.getAttribute('href')).toBe('/admin')
+  })
 })

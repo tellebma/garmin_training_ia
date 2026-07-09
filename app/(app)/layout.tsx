@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: Readonly<{ children: React
 
   return (
     <div className="flex min-h-screen">
-      <SideNav />
+      <SideNav isAdmin={Boolean(isAdmin)} />
       <main className="flex-1 pb-20 md:pb-0 md:pl-64">
         <div className="container mx-auto max-w-6xl px-4 py-6">
           <div className="mb-4 flex justify-end">
