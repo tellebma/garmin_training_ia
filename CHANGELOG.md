@@ -1,3 +1,5 @@
+## [1.1.0](https://github.com/tellebma/garmin_training_ia/compare/v1.0.0...v1.1.0) (2026-07-09)
+
 ## 1.0.0 (2026-07-09)
 
 # Changelog
