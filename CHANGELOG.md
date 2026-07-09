@@ -1,3 +1,13 @@
+## [1.6.0](https://github.com/tellebma/garmin_training_ia/compare/v1.5.1...v1.6.0) (2026-07-09)
+
+### Features
+
+* **nav:** add Admin link to the side panel for admins ([#95](https://github.com/tellebma/garmin_training_ia/issues/95)) ([2f38cd5](https://github.com/tellebma/garmin_training_ia/commit/2f38cd56a2b9c9edec3238ea35f0d27379fbbe9d))
+
+### Bug Fixes
+
+* **release:** pin conventional-changelog-conventionalcommits to 9.3.1 ([#96](https://github.com/tellebma/garmin_training_ia/issues/96)) ([97f2e7d](https://github.com/tellebma/garmin_training_ia/commit/97f2e7d032ca821c02f2cf330e638400ca9e3312))
+
 ## [1.5.1](https://github.com/tellebma/garmin_training_ia/compare/v1.5.0...v1.5.1) (2026-07-09)
 
 ### Bug Fixes
