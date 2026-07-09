@@ -446,6 +446,24 @@ describe('buildNextSessionAdjustment', () => {
     target_tss: 25,
   }
 
+  const nextPmaSession: PlannedSession = {
+    ...planned,
+    id: 'next-pma',
+    date: '2026-06-15',
+    session_type: 'pma',
+    target_duration_s: 2700,
+    target_tss: 70,
+  }
+
+  const nextSprintSession: PlannedSession = {
+    ...planned,
+    id: 'next-sprint',
+    date: '2026-06-15',
+    session_type: 'sprint',
+    target_duration_s: 2700,
+    target_tss: 55,
+  }
+
   const stableSummary: SampleCoachSummary = {
     hrZones: [
       { zone: 'Z1', label: 'Récupération', samples: 10, percent: 20 },
@@ -512,6 +530,18 @@ describe('buildNextSessionAdjustment', () => {
 
     expect(adjustment.action).toBe('maintain')
     expect(adjustment.title).toBe('Suite cohérente')
+  })
+
+  it('treats pma sessions as hard, same as intervals/threshold', () => {
+    const result = buildNextSessionAdjustment(stableSummary, [nextPmaSession])
+    const resultHard = buildNextSessionAdjustment(stableSummary, [nextHardSession])
+    expect(result.action).toBe(resultHard.action)
+  })
+
+  it('treats sprint sessions as hard, same as intervals/threshold', () => {
+    const result = buildNextSessionAdjustment(stableSummary, [nextSprintSession])
+    const resultHard = buildNextSessionAdjustment(stableSummary, [nextHardSession])
+    expect(result.action).toBe(resultHard.action)
   })
 
   it('replaces a hard next session after multiple costly signals', () => {

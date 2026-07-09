@@ -4,6 +4,8 @@ export type SessionType =
   | 'endurance'
   | 'threshold'
   | 'intervals'
+  | 'pma'
+  | 'sprint'
   | 'long'
   | 'recovery'
   | 'race'

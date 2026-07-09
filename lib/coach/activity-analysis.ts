@@ -666,7 +666,7 @@ export function summarizeActivitySamples(
 }
 
 function hardSession(session: PlannedSession): boolean {
-  return ['threshold', 'intervals', 'long', 'race'].includes(session.session_type)
+  return ['threshold', 'intervals', 'pma', 'sprint', 'long', 'race'].includes(session.session_type)
 }
 
 function easySession(session: PlannedSession): boolean {
