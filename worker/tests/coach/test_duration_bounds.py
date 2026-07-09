@@ -31,3 +31,41 @@ def test_taper_uses_peak_bounds():
 
 def test_duration_bounds_s_returns_none_for_unknown():
     assert duration_bounds_s("brick", "intervals", "base") is None
+
+
+def test_bike_sprint_peak_bounds():
+    assert duration_bounds_s("bike", "sprint", "peak") == (35 * 60, 45 * 60)
+
+
+def test_bike_pma_build_bounds():
+    assert duration_bounds_s("bike", "pma", "build") == (45 * 60, 65 * 60)
+
+
+def test_bike_pma_peak_bounds():
+    assert duration_bounds_s("bike", "pma", "peak") == (40 * 60, 60 * 60)
+
+
+def test_run_sprint_peak_bounds():
+    assert duration_bounds_s("run", "sprint", "peak") == (25 * 60, 35 * 60)
+
+
+def test_run_pma_build_bounds():
+    assert duration_bounds_s("run", "pma", "build") == (40 * 60, 55 * 60)
+
+
+def test_swim_sprint_peak_bounds():
+    assert duration_bounds_s("swim", "sprint", "peak") == (30 * 60, 40 * 60)
+
+
+def test_swim_pma_build_bounds():
+    assert duration_bounds_s("swim", "pma", "build") == (40 * 60, 55 * 60)
+
+
+def test_sprint_taper_uses_peak_bounds():
+    assert duration_bounds_s("bike", "sprint", "taper") == duration_bounds_s(
+        "bike", "sprint", "peak"
+    )
+
+
+def test_clamp_caps_overlong_bike_sprint():
+    assert clamp_duration_to_bounds("bike", "sprint", "peak", 90 * 60) == 45 * 60

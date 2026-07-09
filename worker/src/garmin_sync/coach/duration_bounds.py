@@ -26,6 +26,9 @@ _BOUNDS_MIN: dict[tuple[str, str, str], tuple[int, int]] = {
     ("swim", "intervals", "peak"): (40, 55),
     ("swim", "long", "peak"): (50, 60),
     ("swim", "recovery", "peak"): (25, 35),
+    ("swim", "pma", "build"): (40, 55),
+    ("swim", "pma", "peak"): (35, 50),
+    ("swim", "sprint", "peak"): (30, 40),
     # vélo
     ("bike", "recovery", "base"): (30, 45),
     ("bike", "endurance", "base"): (90, 180),
@@ -42,6 +45,9 @@ _BOUNDS_MIN: dict[tuple[str, str, str], tuple[int, int]] = {
     ("bike", "intervals", "peak"): (50, 70),
     ("bike", "long", "peak"): (90, 150),
     ("bike", "recovery", "peak"): (30, 40),
+    ("bike", "pma", "build"): (45, 65),
+    ("bike", "pma", "peak"): (40, 60),
+    ("bike", "sprint", "peak"): (35, 45),
     # course
     ("run", "recovery", "base"): (30, 40),
     ("run", "endurance", "base"): (40, 60),
@@ -58,6 +64,9 @@ _BOUNDS_MIN: dict[tuple[str, str, str], tuple[int, int]] = {
     ("run", "intervals", "peak"): (40, 55),
     ("run", "long", "peak"): (50, 70),
     ("run", "recovery", "peak"): (25, 35),
+    ("run", "pma", "build"): (40, 55),
+    ("run", "pma", "peak"): (35, 50),
+    ("run", "sprint", "peak"): (25, 35),
 }
 
 
