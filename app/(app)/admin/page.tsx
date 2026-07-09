@@ -7,7 +7,7 @@ import { FinopsPanelSkeleton } from './_components/skeletons/finops-panel-skelet
 import { FeatureFlagsPanelSkeleton } from './_components/skeletons/feature-flags-panel-skeleton'
 import { AllowlistPanelSkeleton } from './_components/skeletons/allowlist-panel-skeleton'
 
-export const revalidate = 0
+export const revalidate = 60
 
 export default async function AdminPage() {
   await requireAdmin()
