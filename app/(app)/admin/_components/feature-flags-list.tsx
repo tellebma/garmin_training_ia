@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { setFeatureFlag } from '../actions'
 import { isFlagActive, type FeatureFlagRow } from '@/lib/admin/types'
@@ -12,20 +13,40 @@ const DURATIONS: { label: string; hours: number }[] = [
   { label: '7j', hours: 24 * 7 },
 ]
 
+/**
+ * Pure expiry calculation for a flag toggle. Only `public_registration_enabled`
+ * requires an expiry, and only when it's being turned on — every other case
+ * (other flags, or turning off) has no expiry.
+ */
+export function computeExpiry(
+  key: string,
+  nextEnabled: boolean,
+  durationHours: number,
+  now: number = Date.now()
+): string | null {
+  const requiresExpiry = key === 'public_registration_enabled'
+  if (!requiresExpiry || !nextEnabled) return null
+  return new Date(now + durationHours * 3_600_000).toISOString()
+}
+
 export function FeatureFlagsList({ flags }: { readonly flags: FeatureFlagRow[] }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [durationHours, setDurationHours] = useState<number>(24)
 
   function toggle(flag: FeatureFlagRow) {
-    const requiresExpiry = flag.key === 'public_registration_enabled'
     const nextEnabled = !isFlagActive(flag)
     startTransition(async () => {
-      const expiresAt =
-        requiresExpiry && nextEnabled
-          ? new Date(Date.now() + durationHours * 3_600_000).toISOString()
-          : null
-      await setFeatureFlag({ key: flag.key, enabled: nextEnabled, expiresAt })
+      const expiresAt = computeExpiry(flag.key, nextEnabled, durationHours)
+      const result = await setFeatureFlag({ key: flag.key, enabled: nextEnabled, expiresAt })
+      if (!result.success) {
+        toast.error(
+          result.error === 'expiry_required'
+            ? "Une durée d'expiration est requise."
+            : 'Échec de la mise à jour du flag.'
+        )
+        return
+      }
       router.refresh()
     })
   }
