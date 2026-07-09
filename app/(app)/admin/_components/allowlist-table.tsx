@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,7 +36,11 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
 
   function handleAdd() {
     startTransition(async () => {
-      await addAllowedEmail({ email, note: note || null })
+      const result = await addAllowedEmail({ email, note: note || null })
+      if (!result.success) {
+        toast.error("Ajout impossible — vérifie l'email.")
+        return
+      }
       setEmail('')
       setNote('')
       router.refresh()
@@ -44,7 +49,11 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
 
   function handleRemove(target: string) {
     startTransition(async () => {
-      await removeAllowedEmail(target)
+      const result = await removeAllowedEmail(target)
+      if (!result.success) {
+        toast.error('Suppression impossible.')
+        return
+      }
       router.refresh()
     })
   }
@@ -53,6 +62,7 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Input
+          aria-label="Email à ajouter à l'allowlist"
           placeholder="ami@example.com"
           value={email}
           onChange={(e) => {
@@ -61,6 +71,7 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
           className="max-w-xs"
         />
         <Input
+          aria-label="Note (optionnel)"
           placeholder="Note (optionnel)"
           value={note}
           onChange={(e) => {
@@ -78,7 +89,9 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
             <TableHead>Email</TableHead>
             <TableHead>Statut</TableHead>
             <TableHead>Note</TableHead>
-            <TableHead />
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -94,7 +107,7 @@ export function AllowlistTable({ rows }: { readonly rows: AllowedEmailRow[] }) {
               <TableCell>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="outline">
+                    <Button size="sm" variant="outline" aria-label={`Retirer ${row.email}`}>
                       Retirer
                     </Button>
                   </AlertDialogTrigger>
