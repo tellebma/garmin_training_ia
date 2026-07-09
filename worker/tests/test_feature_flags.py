@@ -33,3 +33,10 @@ def test_is_flag_active_true_when_expiry_in_future():
 def test_is_flag_active_false_when_row_missing():
     db = _db_with_flag(None)
     assert is_flag_active(db, "unknown_key") is False
+
+
+def test_is_flag_active_false_when_read_raises():
+    db = MagicMock()
+    chain = db.table.return_value.select.return_value.eq.return_value.maybe_single
+    chain.return_value.execute.side_effect = RuntimeError("db unavailable")
+    assert is_flag_active(db, "llm_generation_enabled") is False
