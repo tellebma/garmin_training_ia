@@ -143,13 +143,14 @@ beta-testeurs (5-10 amis triathlètes).
   pour ce jour (E4 crée une ligne par jour du plan, y compris repos) : `sport`,
   `session_type='long'` (valeur fixe pour toute sortie libre — cohérente avec le sens
   de "grosse sortie hors plan" et déjà une valeur valide du check existant),
-  `target_duration_s`/
-  `target_tss` recalculés depuis distance/D+/vitesse estimée (réutilise la logique TSS
-  Banister existante), `notes` ("Sortie libre planifiée via /routes"), `route_id`,
-  `origin='route'`.
-  - Si le jour a déjà une séance non-repos prévue → `409 session_conflict` avec détail
-    (sport/type existants) → modale de confirmation "remplacer la séance prévue ?" →
-    retry avec `force:true`.
+  `target_duration_s`/`target_tss` recalculés depuis distance/durée estimée — via la
+  table `_TSS_PER_HOUR[(sport, "long")]` déjà utilisée par `coach/planner.py`
+  (`target_tss = _TSS_PER_HOUR[(sport, "long")] * estimated_duration_s / 3600`),
+  `notes` ("Sortie libre planifiée via /routes"), `route_id`, `origin='route'`.
+  - Si le jour a déjà une séance non-repos prévue → réponse `{status:
+    "session_conflict", existing_sport, existing_session_type}` (voir convention de
+    réponse dans la section Endpoints) → modale de confirmation "remplacer la séance
+    prévue ?" → retry avec `force:true`.
   - Si l'utilisateur n'a pas de plan actif (E4 non généré) → bouton désactivé +
     tooltip "Génère d'abord ton plan d'entraînement".
   - Le cron E5 (génération LLM du contenu détaillé) continue de tourner normalement
@@ -222,15 +223,32 @@ alter table public.planned_sessions
 
 ## Endpoints worker
 
-### `POST /routes/suggest` (repris d'E8a, inchangé)
+**Convention de réponse (écart vs E8a original, alignement sur le reste de l'API
+worker)** : E8a décrivait des codes HTTP REST classiques (404/409/422/503). Or
+**tous** les endpoints `/coach/*` et `/garmin/*` existants renvoient en réalité un
+**HTTP 200 avec un champ `status` discriminant** dans le corps JSON (voir
+`ConnectResult`, `EnsureSessionsResult`, `RegenerateSessionResult` dans
+`lib/worker.ts`, et `except SessionNotFound: return {"status": "session_not_found"}`
+dans `main.py`) — seuls les échecs d'authentification (401) et de requête
+malformée (400) restent de vrais codes HTTP. Les erreurs inattendues passent par
+`report_endpoint_error()` → `{status: "unexpected_error", error_id, type}`, toujours
+en 200. Cette spec suit cette convention établie plutôt que celle d'E8a.
+
+### `POST /routes/suggest` (repris d'E8a, adapté à la convention `status`)
 
 Auth JWT user. Body `{ planned_session_id?, sport?, target_duration_s?,
 target_elevation_gain_m?, start_override? }` — `planned_session_id` optionnel
-désormais (mode `/routes` sans contexte de séance : cible saisie manuellement).
-Réponse : 3 routes candidates + target + debug (identique à E8a).
+désormais (mode `/routes` sans contexte de séance : cible saisie manuellement, sport
+et cibles alors requis).
 
-Erreurs : `400 invalid_session`, `404 session_not_found`, `409 no_start_coords`,
-`422 no_valid_routes`, `503 graphhopper_unavailable`.
+**Réponse (200 dans tous les cas)** :
+- Succès : `{ status: "ok", routes: [...], target: {...}, estimated_user_speed_mps }`
+- `{ status: "invalid_session" }` (session pas à ce user)
+- `{ status: "session_not_found" }`
+- `{ status: "no_start_coords" }` (pas de `athlete_profiles.lat/lon` ni override)
+- `{ status: "no_valid_routes" }` (GraphHopper retourne 0 boucle valide après filtrage)
+- `{ status: "graphhopper_unavailable" }`
+- `{ status: "unexpected_error", error_id, type }`
 
 ### `POST /routes/build` (nouveau)
 
@@ -253,8 +271,11 @@ waypoints + retour départ implicite), profil `foot`/`bike`. Retourne polyline r
 + distance/D+/durée estimée (vitesse moyenne user, comme le mode auto). Insert DB
 `source='graphhopper_waypoints'`.
 
-**Erreurs** : `422 no_route_found` (GraphHopper ne peut pas relier les points),
-`503 graphhopper_unavailable`.
+**Réponse (200 dans tous les cas)** :
+- Succès : `{ status: "ok", route: {...} }`
+- `{ status: "no_route_found" }` (GraphHopper ne peut pas relier les points)
+- `{ status: "graphhopper_unavailable" }`
+- `{ status: "unexpected_error", error_id, type }`
 
 ### `POST /cols/refresh-area` (nouveau)
 
@@ -263,30 +284,44 @@ Auth JWT user. Body `{ lat, lng, radius_m }` (défaut `radius_m=25000`, plafonn�
 `worker/src/garmin_sync/coach/overpass.py` existant (widget cols), appelé pour un
 centre arbitraire au lieu du domicile uniquement. Upsert `cols` par `osm_id`.
 
-**Erreurs** : `503 overpass_unavailable` (timeout ou erreur réseau, pas de blocage —
-la liste de cols reste simplement vide pour cette zone).
+**Réponse (200 dans tous les cas)** :
+- Succès : `{ status: "ok", cols_count: N }`
+- `{ status: "overpass_unavailable" }` (timeout ou erreur réseau, pas de blocage —
+  la liste de cols reste simplement vide pour cette zone)
+- `{ status: "unexpected_error", error_id, type }`
 
 ### `POST /routes/{route_id}/apply-to-plan` (nouveau)
 
 Auth JWT user. Body `{ date, force? }`. Update de la `planned_session` du jour
 (sport/session_type/target_duration_s/target_tss/notes/route_id/origin='route').
 
-**Réponse 200** : `{ planned_session_id, replaced: boolean }`
-
-**Erreurs** : `404 route_not_found`, `404 no_active_plan`, `409 session_conflict
-{ existing_sport, existing_session_type }` (si `force` absent et jour déjà occupé
-par une séance non-repos).
+**Réponse (200 dans tous les cas)** :
+- Succès : `{ status: "ok", planned_session_id, replaced: boolean }`
+- `{ status: "route_not_found" }`
+- `{ status: "no_active_plan" }`
+- `{ status: "session_conflict", existing_sport, existing_session_type }` (si `force`
+  absent et jour déjà occupé par une séance non-repos)
+- `{ status: "unexpected_error", error_id, type }`
 
 ### `POST /routes/{route_id}/link-session` (nouveau)
 
 Auth JWT user. Body `{ planned_session_id }` → update `routes.planned_session_id`
-uniquement. Erreurs : `404 route_not_found`, `400 invalid_session`.
+uniquement.
+
+**Réponse (200 dans tous les cas)** :
+- Succès : `{ status: "ok" }`
+- `{ status: "route_not_found" }`
+- `{ status: "invalid_session" }`
+- `{ status: "unexpected_error", error_id, type }`
 
 ### `GET /routes/{route_id}/gpx` (repris d'E8a, inchangé)
 
-Auth JWT user. Réponse 200 : `Content-Type: application/gpx+xml`,
-`Content-Disposition: attachment; filename="{sport}-{date}.gpx"`, GPX 1.1 (polyline +
-metadata.name). Erreurs : `404 route_not_found`.
+Seul endpoint qui reste un vrai code HTTP REST (fichier téléchargeable, pas un appel
+JSON piloté par `status`). Auth JWT user. Réponse 200 : `Content-Type:
+application/gpx+xml`, `Content-Disposition: attachment;
+filename="{sport}-{date}.gpx"`, GPX 1.1 (polyline + metadata.name). Réponse
+`404 {"detail": "route_not_found"}` (via `HTTPException`) si la route n'existe pas ou
+n'appartient pas à l'utilisateur.
 
 ## UI PWA
 
@@ -320,18 +355,30 @@ components/routes/
 
 ### Librairies
 
-Identique E8a : `react-leaflet` v4 + `leaflet` v1.9, tiles OSM publiques.
+**Écart vs E8a original** : E8a prévoyait `react-leaflet` + `leaflet` (aucune des deux
+n'est dans `package.json`). Le code existant (`ActivityRouteMap`, `RouteThumbnail`,
+`RoutesHeatmap` — livrés avec E14 cartographie GPS) utilise déjà **`maplibre-gl`**
+(`^5.24.0`, déjà en dépendance) avec le style CartoDB dark-matter. On suit ce
+précédent plutôt que d'introduire une deuxième lib de cartographie : `RouteMap.tsx`
+est un nouveau wrapper maplibre-gl (pas Leaflet), et réutilise les helpers existants
+`lib/maps/route-geojson.ts` (`buildRouteGeoJson`, `routeBounds`) pour construire les
+features GeoJSON affichées. Le clic sur la carte (ajout de waypoint en mode manuel)
+utilise `map.on('click', …)`, équivalent maplibre-gl du `onClick` Leaflet.
 
 ### Empty / error states
 
-| Cas | UI |
+Chaque ligne correspond à la valeur du champ `status` renvoyé par le worker (voir
+convention de réponse, section Endpoints) — tous en HTTP 200.
+
+| `status` | UI |
 |---|---|
-| `409 no_start_coords` (aucune activité GPS encore synchronisée) | Banner "Synchronise au moins une activité GPS pour calculer ton point de départ, ou saisis une adresse" |
-| `422 no_valid_routes` / `no_route_found` | "Aucun itinéraire trouvé. Essaie un autre point de départ ou d'autres waypoints." |
-| `503 graphhopper_unavailable` | "Service indisponible. Réessaie dans une minute." |
-| `503 overpass_unavailable` | "Impossible de chercher des cols sur cette zone pour l'instant." |
-| `409 no_active_plan` | Bouton "Ajouter au plan" désactivé + tooltip |
-| `409 session_conflict` | Modale de confirmation "remplacer ?" |
+| `no_start_coords` (aucune activité GPS encore synchronisée) | Banner "Synchronise au moins une activité GPS pour calculer ton point de départ, ou saisis une adresse" |
+| `no_valid_routes` / `no_route_found` | "Aucun itinéraire trouvé. Essaie un autre point de départ ou d'autres waypoints." |
+| `graphhopper_unavailable` | "Service indisponible. Réessaie dans une minute." |
+| `overpass_unavailable` | "Impossible de chercher des cols sur cette zone pour l'instant." |
+| `no_active_plan` | Bouton "Ajouter au plan" désactivé + tooltip |
+| `session_conflict` | Modale de confirmation "remplacer ?" |
+| `unexpected_error` | Toast générique + `error_id` affiché (support) |
 
 ## Infra GraphHopper (reprise d'E8a, inchangée)
 
@@ -371,19 +418,20 @@ GRAPHHOPPER_TIMEOUT_S=5
 PHOTON_URL=http://graphhopper:2322
 ```
 
-## Gestion erreurs (pattern E2)
+## Gestion erreurs (pattern établi : `report_endpoint_error`, cf. `observability.py`)
 
-| Code | error_id pattern | UI fallback |
-|---|---|---|
-| GraphHopper 5xx/timeout | `gh_<uuid>` | "Service indisponible, réessaie" |
-| GraphHopper 200 mais 0 route | `gh_no_route_<uuid>` | "Aucun itinéraire trouvé" |
-| Overpass timeout/erreur | `overpass_<uuid>` | "Recherche de cols indisponible" |
-| Photon 0 résultat | `geo_not_found_<uuid>` | "Adresse non trouvée" |
-| Worker→Supabase fail | `db_<uuid>` | "Erreur DB" |
+Chaque endpoint attrape les exceptions **connues** (typées, ex. `NoStartCoordsError`,
+`GraphhopperUnavailableError`, `SessionConflictError`) et les traduit explicitement en
+`{status: "..."}` — même pattern que `except SessionNotFound: return {"status":
+"session_not_found"}` dans `main.py`. Toute exception **non prévue** tombe dans le
+`except Exception as e: return report_endpoint_error(e, endpoint="...", user_id=...)`
+générique, qui génère un `error_id` (uuid8), logge + capture Sentry, et renvoie
+`{status: "unexpected_error", error_id, type}` — jamais de trace brute exposée au
+navigateur.
 
-Stack traces dans `docker logs garmin-sync` + `docker logs graphhopper`, greppables
-par `error_id`. Capture Sentry sur chaque bloc (pattern des recomputes cron
-existants).
+Stack traces complètes dans `docker logs garmin-sync` + `docker logs graphhopper`,
+greppables par `error_id`. Capture Sentry sur chaque bloc (pattern des recomputes
+cron existants, `capture(exc, where=..., **tags)`).
 
 ## Tests
 
@@ -441,7 +489,7 @@ d'erreur testés.
 | GraphHopper OOM au démarrage (4 Go RAM) | Limiter par région si problème |
 | Photon flaky | Fallback Nominatim public |
 | Overpass rate limit / lenteur | Timeout explicite, échec silencieux (liste de cols vide, pas de blocage) |
-| Tile OSM rate limit (10k/jour) | < 10 users OK ; sinon MapTiler free tier |
+| Style tiles CartoDB indisponible | Même dépendance déjà en prod via `ActivityRouteMap` (E14), risque non nouveau |
 | Boucles/itinéraires irréalistes (chemins privés) | Profils GraphHopper choisis + feedback user post-essai |
 | `apply-to-plan` écrase une séance planifiée par erreur | Confirmation explicite obligatoire sur conflit (pas de force silencieux) |
 
