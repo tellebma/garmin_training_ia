@@ -65,7 +65,7 @@ def run_billing_sync_cron() -> dict[str, Any]:
         # The response body carries OpenAI's actual error message (e.g. which
         # permission/scope is missing) — the exception's own str() doesn't
         # include it, so log it explicitly or a 403 is undiagnosable from logs.
-        log.error(
+        log.exception(
             "billing_sync failed: HTTP %s — %s",
             exc.response.status_code,
             exc.response.text[:2000],
