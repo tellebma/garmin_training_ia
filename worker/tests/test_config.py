@@ -99,3 +99,17 @@ def test_settings_rejects_empty_fernet_keys(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("FERNET_KEYS", "  ,  ")
     with pytest.raises(ValueError, match="fernet_keys"):
         Settings()
+
+
+def test_settings_loads_openai_admin_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_ADMIN_API_KEY", "sk-admin-test")
+    get_settings.cache_clear()
+    s = get_settings()
+    assert s.openai_admin_api_key.get_secret_value() == "sk-admin-test"
+
+
+def test_settings_openai_admin_api_key_defaults_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_ADMIN_API_KEY", raising=False)
+    get_settings.cache_clear()
+    s = get_settings()
+    assert s.openai_admin_api_key.get_secret_value() == ""

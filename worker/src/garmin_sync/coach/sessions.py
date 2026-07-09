@@ -9,7 +9,9 @@ from typing import Any, cast
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.briefing import build_next_session_adjustment
 from garmin_sync.coach.discipline_level import load_effective_strengths
+from garmin_sync.coach.llm_usage import record_llm_usage
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
+from garmin_sync.feature_flags import is_flag_active
 from garmin_sync.observability import capture
 from garmin_sync.supabase_client import get_admin_client
 
@@ -158,9 +160,10 @@ def _generate_and_persist(
     session: dict[str, Any],
     athlete: dict[str, Any],
     race_ctx: dict[str, Any],
+    user_id: str,
 ) -> bool:
     try:
-        workout = generate_workout_for_session(
+        result = generate_workout_for_session(
             session=session, athlete=athlete, race_context=race_ctx
         )
     except OpenAIError as e:
@@ -181,11 +184,18 @@ def _generate_and_persist(
         return False
     db.table("planned_sessions").update(
         {
-            "workout": workout.model_dump(),
+            "workout": result.workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
             "workout_generation_failed_at": None,
         }
     ).eq("id", session["id"]).execute()
+    record_llm_usage(
+        user_id=user_id,
+        feature="session_workout",
+        model=result.usage.model,
+        prompt_tokens=result.usage.prompt_tokens,
+        completion_tokens=result.usage.completion_tokens,
+    )
     return True
 
 
@@ -226,6 +236,15 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
             "deferred_count": deferred,
         }
 
+    if not is_flag_active(db, "llm_generation_enabled"):
+        return {
+            "generated_count": 0,
+            "failed_count": 0,
+            "skipped_count": skipped + len(generatable),
+            "deferred_count": deferred,
+            "llm_generation_disabled": True,
+        }
+
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, today)
     race_ctx = _race_context(race, weeks, activity_review)
@@ -234,7 +253,7 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
     failed = 0
     for session in generatable:
         session_for_generation = _session_with_activity_review_note(session, activity_review)
-        if _generate_and_persist(db, session_for_generation, athlete, race_ctx):
+        if _generate_and_persist(db, session_for_generation, athlete, race_ctx, user_id):
             generated += 1
         else:
             failed += 1
@@ -266,19 +285,29 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
     if _should_skip_workout_generation(session):
         return {"status": "ok", "workout": None, "skipped": True}
 
+    if not is_flag_active(db, "llm_generation_enabled"):
+        return {"status": "generation_disabled"}
+
     athlete, race, weeks = _load_profile_and_race(db, user_id)
     activity_review = _load_activity_review(db, user_id, date.today())
     race_ctx = _race_context(race, weeks, activity_review)
     session_for_generation = _session_with_activity_review_note(session, activity_review)
 
-    workout = generate_workout_for_session(
+    result = generate_workout_for_session(
         session=session_for_generation, athlete=athlete, race_context=race_ctx
     )
     db.table("planned_sessions").update(
         {
-            "workout": workout.model_dump(),
+            "workout": result.workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
             "workout_generation_failed_at": None,
         }
     ).eq("id", session_id).execute()
-    return {"status": "ok", "workout": workout.model_dump()}
+    record_llm_usage(
+        user_id=user_id,
+        feature="session_workout",
+        model=result.usage.model,
+        prompt_tokens=result.usage.prompt_tokens,
+        completion_tokens=result.usage.completion_tokens,
+    )
+    return {"status": "ok", "workout": result.workout.model_dump()}

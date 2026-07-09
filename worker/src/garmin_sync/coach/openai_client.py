@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -14,6 +15,19 @@ from garmin_sync.coach.workout_schema import (
     validate_workout_for_session,
 )
 from garmin_sync.config import get_settings
+
+
+@dataclass(frozen=True)
+class LlmUsage:
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+
+
+@dataclass(frozen=True)
+class WorkoutResult:
+    workout: Workout
+    usage: LlmUsage
 
 
 class OpenAIError(Exception):
@@ -142,7 +156,7 @@ def _build_user_prompt(
 
 def _call_and_validate(
     client: Any, model: str, messages: list[dict[str, str]], session: dict[str, Any]
-) -> Workout:
+) -> tuple[Workout, LlmUsage]:
     """One LLM round-trip + validation. Raises OpenAIError on any failure."""
     try:
         resp = client.beta.chat.completions.parse(
@@ -150,13 +164,18 @@ def _call_and_validate(
         )
     except Exception as e:
         raise OpenAIError(f"OpenAI call failed: {e}") from e
+    usage = LlmUsage(
+        model=model,
+        prompt_tokens=resp.usage.prompt_tokens if resp.usage else 0,
+        completion_tokens=resp.usage.completion_tokens if resp.usage else 0,
+    )
     parsed = resp.choices[0].message.parsed
     if parsed is None:
         raise OpenAIError("OpenAI returned no parsed payload")
     payload = parsed.model_dump()
     try:
         workout = Workout.model_validate(payload)
-        return validate_workout_for_session(workout, session)
+        return validate_workout_for_session(workout, session), usage
     except ValueError as e:
         raise OpenAIError(
             f"OpenAI returned unrealistic workout: {e}",
@@ -169,13 +188,18 @@ def generate_workout_for_session(
     session: dict[str, Any],
     athlete: dict[str, Any],
     race_context: dict[str, Any],
-) -> Workout:
+) -> WorkoutResult:
     """Call OpenAI with structured output, retrying with corrective feedback.
 
     A small model regularly returns a workout that breaks the numeric envelope
     (warmup cap, main-work ratio, total duration). Instead of failing the whole
     session on the first bad draw, re-prompt with the exact validation error so
     the model can self-correct, up to ``openai_max_attempts`` times.
+
+    Only the final, successful attempt's token usage is returned — failed
+    attempts also cost tokens but are not summed here (finops V1 is an
+    estimate, not a to-the-cent reconciliation; see the openai_billing_snapshot
+    ground-truth comparison for the real invoiced amount).
     """
     client = _get_client()
     settings = get_settings()
@@ -186,7 +210,8 @@ def generate_workout_for_session(
     last_error: OpenAIError | None = None
     for _ in range(settings.openai_max_attempts):
         try:
-            return _call_and_validate(client, settings.openai_model, messages, session)
+            workout, usage = _call_and_validate(client, settings.openai_model, messages, session)
+            return WorkoutResult(workout=workout, usage=usage)
         except OpenAIError as e:
             last_error = e
             if e.raw_payload:

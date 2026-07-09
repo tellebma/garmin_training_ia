@@ -238,11 +238,19 @@ def run_profile_sync_cron() -> dict[str, Any]:
     return {"mode": "profile", "total_users": len(user_ids), "results": results}
 
 
+def run_billing_sync_cron() -> dict[str, Any]:
+    """Daily ground-truth OpenAI cost pull (E18 finops). ~05:00 UTC, alongside full sync."""
+    from garmin_sync.billing_sync import run_billing_sync_cron as _run
+
+    return _run()
+
+
 _MODES = {
     "full": run_daily_cron,
     "sleep": run_sleep_cron,
     "activities": run_activities_cron,
     "profile": run_profile_sync_cron,
+    "billing": run_billing_sync_cron,
 }
 
 

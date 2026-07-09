@@ -71,84 +71,102 @@ def test_generate_workout_returns_validated_workout(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     mock_client.beta.chat.completions.parse.return_value.choices = [
-        MagicMock(
-            message=MagicMock(
-                parsed=MagicMock(
-                    model_dump=lambda: {
-                        "warmup": {
-                            "duration_s": 600,
-                            "target": {
-                                "label": "Z1",
-                                "rpe": 2,
-                                "bpm_low": 130,
-                                "bpm_high": 145,
-                                "watts_low": None,
-                                "watts_high": None,
-                                "pace_low_kmh": None,
-                                "pace_high_kmh": None,
-                            },
-                            "notes": None,
-                        },
-                        "main": [
-                            {
-                                "reps": 4,
-                                "work": {
-                                    "duration_s": 480,
-                                    "target": {
-                                        "label": "Z4",
-                                        "rpe": 8,
-                                        "bpm_low": 170,
-                                        "bpm_high": 180,
-                                        "watts_low": None,
-                                        "watts_high": None,
-                                        "pace_low_kmh": 14.0,
-                                        "pace_high_kmh": 15.0,
-                                    },
-                                    "notes": None,
-                                },
-                                "rest": {
-                                    "duration_s": 120,
-                                    "target": {
-                                        "label": "Z1",
-                                        "rpe": 2,
-                                        "bpm_low": 130,
-                                        "bpm_high": 145,
-                                        "watts_low": None,
-                                        "watts_high": None,
-                                        "pace_low_kmh": None,
-                                        "pace_high_kmh": None,
-                                    },
-                                    "notes": None,
-                                },
-                            }
-                        ],
-                        "cooldown": {
-                            "duration_s": 480,
-                            "target": {
-                                "label": "Z1",
-                                "rpe": 2,
-                                "bpm_low": 130,
-                                "bpm_high": 145,
-                                "watts_low": None,
-                                "watts_high": None,
-                                "pace_low_kmh": None,
-                                "pace_high_kmh": None,
-                            },
-                            "notes": None,
-                        },
-                        "summary_md": "Séance seuil exigeante.",
-                        "technical_focus": "Foulée tonique sur les répétitions.",
-                    }
-                )
-            )
-        )
+        MagicMock(message=MagicMock(parsed=MagicMock(model_dump=lambda: _full_workout_dict())))
     ]
 
-    workout = generate_workout_for_session(
+    result = generate_workout_for_session(
         session=_session(), athlete=_athlete_full(), race_context=_race_context()
     )
-    assert workout.summary_md.startswith("Séance")
-    assert len(workout.main) == 1
+    assert result.workout.summary_md.startswith("Séance")
+    assert len(result.workout.main) == 1
+
+
+def _full_workout_dict():
+    return {
+        "warmup": {
+            "duration_s": 600,
+            "target": {
+                "label": "Z1",
+                "rpe": 2,
+                "bpm_low": 130,
+                "bpm_high": 145,
+                "watts_low": None,
+                "watts_high": None,
+                "pace_low_kmh": None,
+                "pace_high_kmh": None,
+            },
+            "notes": None,
+        },
+        "main": [
+            {
+                "reps": 4,
+                "work": {
+                    "duration_s": 480,
+                    "target": {
+                        "label": "Z4",
+                        "rpe": 8,
+                        "bpm_low": 170,
+                        "bpm_high": 180,
+                        "watts_low": None,
+                        "watts_high": None,
+                        "pace_low_kmh": 14.0,
+                        "pace_high_kmh": 15.0,
+                    },
+                    "notes": None,
+                },
+                "rest": {
+                    "duration_s": 120,
+                    "target": {
+                        "label": "Z1",
+                        "rpe": 2,
+                        "bpm_low": 130,
+                        "bpm_high": 145,
+                        "watts_low": None,
+                        "watts_high": None,
+                        "pace_low_kmh": None,
+                        "pace_high_kmh": None,
+                    },
+                    "notes": None,
+                },
+            }
+        ],
+        "cooldown": {
+            "duration_s": 480,
+            "target": {
+                "label": "Z1",
+                "rpe": 2,
+                "bpm_low": 130,
+                "bpm_high": 145,
+                "watts_low": None,
+                "watts_high": None,
+                "pace_low_kmh": None,
+                "pace_high_kmh": None,
+            },
+            "notes": None,
+        },
+        "summary_md": "Séance seuil exigeante.",
+        "technical_focus": "Foulée tonique sur les répétitions.",
+    }
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_generate_workout_returns_usage_alongside_workout(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_resp = mock_client.beta.chat.completions.parse.return_value
+    mock_resp.choices = [
+        MagicMock(message=MagicMock(parsed=MagicMock(model_dump=lambda: _full_workout_dict())))
+    ]
+    mock_resp.usage = MagicMock(prompt_tokens=1200, completion_tokens=340)
+
+    result = generate_workout_for_session(
+        session=_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+
+    assert result.workout.total_duration_s() > 0
+    assert result.usage.model == "gpt-4o-mini"
+    assert result.usage.prompt_tokens == 1200
+    assert result.usage.completion_tokens == 340
 
 
 @patch("garmin_sync.coach.openai_client._get_client")
@@ -269,11 +287,11 @@ def test_generate_workout_retries_with_feedback_then_succeeds(mock_get_client):
     valid = _workout_dict(300, 3000, 300)
     mock_client.beta.chat.completions.parse.side_effect = [_resp(invalid), _resp(valid)]
 
-    workout = generate_workout_for_session(
+    result = generate_workout_for_session(
         session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
     )
 
-    assert workout.warmup.duration_s == 300
+    assert result.workout.warmup.duration_s == 300
     assert mock_client.beta.chat.completions.parse.call_count == 2
     # the corrective feedback (validation error) is fed back into the retry prompt
     retry_messages = mock_client.beta.chat.completions.parse.call_args_list[1].kwargs["messages"]
