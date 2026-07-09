@@ -231,9 +231,13 @@ Flags seedés au déploiement :
    quand actif, `is_email_allowed` renvoie `true` pour n'importe quel email, en bypassant
    totalement `allowed_emails`. Le reste du flow d'inscription est inchangé : OTP
    magic-link (preuve de possession de la boîte mail), rate limit 3/h/IP, audit log
-   `auth_events`. Depuis `/admin` : sélecteur de durée (1h / 24h / 7j / personnalisé) +
-   bandeau visible tant que le flag est actif, avec compte à rebours et bouton de
-   désactivation immédiate.
+   `auth_events`. Depuis `/admin` : sélecteur de durée (1h / 24h / 7j — pas d'option
+   personnalisée : le plafond serveur de 7j rendrait une valeur plus longue de toute façon
+   rejetée) + bandeau visible tant que le flag est actif, avec sa date d'expiration
+   (v1 livrée : date statique, pas de compte à rebours live) et bouton de désactivation
+   immédiate. Le bandeau vit dans `FeatureFlagsPanel` (donc dans sa frontière Suspense),
+   pas au niveau page hors Suspense comme envisagé initialement — simplification retenue
+   car ce panneau est déjà le premier à charger et le seul à connaître l'état des flags.
 
 ### Bloc C — Allowlist UI
 
@@ -242,8 +246,10 @@ RPCs admin (garde `is_admin_caller()`), sur la table `allowed_emails` existante 
 - **`admin_list_allowed_emails()`** — `email, note, invited_by, created_at` + statut
   calculé par jointure sur `athlete_profiles.password_set` : `pending` (ajouté, pas
   encore inscrit) ou `active` (mot de passe défini), avec date.
-- **`admin_add_allowed_email(email, note)`** — insert idempotent
-  (`on conflict do nothing`), email normalisé en minuscule.
+- **`admin_add_allowed_email(email, note)`** — upsert idempotent
+  (`on conflict (email) do update set note = excluded.note` — ré-ajouter un email déjà
+  présent met à jour sa note plutôt que d'être un no-op silencieux), email normalisé
+  en minuscule.
 - **`admin_remove_allowed_email(email)`** — delete simple. Bloque uniquement une future
   inscription ; n'affecte pas un utilisateur déjà `password_set = true` (limite assumée,
   cf. décisions de cadrage — bannir un compte actif est hors scope V1).
@@ -268,10 +274,11 @@ Composant front `AllowlistPanel` :
   place sur `/stats` (voir `app/(app)/_components/skeletons/cockpit-skeleton.tsx`).
 - Trois panneaux dans l'ordre de priorité produit, chacun `<Suspense>` séparément :
   1. **`FinopsPanel`** (`admin_overview()`) — cartes users/activités/coût estimé vs
-     facturé + graphe coût/jour 7j (nouveau composant `CostPerDayChart`, calqué sur
-     `banister-chart.tsx` : `LineChart` recharts + CSS vars theme-aware, pas une
-     réutilisation littérale des composants d'E14.1 qui sont spécialisés samples
-     intra-activité).
+     facturé + graphe coût/jour 7j (nouveau composant `CostPerDayChart`, `BarChart`
+     recharts + CSS vars theme-aware — un bar chart rend mieux une série discrète
+     jour-par-jour qu'un `LineChart`, pas une réutilisation littérale des composants
+     d'E14.1 qui sont spécialisés samples intra-activité). Une synthèse textuelle
+     `sr-only` accompagne le graphe pour les lecteurs d'écran.
   2. **`FeatureFlagsPanel`** (`admin_list_feature_flags()`) — liste de toggles, avec le
      sélecteur de durée pour `public_registration_enabled`.
   3. **`AllowlistPanel`** (`admin_list_allowed_emails()`) — formulaire + table.
@@ -327,3 +334,26 @@ Composant front `AllowlistPanel` :
   `athlete_profiles` (qui a des policies UPDATE utilisateur) pour éviter tout risque
   d'auto-attribution de droits. V1 ne contient qu'une ligne (owner, seedée par
   migration) ; gestion multi-admin UI hors scope V1.
+
+## Livré — ajustements post-implémentation (audit qualité)
+
+L'implémentation a été suivie d'un audit qualité itératif (sécurité, performance,
+résilience, architecture, qualité de code, testabilité, accessibilité) qui a ajouté,
+au-delà de ce spec initial :
+
+- `search_path = ''` (au lieu de `public`) sur toutes les fonctions `security definer`
+  E18 — durcissement défense-en-profondeur, aucun changement de comportement (tous les
+  objets référencés sont déjà qualifiés `public.`/`auth.`).
+- Plafond de 7 jours (+ 5 min de marge d'horloge) sur l'expiration de
+  `public_registration_enabled` côté RPC, en plus du sélecteur de durée côté UI — une
+  faute de frappe admin (`p_expires_at` à +10 ans) ne peut plus laisser l'inscription
+  ouverte indéfiniment.
+- `feature_flags.is_flag_active` (worker) est best-effort comme ses voisins
+  (`record_llm_usage`, `billing_sync`) : une erreur de lecture DB renvoie `false`
+  (traite le kill switch comme désactivé) plutôt que de faire échouer toute la
+  génération de séances.
+- `sync_health` (déjà renvoyé par `admin_overview()`) est affiché dans une 5e carte de
+  `FinopsPanel` — c'était calculé mais pas montré dans la V1 initiale.
+- Les échecs des Server Actions (`setFeatureFlag`, `addAllowedEmail`,
+  `removeAllowedEmail`) sont désormais signalés par un toast (`sonner`) au lieu d'être
+  absorbés silencieusement côté client.
