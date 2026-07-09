@@ -1,3 +1,8 @@
+if [ "$SKIP_PREPUSH_RELEASE_COMMIT" = "1" ]; then
+  echo "Skipping pre-push checks: semantic-release commit (CHANGELOG/version bump only, already vetted by CI on the PR)"
+  exit 0
+fi
+
 pnpm exec tsc --noEmit
 pnpm test
 pnpm build
