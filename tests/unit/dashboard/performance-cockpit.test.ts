@@ -114,6 +114,39 @@ describe('computePerformanceCockpit', () => {
     expect(result.disciplines[0]?.sport).toBe('bike')
   })
 
+  it('includes activities far outside the 90-day window when days is "all"', () => {
+    const oldActivity = activity({
+      id: 'old-activity',
+      start_time: '2026-01-05T08:00:00Z',
+      tss: 40,
+    })
+    const oldPlanned = planned({ id: 'old-session', date: '2026-01-05' })
+    const result = computePerformanceCockpit({
+      activities: [oldActivity],
+      plannedSessions: [oldPlanned],
+      feedback: [],
+      days: 'all',
+      reference,
+    })
+
+    expect(result.completedSessions).toBe(1)
+    expect(result.actualTss).toBe(40)
+    expect(result.weekly[0]?.week).toBe('2026-01-05')
+  })
+
+  it('falls back to the reference week when "all" has no activities or sessions', () => {
+    const result = computePerformanceCockpit({
+      activities: [],
+      plannedSessions: [],
+      feedback: [],
+      days: 'all',
+      reference,
+    })
+
+    expect(result.weekly).toHaveLength(1)
+    expect(result.plannedSessions).toBe(0)
+  })
+
   it('raises a watch signal when perceived effort is repeatedly high', () => {
     const activities = [
       activity({}),
