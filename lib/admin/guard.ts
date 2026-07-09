@@ -7,6 +7,11 @@ import { createClient } from '@/lib/supabase/server'
  *  - to /today if the user is authenticated but not an admin
  *
  * Returns the authenticated user_id once both checks pass.
+ *
+ * Note: app/(app)/layout.tsx already checks is_admin_caller / is_feature_flag_active
+ * for the maintenance-mode gate, so this re-check may look redundant. It is
+ * intentional defense-in-depth — the admin page must not rely solely on the
+ * shared layout for its own admin gate — not an oversight to be deduplicated.
  */
 export async function requireAdmin(): Promise<string> {
   const supabase = await createClient()
