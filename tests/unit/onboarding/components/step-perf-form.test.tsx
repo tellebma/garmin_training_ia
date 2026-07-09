@@ -198,4 +198,32 @@ describe('StepPerfForm', () => {
     )
     expect(screen.getByText(/Synchronisé de Garmin le/)).toBeTruthy()
   })
+
+  it('renders a CSS field and submits it', async () => {
+    saveStepPerf.mockResolvedValue({ success: true, nextStep: 'dispo' })
+    const onDone = vi.fn()
+    const { StepPerfForm } = await import('@/app/(app)/onboarding/_components/step-perf-form')
+    render(
+      <StepPerfForm defaultValues={{ garmin_synced_at: '2026-05-15T10:00:00Z' }} onDone={onDone} />
+    )
+    const cssInput = screen.getByLabelText<HTMLInputElement>(/CSS/)
+    fireEvent.change(cssInput, { target: { value: '95' } })
+    fireEvent.click(screen.getByRole('button', { name: /Suivant/ }))
+    await waitFor(() => {
+      expect(saveStepPerf).toHaveBeenCalledTimes(1)
+    })
+    const call = saveStepPerf.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(call.css_per_100m_s).toBe(95)
+  })
+
+  it('pre-fills CSS from defaultValues', async () => {
+    const { StepPerfForm } = await import('@/app/(app)/onboarding/_components/step-perf-form')
+    render(
+      <StepPerfForm
+        defaultValues={{ css_per_100m_s: 100, garmin_synced_at: '2026-05-15T10:00:00Z' }}
+        onDone={vi.fn()}
+      />
+    )
+    expect(screen.getByLabelText<HTMLInputElement>(/CSS/).value).toBe('100')
+  })
 })

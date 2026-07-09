@@ -192,6 +192,16 @@ describe('saveStepPerf', () => {
     await saveStepPerf({ ftp_watts: 250 })
     expect(chain.update).toHaveBeenCalledWith({ ftp_watts: 250 })
   })
+
+  it('applies css_per_100m_s in the patch when provided', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'u1' } } })
+    const chain = mkUpdateChain(null)
+    fromMock.mockReturnValueOnce(chain)
+    const { saveStepPerf } = await import('@/app/(app)/onboarding/actions')
+
+    await saveStepPerf({ css_per_100m_s: 95 })
+    expect(chain.update).toHaveBeenCalledWith({ css_per_100m_s: 95 })
+  })
 })
 
 describe('saveStepDispo', () => {

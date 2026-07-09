@@ -18,6 +18,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
   const [ftp, setFtp] = useState<string>(defaultValues.ftp_watts?.toString() ?? '')
   const [vma, setVma] = useState<string>(defaultValues.vma_kmh?.toString() ?? '')
   const [fcmax, setFcmax] = useState<string>(defaultValues.fc_max_bpm?.toString() ?? '')
+  const [css, setCss] = useState<string>(defaultValues.css_per_100m_s?.toString() ?? '')
   const [syncedAt, setSyncedAt] = useState<string | null>(defaultValues.garmin_synced_at)
   const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -58,6 +59,7 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
       ftp_watts: ftp ? Number.parseInt(ftp, 10) : undefined,
       vma_kmh: vma ? Number.parseFloat(vma) : undefined,
       fc_max_bpm: fcmax ? Number.parseInt(fcmax, 10) : undefined,
+      css_per_100m_s: css ? Number.parseInt(css, 10) : undefined,
     })
     setLoading(false)
     if (!result.success) {
@@ -131,6 +133,26 @@ export function StepPerfForm({ defaultValues, onDone }: Readonly<Props>) {
           placeholder="ex: 16.5"
         />
         {errors.vma_kmh?.[0] && <p className="text-destructive text-xs">{errors.vma_kmh[0]}</p>}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="css">
+          CSS (s/100m natation){' '}
+          <span className="text-muted-foreground ml-1 text-xs font-normal">(optionnel)</span>
+        </Label>
+        <Input
+          id="css"
+          type="number"
+          min={40}
+          max={300}
+          value={css}
+          onChange={(e) => {
+            setCss(e.target.value)
+          }}
+          placeholder="ex: 95"
+        />
+        {errors.css_per_100m_s?.[0] && (
+          <p className="text-destructive text-xs">{errors.css_per_100m_s[0]}</p>
+        )}
       </div>
       <div className="space-y-2">
         <Label htmlFor="fcmax">
