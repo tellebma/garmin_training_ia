@@ -80,9 +80,22 @@ compréhensibles pour un athlète non expert.
 
 Récupérer les activités plus vite sans seulement augmenter la fréquence du polling.
 
-- **E15.1 P1 — Intégration Strava** : OAuth + webhooks (push à chaque activité),
-  gratuit en usage perso. Point d'ingestion unifié quasi temps réel
-  (Garmin -> Strava -> app). Chemin recommandé.
+- **E15.1 P1 — Intégration Strava (compte lié + ingestion temps réel)** : OAuth2
+  (`athlete_strava_credentials`, refresh token chiffré comme `garmin_credentials`) +
+  écran « Connecter Strava » sur `/profile` (à côté de Garmin, pas en remplacement).
+  Webhook Strava (`POST /strava/webhook`, validation `hub.challenge`) déclenche un pull
+  de l'activité créée/mise à jour dans les secondes, sans polling. Mapping activité
+  Strava -> `activities` (mêmes colonnes que le transformer Garmin ; `source = 'strava'`
+  pour distinguer/dédupliquer si l'athlète a aussi Garmin -> Strava actif côté Garmin
+  Connect, cas fréquent). Gratuit en usage perso/petit volume (rate limit 100 req/15 min,
+  1000/jour, largement suffisant pour un pull par webhook). Chemin recommandé pour
+  couvrir les activités de **toute marque qui synchronise déjà vers Strava** — beaucoup
+  d'athlètes Suunto/Coros/Wahoo/Apple Watch le font déjà nativement ou via l'appli
+  constructeur — sans développer une intégration par marque. **Limite connue : Strava
+  n'expose pas les métriques de wellness** (sommeil, HRV, composition corporelle, FC
+  repos quotidienne) dont dépend le calcul Banister/readiness (`daily_metrics`,
+  `sleep`, `hrv`) — seules les activités (allure/FC/puissance/GPS) sont couvertes.
+  Voir E15.5 pour la donnée wellness non-Garmin.
 - **E15.2 P2 — Garmin officiel** : évaluer Garmin Health/Activity API (webhooks push) —
   réservé au programme partenaire, validation B2B. La lib `python-garminconnect`
   actuelle ne fait que du polling non officiel.
@@ -102,6 +115,46 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   blocage de la Server Action) et réutilise `run_sync_for_user`, qui fait un backfill 90j au
   premier connect et un delta court au reconnect. L'échec de sync ne casse pas le connect
   (le cron rattrape) et le statut reste observable via `garmin_credentials.last_sync_status`.
+- **E15.5 P2 — Données montre au-delà de Garmin, quand une API le permet** : Strava
+  (E15.1) couvre les activités de quasi toutes les marques, mais pas le wellness. Pour
+  les athlètes non-Garmin, brancher les APIs officielles qui exposent sommeil/HRV/FC
+  repos quand elles existent en self-service :
+  - **Polar AccessLink** : OAuth2 officiel, gratuit, en self-service (pas de programme
+    partenaire) — sommeil, FC repos, activité continue. Candidat le plus réaliste après
+    Strava ; même forme d'intégration que Garmin (credentials chiffrés, transformer dédié,
+    cron ou webhook selon dispo).
+  - **Coros / Wahoo** : API cloud existante mais réservée à un programme partenaire
+    (validation B2B, délais) — pas de self-service, à réévaluer si un partenariat devient
+    accessible. Pas de développement tant que l'accès n'est pas obtenu.
+  - **Suunto** : pas d'API personnelle officielle solide ; dépend de Strava (E15.1) pour
+    les activités, aucune source fiable pour le wellness à ce jour.
+  - **Apple Watch** : aucune API cloud (les données vivent dans HealthKit sur l'iPhone) ;
+    nécessiterait une appli compagnon ou un export tiers (ex. Health Auto Export vers un
+    webhook) — hors scope tant qu'aucun athlète beta n'est demandeur.
+  - Prérequis modèle de données : `activities`/`daily_metrics`/`sleep`/`hrv` ont déjà
+    `user_id` mais sont pensées Garmin-only implicitement (un seul `garmin_credentials`
+    par user) — généraliser vers un concept de « source » par table
+    (`source: garmin|strava|polar`) avant d'ajouter une 2e source de wellness, pour
+    éviter les collisions si un athlète a plusieurs sources actives.
+  - Statut : aucune marque hors Garmin n'a d'implémentation ; à prioriser seulement s'il
+    y a une demande beta concrète (aujourd'hui l'owner + tous les amis beta sont sur
+    Garmin, cf profil onboarding).
+- **E15.6 P2 — Positionnement produit : Strava suffit, la montre est optionnelle** :
+  message à faire apparaître dans l'onboarding et sur `/profile` (écrans connexion
+  Garmin/Strava) pour ne pas laisser croire qu'une montre compatible est requise pour
+  utiliser l'app :
+  - **Strava = base suffisante pour démarrer**, quelle que soit la marque de montre (ou
+    même sans montre — appli téléphone) : couvre les activités et donc le plan/charge
+    d'entraînement (CTL/ATL/TSB reposent sur les activités, pas sur le wellness).
+  - **Connecter une montre compatible (Garmin aujourd'hui, Polar en E15.5) est une
+    option en plus**, pas un prérequis : elle débloque des métriques avancées
+    (sommeil, HRV, FC repos, composition corporelle) qui affinent le readiness/briefing
+    quotidien mais ne conditionnent pas la génération du plan.
+  - Éviter toute UI qui bloque ou dégrade l'usage si seul Strava est connecté ; un badge
+    « débloquer le suivi récupération avancé » côté profil suffit, pas un mur.
+  - Impact copy : écran de connexion (`/profile/garmin` et futur `/profile/strava`),
+    onboarding step connexion source de données, et toute bulle explicative HRV/sommeil
+    qui suppose aujourd'hui implicitement une source Garmin.
 
 ## Coaching sportif / performance
 
@@ -506,28 +559,45 @@ Spec et critères d'acceptation :
 
 ## Qualité / plateforme
 
-### EPIC E18 — Console d'administration & observabilité beta
+### EPIC E18 — Console d'administration & ouverture au public
 
 **Priorité : P1 — Statut : à planifier**
 
-Vue `/admin` réservée à l'owner pour superviser la beta privée d'un coup d'œil :
-adoption, volume de données synchronisées, santé des syncs et **coût IA réel**. Le besoin
-structurant : la conso de tokens IA n'est tracée nulle part aujourd'hui
-(`openai_client.py` jette `resp.usage`), donc l'EPIC est en deux temps — instrumenter,
-puis afficher. Spec : `docs/superpowers/specs/2026-06-28-e18-admin-console-design.md`.
+Vue `/admin` réservée à l'owner qui regroupe tout ce qui touche l'ouverture de l'app à
+des utilisateurs externes : adoption, **coût IA réel**, **feature flags** (kill switch
+IA, mode maintenance, inscription ouverte temporaire) et **gestion de l'allowlist**
+depuis l'UI. Le besoin structurant côté finops : la conso de tokens IA n'est tracée nulle
+part aujourd'hui (`openai_client.py` jette `resp.usage`), donc l'EPIC est en plusieurs
+temps — instrumenter, puis afficher. Périmètre élargi le 2026-07-08 (feature flags +
+allowlist UI + inscription ouverte, initialement en « Suite »). Spec :
+`docs/superpowers/specs/2026-07-08-e18-console-admin-ouverture-publique-design.md`
+(remplace `docs/superpowers/specs/2026-06-28-e18-admin-console-design.md`).
 
 - **E18.1 P1 — Instrumentation conso LLM** : nouvelle table `llm_usage` (un row par appel
   OpenAI, RLS deny-all), capture de `resp.usage` dans `openai_client.py`, tarif versionné
   en code (`MODEL_PRICING`) pour calculer `cost_usd`, helper `record_llm_usage` branché sur
   tous les sites d'appel LLM (séances + briefing). Best-effort : ne casse jamais la
   génération. Prérequis de E18.2/E18.3.
-- **E18.2 P1 — Agrégats admin** : RPC `admin_overview()` `security definer` (garde owner
-  interne) renvoyant users (total + actifs 7j), activités (total + 7j), tokens + `cost_usd`
-  7j, santé sync (succès/échecs derniers crons), série coût/jour 7j.
-- **E18.3 P1 — Page `/admin`** : route Next.js gardée par email owner, cartes de stats +
-  graphe coût IA/jour (réutilise charts E14.1), lecture seule, UI dark existante.
-- **Suite (Todo séparés)** : détail par utilisateur, alerting/budget cap IA, gestion de
-  l'allowlist depuis l'UI, multi-admin (flag `is_admin`), affichage du coût converti en €.
+- **E18.1bis P1 — Vérité terrain OpenAI** : table `openai_billing_snapshot`, cron worker
+  quotidien (`billing_sync.py`) qui pull l'OpenAI Costs API (clé admin dédiée, worker-only)
+  et affiche le coût facturé à côté du coût estimé par `llm_usage`.
+- **E18.2 P1 — Agrégats admin** : RPC `admin_overview()` `security definer` (garde via
+  `is_admin_caller()`) renvoyant users (total + actifs 7j), activités (total + 7j), tokens
+  + `cost_usd` estimé et facturé 7j, santé sync (succès/échecs derniers crons), série
+  coût/jour 7j.
+- **E18.3 P1 — Page `/admin`** : route Next.js gardée par email owner, panneaux finops +
+  feature flags + allowlist, graphe coût IA/jour (réutilise charts E14.1), UI dark
+  existante.
+- **E18.4 P1 — Feature flags** : table générique `feature_flags` (expiration optionnelle
+  évaluée à la lecture, pas de cron), flags `llm_generation_enabled` (kill switch),
+  `maintenance_mode`, `public_registration_enabled` (bypass temporaire de l'allowlist à
+  l'inscription, expiration obligatoire).
+- **E18.5 P1 — Gestion allowlist UI** : RPCs `admin_list/add/remove_allowed_email`,
+  panneau d'ajout/liste/retrait. Le retrait bloque uniquement une future inscription, ne
+  révoque pas un compte déjà actif (hors scope).
+- **Suite (Todo séparés)** : détail par utilisateur, alerting/budget cap IA, multi-admin
+  (flag `is_admin` généralisé), affichage du coût converti en €, bannissement d'un compte
+  déjà actif, ciblage de feature flag par utilisateur.
 
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 
@@ -773,21 +843,9 @@ pour montrer quoi que ce soit.
 
 ### P1 — Ingestion quasi temps réel (Strava / Garmin officiel) (E15)
 
-- Objectif : récupérer les activités plus vite sans seulement augmenter la fréquence du
-  cron de polling.
-- Strava : API publique OAuth + webhooks (push à chaque nouvelle activité), gratuite en
-  usage perso/petit volume. Beaucoup d'athlètes poussent déjà Garmin -> Strava, donc
-  Strava peut servir de point d'ingestion unifié quasi temps réel.
-- Garmin officiel : Garmin Health/Activity API propose des webhooks push mais réservée
-  au programme partenaire (validation B2B, pas instantané). La lib actuelle
-  `python-garminconnect` est non officielle et ne fait que du polling.
-- Piste court terme sans nouvelle intégration : déclencher une sync à l'ouverture de
-  l'app (pull-to-refresh / on-demand) en plus du cron, pour réduire la latence perçue.
-- **Pull au connect/reconnect (P0, quick win) — V1 livrée** : `connect.py` déclenche une sync
-  immédiate (thread daemon non bloquant) après chaque `connected` (connexion ou MFA réussie)
-  via `_trigger_initial_sync`. L'athlète qui vient de lier son compte voit ses données sans
-  attendre le cron. Voir E15.4 ci-dessus.
-- À trancher : Strava webhooks (recommandé, réaliste) vs attente du programme Garmin.
+Détail complet et à jour (Strava OAuth+webhooks, Garmin officiel, sync on-demand, pull
+au connect, données montre multi-marques) sous § « EPIC E15 — Ingestion multi-source et
+quasi temps réel » en tête de fichier (E15.1 à E15.5).
 
 ### P0 — Cache et chargement rapide du briefing quotidien
 
