@@ -6,6 +6,7 @@ live HERE, in the codebase, versioned with the worker — operator just runs
 `docker compose pull && docker compose up -d` to pick up schedule changes.
 
 Schedule (UTC):
+    - 05:00 daily       : OpenAI ground-truth billing pull (E18 finops)
     - 08:00 daily       : sleep + HRV + daily metrics
     - 13:00 daily       : activities + daily metrics
     - 18:00 daily       : activities + daily metrics
@@ -54,6 +55,7 @@ def init_scheduler() -> BackgroundScheduler:
     if _scheduler is not None and _scheduler.running:
         return _scheduler
 
+    from garmin_sync.billing_sync import run_billing_sync_cron
     from garmin_sync.coach.cron import run_weekly_cron as coach_weekly
     from garmin_sync.cron import (
         run_activities_cron,
@@ -70,6 +72,12 @@ def init_scheduler() -> BackgroundScheduler:
         },
     )
 
+    sched.add_job(
+        _wrap_job("billing_sync", run_billing_sync_cron),
+        CronTrigger(hour=5, minute=0, timezone="UTC"),
+        id="billing_sync",
+        replace_existing=True,
+    )
     sched.add_job(
         _wrap_job("sleep_sync", run_sleep_cron),
         CronTrigger(hour=8, minute=0, timezone="UTC"),

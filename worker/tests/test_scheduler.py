@@ -17,7 +17,7 @@ def _reset_scheduler_singleton() -> None:
     sched_mod._scheduler = None
 
 
-def test_init_scheduler_registers_five_jobs_with_expected_ids() -> None:
+def test_init_scheduler_registers_six_jobs_with_expected_ids() -> None:
     from garmin_sync.scheduler import init_scheduler, shutdown_scheduler
 
     sched = init_scheduler()
@@ -25,6 +25,7 @@ def test_init_scheduler_registers_five_jobs_with_expected_ids() -> None:
         ids = sorted(j.id for j in sched.get_jobs())
         assert ids == sorted(
             [
+                "billing_sync",
                 "sleep_sync",
                 "activities_midday",
                 "activities_evening",
@@ -72,6 +73,7 @@ def test_wrap_job_swallows_exceptions() -> None:
 
 def test_jobs_resolve_to_real_cron_callables() -> None:
     """Sanity: the job functions imported are the actual cron entry points."""
+    from garmin_sync.billing_sync import run_billing_sync_cron
     from garmin_sync.coach.cron import run_weekly_cron
     from garmin_sync.cron import (
         run_activities_cron,
@@ -79,6 +81,7 @@ def test_jobs_resolve_to_real_cron_callables() -> None:
         run_sleep_cron,
     )
 
+    assert callable(run_billing_sync_cron)
     assert callable(run_sleep_cron)
     assert callable(run_activities_cron)
     assert callable(run_profile_sync_cron)

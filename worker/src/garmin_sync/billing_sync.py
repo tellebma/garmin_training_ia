@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
+from httpx import HTTPStatusError
 
 from garmin_sync.config import get_settings
 from garmin_sync.observability import capture
@@ -37,11 +38,12 @@ def _fetch_daily_costs(api_key: str, start_time: int) -> list[dict[str, Any]]:
     return data
 
 
-# NOTE: bucket["start_time"] / bucket["results"][].amount.value shape is an assumption,
-# not yet verified against live OpenAI Costs API docs — confirm before relying in prod.
 def _bucket_to_row(bucket: dict[str, Any]) -> dict[str, Any]:
     billing_date = datetime.fromtimestamp(bucket["start_time"], tz=UTC).date().isoformat()
-    total = sum(r.get("amount", {}).get("value", 0.0) for r in bucket.get("results", []))
+    # amount.value is a string on the real Costs API (decimal-as-string, avoids
+    # float precision issues on currency) — confirmed empirically against a
+    # live account; cast explicitly since a bare sum() of strings crashes.
+    total = sum(float(r.get("amount", {}).get("value") or 0.0) for r in bucket.get("results", []))
     return {"billing_date": billing_date, "cost_usd": round(total, 6)}
 
 
@@ -59,6 +61,17 @@ def run_billing_sync_cron() -> dict[str, Any]:
             db = get_admin_client()
             db.table("openai_billing_snapshot").upsert(rows, on_conflict="billing_date").execute()
         return {"status": "ok", "days_upserted": len(rows)}
+    except HTTPStatusError as exc:
+        # The response body carries OpenAI's actual error message (e.g. which
+        # permission/scope is missing) — the exception's own str() doesn't
+        # include it, so log it explicitly or a 403 is undiagnosable from logs.
+        log.error(
+            "billing_sync failed: HTTP %s — %s",
+            exc.response.status_code,
+            exc.response.text[:2000],
+        )
+        capture(exc, where="billing_sync", status_code=exc.response.status_code)
+        return {"status": "error"}
     except Exception as exc:
         log.exception("billing_sync failed")
         capture(exc, where="billing_sync")
