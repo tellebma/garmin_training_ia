@@ -57,6 +57,13 @@ def test_target_cadence_defaults_to_none():
     assert t.cadence_high is None
 
 
+def test_target_rejects_negative_cadence():
+    with pytest.raises(ValidationError):
+        IntervalTarget(label="Z2", rpe=5, cadence_low=-1)
+    with pytest.raises(ValidationError):
+        IntervalTarget(label="Z2", rpe=5, cadence_high=-1)
+
+
 def test_target_rpe_out_of_range_rejects():
     with pytest.raises(ValidationError):
         IntervalTarget(label="Z2", rpe=11)

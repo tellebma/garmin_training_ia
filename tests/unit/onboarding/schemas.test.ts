@@ -261,6 +261,14 @@ describe('perfSchema', () => {
   it('rejects css_per_100m_s above 300', () => {
     expect(perfSchema.safeParse({ css_per_100m_s: 301 }).success).toBe(false)
   })
+
+  it('accepts css_per_100m_s at the inclusive lower bound 40', () => {
+    expect(perfSchema.safeParse({ css_per_100m_s: 40 }).success).toBe(true)
+  })
+
+  it('accepts css_per_100m_s at the inclusive upper bound 300', () => {
+    expect(perfSchema.safeParse({ css_per_100m_s: 300 }).success).toBe(true)
+  })
 })
 
 describe('dispoSchema', () => {
