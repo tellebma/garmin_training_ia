@@ -1,16 +1,117 @@
 ## [1.5.1](https://github.com/tellebma/garmin_training_ia/compare/v1.5.0...v1.5.1) (2026-07-09)
 
+### Bug Fixes
+
+* **worker:** planifier billing_sync automatiquement + corriger le format réel de l'API OpenAI ([#93](https://github.com/tellebma/garmin_training_ia/issues/93)) ([4c94725](https://github.com/tellebma/garmin_training_ia/commit/4c9472575bb07230a94b16cceec6c603a2ae19c8))
+
 ## [1.5.0](https://github.com/tellebma/garmin_training_ia/compare/v1.4.0...v1.5.0) (2026-07-09)
+
+### Features
+
+* **dashboard:** add "Depuis toujours" all-time range to the cockpit ([#94](https://github.com/tellebma/garmin_training_ia/issues/94)) ([b4ed36d](https://github.com/tellebma/garmin_training_ia/commit/b4ed36dc8611cb5114b4c1fa0570b982b7785c73))
 
 ## [1.4.0](https://github.com/tellebma/garmin_training_ia/compare/v1.3.0...v1.4.0) (2026-07-09)
 
+### Features
+
+* **dashboard:** truncate cols list past 10 rows behind a details toggle ([#92](https://github.com/tellebma/garmin_training_ia/issues/92)) ([3e148e6](https://github.com/tellebma/garmin_training_ia/commit/3e148e63ffb9e8c882619d4cf9df2a2098de3fdf))
+
+### Bug Fixes
+
+* **worker:** paginate activity_samples reads in col matching ([#91](https://github.com/tellebma/garmin_training_ia/issues/91)) ([e907892](https://github.com/tellebma/garmin_training_ia/commit/e907892e73a8fac66fd1a501489e99f31db806aa))
+
 ## [1.3.0](https://github.com/tellebma/garmin_training_ia/compare/v1.2.0...v1.3.0) (2026-07-09)
+
+### Features
+
+* **admin:** E18 — console admin & ouverture au public ([#90](https://github.com/tellebma/garmin_training_ia/issues/90)) ([3ddacf3](https://github.com/tellebma/garmin_training_ia/commit/3ddacf3148db2e9fd10ae8223b78c2b55798533e)), closes [#84](https://github.com/tellebma/garmin_training_ia/issues/84)
+
+### Documentation
+
+* **backlog:** widget Mes cols — V1 livrée (PR [#87](https://github.com/tellebma/garmin_training_ia/issues/87)) ([#89](https://github.com/tellebma/garmin_training_ia/issues/89)) ([93bb59c](https://github.com/tellebma/garmin_training_ia/commit/93bb59cf43cafcaca847cd586c8d66343acd6b8a))
+* **security:** archiver l'audit sécurité du 2026-07-02 ([d31a4dc](https://github.com/tellebma/garmin_training_ia/commit/d31a4dc07cb9fec914d68925c80fc53816d31026)), closes [80/#81](https://github.com/80/garmin_training_ia/issues/81)
 
 ## [1.2.0](https://github.com/tellebma/garmin_training_ia/compare/v1.1.0...v1.2.0) (2026-07-09)
 
+### Features
+
+* widget Mes cols — cols autour de chez moi + franchissements ([#87](https://github.com/tellebma/garmin_training_ia/issues/87)) ([9994e53](https://github.com/tellebma/garmin_training_ia/commit/9994e535ef32c221c64a3301050b98c1134c052d))
+
 ## [1.1.0](https://github.com/tellebma/garmin_training_ia/compare/v1.0.0...v1.1.0) (2026-07-09)
 
-## 1.0.0 (2026-07-09)
+### Features
+
+* **worker:** steps comme signal contextuel du briefing (E9.5) ([#85](https://github.com/tellebma/garmin_training_ia/issues/85)) ([61d8862](https://github.com/tellebma/garmin_training_ia/commit/61d8862e5f3a992183e14782158fa993daa3171d))
+
+## [1.0.0](https://github.com/tellebma/garmin_training_ia/compare/v0.2.0...v1.0.0) (2026-07-09)
+
+### Features
+
+* **carto:** GPS routes & maps — livrable A ([#57](https://github.com/tellebma/garmin_training_ia/issues/57)) ([e1a15b4](https://github.com/tellebma/garmin_training_ia/commit/e1a15b4b0efe5346f0ca63493556ac4e2eb06323))
+* **carto:** GPS routes & maps — livrable B ([#62](https://github.com/tellebma/garmin_training_ia/issues/62)) ([3820a56](https://github.com/tellebma/garmin_training_ia/commit/3820a56fcbd96a9d232d6a29d91596d6c7611531))
+* **carto:** livrable B — vignettes historique, trace colorée, heatmap ([#65](https://github.com/tellebma/garmin_training_ia/issues/65)) ([93496b1](https://github.com/tellebma/garmin_training_ia/commit/93496b1437bdbae64d774d7a78ec4d4dcec10303))
+* **coach:** add POST /coach/discipline-levels endpoint ([3101f3c](https://github.com/tellebma/garmin_training_ia/commit/3101f3cda9376bcb8302bbd2858ea2d5a62abacd))
+* **coach:** derive effective discipline level from 90d history ([e6ff22a](https://github.com/tellebma/garmin_training_ia/commit/e6ff22aa52ad4eec10993befcbec5a0e0f8a3dec))
+* **coach:** E9.3 — récupération individualisée (baselines personnelles) ([#67](https://github.com/tellebma/garmin_training_ia/issues/67)) ([3853b21](https://github.com/tellebma/garmin_training_ia/commit/3853b21a3eea765e534e8faf42f4c34483c3c38f))
+* **coach:** feed history-adjusted discipline levels into the planner ([78b9ea1](https://github.com/tellebma/garmin_training_ia/commit/78b9ea1b56145e71925d34206627231836928f3c))
+* **coach:** rest-aware briefing wording (no 'Bonne séance' on rest days) ([a5eb3fc](https://github.com/tellebma/garmin_training_ia/commit/a5eb3fcf611364e55945cce0f0d2a0f8d4dbb156))
+* **e13.2:** plan adaptatif par niveau de discipline (gaps A + B) ([#75](https://github.com/tellebma/garmin_training_ia/issues/75)) ([249a361](https://github.com/tellebma/garmin_training_ia/commit/249a361c92af0f8ad0f53edd78dd5e6c3d1fa712))
+* **e14.1b:** courbes d'activité lisibles + convention d'unités par discipline ([#74](https://github.com/tellebma/garmin_training_ia/issues/74)) ([0ca1e0b](https://github.com/tellebma/garmin_training_ia/commit/0ca1e0bfa2d26318dfe82013f39daa88abd44b61))
+* **history:** stream activity analysis behind a skeleton ([0a4fdd4](https://github.com/tellebma/garmin_training_ia/commit/0a4fdd4ed5fd9b900c7afccb3738419da50b4004))
+* **plan:** render rest days as a sober rest row, not a session card ([2ba21dd](https://github.com/tellebma/garmin_training_ia/commit/2ba21dd352411140be82478912476c89039db156))
+* **profile:** show declared vs history-adjusted discipline levels ([e002746](https://github.com/tellebma/garmin_training_ia/commit/e00274663bbd6fc76ad46ce5a9266d739594149d))
+* **profile:** stream discipline levels section behind a skeleton ([50d7477](https://github.com/tellebma/garmin_training_ia/commit/50d7477670d1c62dcfbc3eb8d0606a484cbb3cf2))
+* **stats:** stream the cockpit body behind a skeleton ([8b5e03f](https://github.com/tellebma/garmin_training_ia/commit/8b5e03fa4ec6f758731792df63248f16575cd88a))
+* **sync:** E15.3 — sync on-demand avec garde-fou anti-spam ([#64](https://github.com/tellebma/garmin_training_ia/issues/64)) ([1b21cdc](https://github.com/tellebma/garmin_training_ia/commit/1b21cdc1fa95c630412c92d0f74cc030f4bdf7c8))
+* **today:** hide readiness badge and activity review on rest days ([a0c41d5](https://github.com/tellebma/garmin_training_ia/commit/a0c41d54e8508414f4eb143560763c2d374157b9))
+* **today:** stream the daily briefing behind a skeleton ([c894e7e](https://github.com/tellebma/garmin_training_ia/commit/c894e7ec52bb8d3aad83f366bcb9fd66385d3a48))
+* **ui:** add shared Skeleton primitive and accessible LoadingRegion ([01fa1b4](https://github.com/tellebma/garmin_training_ia/commit/01fa1b421ea9fadcf3bfff2e96032d21d01feaa2))
+* **ui:** rebuild loading states from shared Skeleton and cover Garmin route ([647da2f](https://github.com/tellebma/garmin_training_ia/commit/647da2f728f95e0b6e86a91ba9291ff8a412a22d))
+* **worker:** Fernet key rotation (MultiFernet) + secrets rotation doc (SEC-2) ([#81](https://github.com/tellebma/garmin_training_ia/issues/81)) ([cd8cc72](https://github.com/tellebma/garmin_training_ia/commit/cd8cc72bcd4b1ac5937bd37acfefdb909376eae0))
+* **worker:** observabilité — Sentry (P0+P1) + alerting Discord ([#77](https://github.com/tellebma/garmin_training_ia/issues/77)) ([11809a3](https://github.com/tellebma/garmin_training_ia/commit/11809a3831c20cacaf719e815c26ddc2f75a5234))
+* **worker:** trigger initial Garmin sync on connect/reconnect (E15.4) ([1a68281](https://github.com/tellebma/garmin_training_ia/commit/1a682811367a3c640835bf82c9bbe4cbef902a0f))
+
+### Bug Fixes
+
+* **ci:** install gitleaks in Release job for husky pre-commit hook ([#86](https://github.com/tellebma/garmin_training_ia/issues/86)) ([d80b027](https://github.com/tellebma/garmin_training_ia/commit/d80b027d89069326a863b0efad0f9edd750ed00c))
+* **ci:** skip pre-push checks for semantic-release's own commit ([#88](https://github.com/tellebma/garmin_training_ia/issues/88)) ([b4fe815](https://github.com/tellebma/garmin_training_ia/commit/b4fe81597e4885343a1cf079f385f1539bec8910))
+* **coach:** cap post-session feedback to recent activities and show its date ([#59](https://github.com/tellebma/garmin_training_ia/issues/59)) ([98e7615](https://github.com/tellebma/garmin_training_ia/commit/98e7615264e7af0d582335641c94184bebf06561))
+* **coach:** retry workout generation with corrective feedback ([#76](https://github.com/tellebma/garmin_training_ia/issues/76)) ([ae436e0](https://github.com/tellebma/garmin_training_ia/commit/ae436e0bb3512e27ba7191f119948f8a3fe8a8fb))
+* **coach:** self-consistent workout envelope + LLM retry context + failure backoff ([#84](https://github.com/tellebma/garmin_training_ia/issues/84)) ([745ed60](https://github.com/tellebma/garmin_training_ia/commit/745ed60a2761939a118b93def144f916e2d858ea))
+* **db:** hide garmin token ciphertext from REST API + advisor hardening (SEC-1) ([#80](https://github.com/tellebma/garmin_training_ia/issues/80)) ([a8599aa](https://github.com/tellebma/garmin_training_ia/commit/a8599aac57b6d89dcc4036331d9dda629937f563)), closes [#78](https://github.com/tellebma/garmin_training_ia/issues/78)
+* **history:** paginate activity_samples past PostgREST 1000-row cap ([#69](https://github.com/tellebma/garmin_training_ia/issues/69)) ([161ba65](https://github.com/tellebma/garmin_training_ia/commit/161ba65117c826d261134c1a8e67c16fc3da940d))
+* **quality:** type errors state as Partial instead of asserting ([#82](https://github.com/tellebma/garmin_training_ia/issues/82)) ([80dcace](https://github.com/tellebma/garmin_training_ia/commit/80dcace3976c4d348272595d9bcb6a39277883c7))
+* **ui:** satisfy SonarQube on skeletons (stable keys, output role) ([d94bf7e](https://github.com/tellebma/garmin_training_ia/commit/d94bf7e7a4ec43f126fee922dcaa022f0f7825aa))
+* **worker:** extract activity samples from positional Garmin metrics ([#63](https://github.com/tellebma/garmin_training_ia/issues/63)) ([b240083](https://github.com/tellebma/garmin_training_ia/commit/b240083b586a64d883c5e2fe6deb2d1bf7ae2e94))
+
+### Refactor
+
+* **coach:** extract sport->discipline mapping into sports.py ([1100bec](https://github.com/tellebma/garmin_training_ia/commit/1100bece254b06fd3430f4b9e8ccbc954edb4936))
+
+### Documentation
+
+* **backlog:** add EPIC E17 — automated Supabase migration deploy ([#58](https://github.com/tellebma/garmin_training_ia/issues/58)) ([6078796](https://github.com/tellebma/garmin_training_ia/commit/60787960c29c0949e2cc9099320a290e0c94d938))
+* **backlog:** E13.2, retry génération et observabilité V1 livrées (PRs [#75](https://github.com/tellebma/garmin_training_ia/issues/75)-[#77](https://github.com/tellebma/garmin_training_ia/issues/77)) ([#83](https://github.com/tellebma/garmin_training_ia/issues/83)) ([a941274](https://github.com/tellebma/garmin_training_ia/commit/a9412748adba7f9e5edbf04539e39a5b03f9b806)), closes [#76](https://github.com/tellebma/garmin_training_ia/issues/76)
+* **backlog:** E15.3 sync on-demand livré ([#66](https://github.com/tellebma/garmin_training_ia/issues/66)) ([e799f80](https://github.com/tellebma/garmin_training_ia/commit/e799f800a29779b5252de870ec15764e0b579dce)), closes [#64](https://github.com/tellebma/garmin_training_ia/issues/64) [#67](https://github.com/tellebma/garmin_training_ia/issues/67)
+* **backlog:** E18 admin + re-priorisation 2026-06-28 + activités hors triathlon ([#73](https://github.com/tellebma/garmin_training_ia/issues/73)) ([899e569](https://github.com/tellebma/garmin_training_ia/commit/899e569a35603aec131728243d400f3d99165d72))
+* **backlog:** mark E13.4 repos = repos as V1 delivered ([ecaf20b](https://github.com/tellebma/garmin_training_ia/commit/ecaf20badb6577230878a5f91359ec509e8f95b6))
+* **backlog:** priorisation retours owner 2026-06-27 ([#72](https://github.com/tellebma/garmin_training_ia/issues/72)) ([b726ab1](https://github.com/tellebma/garmin_training_ia/commit/b726ab1bc4998d6512c5f240b20f6cd22c986069)), closes [#74](https://github.com/tellebma/garmin_training_ia/issues/74)
+* **backlog:** record skeleton & progressive streaming as V1 delivered ([b6c7fcf](https://github.com/tellebma/garmin_training_ia/commit/b6c7fcf3b9ffd12857d9b3ac727798369e27f53c))
+* **backlog:** trace known prod issues found 2026-06-27 ([#68](https://github.com/tellebma/garmin_training_ia/issues/68)) ([77b8e20](https://github.com/tellebma/garmin_training_ia/commit/77b8e204069dd868906123a8a49db5ef11371b5c))
+* **backlog:** worker must filter active plan on planned_sessions reads (pre-E9) ([b6efa51](https://github.com/tellebma/garmin_training_ia/commit/b6efa513809a490dbfd5d3cfd9813c7f4adb88c8))
+* **claude:** reflect E17 migration auto-deploy + 28 migrations ([#61](https://github.com/tellebma/garmin_training_ia/issues/61)) ([f6a7bf1](https://github.com/tellebma/garmin_training_ia/commit/f6a7bf11cc945b097a896771f7ace065116e5445))
+* **coach:** implementation plan for E13.2 discipline level ([2463eda](https://github.com/tellebma/garmin_training_ia/commit/2463eda7e9d2986fc166d578896eb4e261afc98f))
+* **coach:** implementation plan for E13.4 repos = repos ([ebea64c](https://github.com/tellebma/garmin_training_ia/commit/ebea64c6d18d363273cc89425e8aca369d7e5d15))
+* **coach:** spec E13.2 cross declared discipline level with real history ([7af2068](https://github.com/tellebma/garmin_training_ia/commit/7af20685b0e7ffb0f7a93400a5fac57279bbcb30))
+* **coach:** spec E13.4 repos = repos (no session structure on rest days) ([40211f2](https://github.com/tellebma/garmin_training_ia/commit/40211f2d36175fa9e8e139eeeb5ca9bf709c52c4))
+* retours owner 2026-06-27 (backlog) + suivi GitHub Projects ([#71](https://github.com/tellebma/garmin_training_ia/issues/71)) ([a8e1e16](https://github.com/tellebma/garmin_training_ia/commit/a8e1e1650438b2d9858e7dbfdb80987928c25da8)), closes [#4](https://github.com/tellebma/garmin_training_ia/issues/4)
+* **ui:** implementation plan for skeleton & progressive streaming ([89cba59](https://github.com/tellebma/garmin_training_ia/commit/89cba59422268c445b50d832c652da762b565485))
+* **ui:** spec skeleton & progressive streaming loading states ([c396c24](https://github.com/tellebma/garmin_training_ia/commit/c396c24d28b233040ad7c993edbfee928e034a11))
+
+### CI
+
+* remplace release-please par semantic-release (tag auto sur main) ([#70](https://github.com/tellebma/garmin_training_ia/issues/70)) ([6f5dcec](https://github.com/tellebma/garmin_training_ia/commit/6f5dcecef106d7878363c45466154595a38c3b95))
+* **supabase:** auto-apply migrations on main (EPIC E17 V1) ([#60](https://github.com/tellebma/garmin_training_ia/issues/60)) ([6497655](https://github.com/tellebma/garmin_training_ia/commit/6497655fd7c2b865fafc662f03cd17fa2cced4e1))
 
 # Changelog
 
