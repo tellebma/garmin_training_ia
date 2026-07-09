@@ -20,6 +20,8 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@radix-ui/react-alert-dialog": "^1.1.19",
+    "@radix-ui/react-slot": "^1.3.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "class-variance-authority": "^0.7.1",
