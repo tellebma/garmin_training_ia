@@ -127,6 +127,7 @@ export const perfSchema = z.object({
   ftp_watts: z.number().int().min(50).max(600).optional(),
   vma_kmh: z.number().min(5).max(30).optional(),
   fc_max_bpm: z.number().int().min(100).max(230).optional(),
+  css_per_100m_s: z.number().int().min(40).max(300).optional(),
 })
 
 export const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const

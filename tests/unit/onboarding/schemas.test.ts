@@ -249,6 +249,18 @@ describe('perfSchema', () => {
     expect(perfSchema.safeParse({ fc_max_bpm: 99 }).success).toBe(false)
     expect(perfSchema.safeParse({ fc_max_bpm: 231 }).success).toBe(false)
   })
+
+  it('accepts css_per_100m_s within [40,300]', () => {
+    expect(perfSchema.safeParse({ css_per_100m_s: 95 }).success).toBe(true)
+  })
+
+  it('rejects css_per_100m_s below 40', () => {
+    expect(perfSchema.safeParse({ css_per_100m_s: 39 }).success).toBe(false)
+  })
+
+  it('rejects css_per_100m_s above 300', () => {
+    expect(perfSchema.safeParse({ css_per_100m_s: 301 }).success).toBe(false)
+  })
 })
 
 describe('dispoSchema', () => {
