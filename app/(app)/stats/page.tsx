@@ -33,7 +33,7 @@ import type {
 
 export const revalidate = 300
 
-const ranges = [7, 28, 90] as const
+const ranges = [7, 28, 90, 'all'] as const
 const sports: readonly { value: CockpitSport | 'all'; label: string }[] = [
   { value: 'all', label: 'Tous' },
   { value: 'swim', label: 'Natation' },
@@ -46,9 +46,17 @@ interface Props {
   readonly searchParams: Promise<{ range?: string; sport?: string }>
 }
 
+// Intentional discriminated literal union (7 | 28 | 90 | 'all'), not an accidental
+// string/number mix.
+// eslint-disable-next-line sonarjs/function-return-type
 function parseRange(value: string | undefined): (typeof ranges)[number] {
+  if (value === 'all') return 'all'
   const parsed = Number(value)
   return ranges.includes(parsed as (typeof ranges)[number]) ? (parsed as 7 | 28 | 90) : 28
+}
+
+function rangeLabel(value: (typeof ranges)[number]): string {
+  return value === 'all' ? 'Depuis toujours' : `${String(value)} j`
 }
 
 function parseSport(value: string | undefined): CockpitSport | 'all' {
@@ -78,7 +86,7 @@ function sportLabel(sport: CockpitSport): string {
   return sports.find((item) => item.value === sport)?.label ?? 'Autre'
 }
 
-function filterHref(range: number, sport: CockpitSport | 'all'): string {
+function filterHref(range: (typeof ranges)[number], sport: CockpitSport | 'all'): string {
   return `/stats?range=${String(range)}&sport=${sport}`
 }
 
@@ -98,7 +106,10 @@ async function CockpitBody({
 }) {
   const supabase = await createClient()
   const now = new Date()
-  const startDate = new Date(now.getTime() - (range - 1) * 86_400_000).toISOString().slice(0, 10)
+  const startDate =
+    range === 'all'
+      ? '2000-01-01' // sentinel: predates any real data, acts as "no lower bound"
+      : new Date(now.getTime() - (range - 1) * 86_400_000).toISOString().slice(0, 10)
   const today = now.toISOString().slice(0, 10)
 
   const [banisterRes, activitiesRes, plannedRes, feedbackRes, hrvRes, sleepRes, recoveryRes] =
@@ -197,7 +208,7 @@ async function CockpitBody({
               Exécution du plan
             </h2>
             <p className="text-muted-foreground text-sm">
-              Du {startDate} au {today}
+              {range === 'all' ? 'Depuis toujours' : `Du ${startDate} au ${today}`}
             </p>
           </div>
           {cockpit.extraActivities > 0 && (
@@ -425,7 +436,7 @@ export default async function StatsPage({ searchParams }: Props) {
                 range === days ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
               )}
             >
-              {days} j
+              {rangeLabel(days)}
             </Link>
           ))}
         </nav>

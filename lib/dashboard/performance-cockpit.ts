@@ -9,7 +9,7 @@ export interface PerformanceCockpitInput {
   activities: ActivityRowDto[]
   plannedSessions: PlannedSession[]
   feedback: ActivityFeedbackDto[]
-  days: 7 | 28 | 90
+  days: 7 | 28 | 90 | 'all'
   reference?: Date
   sport?: CockpitSport | 'all'
 }
@@ -93,6 +93,18 @@ function isoWeekKey(date: Date): string {
 
 function weekLabel(start: Date): string {
   return start.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', timeZone: 'UTC' })
+}
+
+function earliestDate(
+  activities: ActivityRowDto[],
+  plannedSessions: PlannedSession[],
+  reference: Date
+): Date {
+  const candidates = [
+    ...activities.map((activity) => new Date(activity.start_time).getTime()),
+    ...plannedSessions.map((session) => new Date(`${session.date}T00:00:00Z`).getTime()),
+  ]
+  return candidates.length > 0 ? new Date(Math.min(...candidates)) : reference
 }
 
 function filterBySport<T extends { sport: string }>(items: T[], sport: CockpitSport | 'all'): T[] {
@@ -180,7 +192,10 @@ export function computePerformanceCockpit({
   sport = 'all',
 }: PerformanceCockpitInput): PerformanceCockpit {
   const referenceKey = reference.toISOString().slice(0, 10)
-  const start = new Date(reference.getTime() - (days - 1) * DAY_MS)
+  const start =
+    days === 'all'
+      ? earliestDate(activities, plannedSessions, reference)
+      : new Date(reference.getTime() - (days - 1) * DAY_MS)
   const startKey = start.toISOString().slice(0, 10)
   const relevantActivities = filterBySport(
     activities.filter((activity) => {
