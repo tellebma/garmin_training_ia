@@ -1012,6 +1012,19 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
   sans aucune de ces métriques (rare : début/fin, pause) serait écarté du tracé.
 - Impact marginal aujourd'hui (chaque point GPS porte vitesse/distance), à garder en tête.
 
+### P2 — Widget « Mes cols » sur /stats — V1 livrée (PR #87)
+
+- Domicile calculé automatiquement (médiane des départs GPS, réutilise
+  `athlete_profiles.lat`/`lon`), référentiel de cols OpenStreetMap Overpass (rayon
+  50km, cache 30j / déplacement 5km), détection de franchissement par proximité GPS
+  (150m) calculée dans le cron worker quotidien. Widget `/stats` avec chargement
+  async isolé (Suspense dédié, ne bloque jamais le reste de la page).
+- Spec : `docs/superpowers/specs/2026-07-08-cols-stats-widget-design.md`.
+  Plan : `docs/superpowers/plans/2026-07-08-cols-widget.md`.
+- Suite (hors scope V1, notée pendant le brainstorming) : édition manuelle de la
+  liste des cols par l'utilisateur, distinction montée stricte vs simple passage,
+  mini-carte visuelle des cols.
+
 ## Post-MVP technique
 
 - Custom SMTP Supabase (Resend gratuit 100/jour) — rate limits du SMTP intégré.

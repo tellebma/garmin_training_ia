@@ -19,6 +19,9 @@ import { RecoveryPanel } from '../_components/recovery-panel'
 import { mapRecoveryRow } from '@/lib/dashboard/recovery'
 import { cn } from '@/lib/utils'
 import { RoutesHeatmapLazy } from '../_components/maps/routes-heatmap-lazy'
+import { ColsWidget } from '../_components/cols-widget'
+import { ColsWidgetSkeleton } from '../_components/skeletons/cols-widget-skeleton'
+import { computeColsSummary, type ColCrossingRowDto, type ColDto } from '@/lib/dashboard/cols'
 import type {
   ActivityFeedbackDto,
   ActivityRowDto,
@@ -360,6 +363,44 @@ async function CockpitBody({
   )
 }
 
+async function ColsWidgetLoader({ userId }: { readonly userId: string }) {
+  const supabase = await createClient()
+  const { data: profile } = await supabase
+    .from('athlete_profiles')
+    .select('lat, lon')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (profile?.lat == null || profile.lon == null) {
+    return (
+      <ChartCard title="Mes cols" description="Cols dans un rayon de 50 km autour de chez toi">
+        <EmptyState
+          icon={ActivityIcon}
+          title="Domicile pas encore situé"
+          description="Pas encore assez de données GPS pour situer chez toi."
+        />
+      </ChartCard>
+    )
+  }
+
+  const [colsRes, crossingsRes] = await Promise.all([
+    supabase.from('cols').select('id, name, latitude, longitude, elevation_m'),
+    supabase.from('col_crossings').select('col_id, crossed_at').eq('user_id', userId),
+  ])
+
+  const cols: ColDto[] = colsRes.data ?? []
+  const crossings: ColCrossingRowDto[] = crossingsRes.data ?? []
+
+  const summaries = computeColsSummary({
+    homeLat: Number(profile.lat),
+    homeLon: Number(profile.lon),
+    cols,
+    crossings,
+  })
+
+  return <ColsWidget summaries={summaries} />
+}
+
 export default async function StatsPage({ searchParams }: Props) {
   const userId = await requireOnboarded()
   const params = await searchParams
@@ -410,6 +451,10 @@ export default async function StatsPage({ searchParams }: Props) {
 
       <Suspense fallback={<CockpitSkeleton />}>
         <CockpitBody userId={userId} range={range} selectedSport={selectedSport} />
+      </Suspense>
+
+      <Suspense fallback={<ColsWidgetSkeleton />}>
+        <ColsWidgetLoader userId={userId} />
       </Suspense>
     </div>
   )

@@ -160,7 +160,7 @@ def _series(rows: list[dict[str, Any]], field: str) -> list[tuple[date, float]]:
 
 
 def recompute_recovery_baselines(user_id: str) -> None:
-    """Recompute the 5 recovery baselines over 28d and upsert. Never raises."""
+    """Recompute the 6 recovery baselines over 28d and upsert. Never raises."""
     try:
         db = get_admin_client()
         today = date.today()
@@ -189,7 +189,7 @@ def recompute_recovery_baselines(user_id: str) -> None:
         daily_rows = cast(
             DbRows,
             db.table("daily_metrics")
-            .select("date, resting_hr, stress_avg, body_battery_high")
+            .select("date, resting_hr, stress_avg, body_battery_high, steps")
             .eq("user_id", user_id)
             .gte("date", start)
             .execute()
@@ -209,6 +209,9 @@ def recompute_recovery_baselines(user_id: str) -> None:
         body_battery = compute_metric_baseline(
             _series(daily_rows, "body_battery_high"), today=today, higher_is_better=True
         )
+        steps = compute_metric_baseline(
+            _series(daily_rows, "steps"), today=today, higher_is_better=False
+        )
         sleep = compute_sleep_baseline(
             _series(sleep_rows, "sleep_duration_s"),
             _series(sleep_rows, "sleep_score"),
@@ -223,6 +226,7 @@ def recompute_recovery_baselines(user_id: str) -> None:
             "sleep": sleep,
             "stress": stress,
             "body_battery": body_battery,
+            "steps": steps,
             "raw_meta": {"window_days": WINDOW_DAYS},
         }
         db.table("recovery_baselines").upsert(row, on_conflict="user_id").execute()
