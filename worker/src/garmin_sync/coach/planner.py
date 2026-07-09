@@ -69,29 +69,35 @@ def distribute_weekly_tss_by_sport(
 _HARD_TYPES_BY_LEVEL: dict[int, set[str]] = {
     1: set(),
     2: set(),
-    3: {"threshold"},
-    4: {"threshold", "intervals"},
-    5: {"threshold", "intervals"},
+    3: {"threshold", "sprint"},
+    4: {"threshold", "sprint", "pma"},
+    5: {"threshold", "sprint", "pma"},
 }
+
+# Types dont l'accès dépend du niveau athlète (filtrés par _HARD_TYPES_BY_LEVEL).
+# "intervals" reste dans le schéma/caps pour compatibilité (séances déjà en DB) mais
+# n'apparaît plus dans aucune liste `base` ci-dessous — gardé ici uniquement pour ne
+# jamais le laisser passer si une future liste `base` le réintroduit par erreur.
+_FILTERABLE_HARD_TYPES = {"threshold", "intervals", "sprint", "pma"}
 
 
 def pick_session_types_for_phase(phase: Phase, *, max_level: int = 5) -> list[str]:
     """Return the canonical set of session types for a given phase.
 
     `max_level` (1-5) borne l'intensité : un niveau faible retire les types durs
-    (threshold/intervals) au profit d'endurance/recovery.
+    (threshold/pma/sprint) au profit d'endurance/recovery.
     """
     if phase == "base":
         base = ["endurance", "long", "recovery"]
     elif phase == "build":
-        base = ["endurance", "threshold", "long"]
+        base = ["endurance", "threshold", "pma", "long"]
     elif phase == "peak":
-        base = ["intervals", "endurance", "long"]
+        base = ["pma", "sprint", "endurance", "long"]
     else:  # taper
-        base = ["endurance", "recovery"]
+        base = ["endurance", "recovery", "sprint"]
 
-    allowed_hard = _HARD_TYPES_BY_LEVEL.get(max_level, {"threshold", "intervals"})
-    filtered = [t for t in base if t not in {"threshold", "intervals"} or t in allowed_hard]
+    allowed_hard = _HARD_TYPES_BY_LEVEL.get(max_level, {"threshold", "sprint", "pma"})
+    filtered = [t for t in base if t not in _FILTERABLE_HARD_TYPES or t in allowed_hard]
     return filtered or ["endurance"]
 
 
@@ -205,6 +211,8 @@ _SESSION_TYPE_WEIGHT: dict[str, float] = {
     "long": 1.5,
     "threshold": 1.2,
     "intervals": 1.2,
+    "pma": 1.2,
+    "sprint": 0.9,
     "endurance": 1.0,
     "recovery": 0.5,
 }
@@ -223,16 +231,22 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("bike", "long"): 45.0,
     ("bike", "threshold"): 72.0,
     ("bike", "intervals"): 82.0,
+    ("bike", "pma"): 88.0,
+    ("bike", "sprint"): 65.0,
     ("bike", "recovery"): 22.0,
     ("run", "endurance"): 48.0,
     ("run", "long"): 52.0,
     ("run", "threshold"): 75.0,
     ("run", "intervals"): 90.0,
+    ("run", "pma"): 95.0,
+    ("run", "sprint"): 70.0,
     ("run", "recovery"): 30.0,
     ("swim", "endurance"): 50.0,
     ("swim", "long"): 55.0,
     ("swim", "threshold"): 72.0,
     ("swim", "intervals"): 85.0,
+    ("swim", "pma"): 88.0,
+    ("swim", "sprint"): 68.0,
     ("swim", "recovery"): 35.0,
     ("brick", "endurance"): 65.0,
     ("brick", "long"): 65.0,
@@ -273,6 +287,8 @@ _ELEVATION_SESSION_WEIGHT: dict[str, float] = {
     "endurance": 1.0,
     "threshold": 0.3,
     "intervals": 0.0,
+    "pma": 0.0,
+    "sprint": 0.0,
     "recovery": 0.0,
     "race": 1.0,
     "rest": 0.0,
