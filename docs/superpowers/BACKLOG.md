@@ -1012,7 +1012,7 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
   sans aucune de ces métriques (rare : début/fin, pause) serait écarté du tracé.
 - Impact marginal aujourd'hui (chaque point GPS porte vitesse/distance), à garder en tête.
 
-### P2 — Widget « Mes cols » sur /stats — V1 en revue (PR #87)
+### P2 — Widget « Mes cols » sur /stats — V1 livrée (PR #87)
 
 - Domicile calculé automatiquement (médiane des départs GPS, réutilise
   `athlete_profiles.lat`/`lon`), référentiel de cols OpenStreetMap Overpass (rayon
