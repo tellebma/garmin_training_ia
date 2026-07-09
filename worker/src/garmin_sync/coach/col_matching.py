@@ -11,6 +11,8 @@ DbRows = list[dict[str, Any]]
 
 _NEARBY_RADIUS_M = 50_000
 _CROSSING_THRESHOLD_M = 150.0
+_SAMPLE_PAGE_SIZE = 1000
+_MAX_SAMPLE_PAGES = 20  # 20k samples ceiling — generous even for multi-hour rides
 
 
 def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> None:
@@ -90,30 +92,52 @@ def _fetch_pending_activities(db: Any, user_id: str, cursor: str | None) -> DbRo
     return cast(DbRows, query.order("start_time").execute().data or [])
 
 
+def _fetch_all_samples(db: Any, user_id: str, activity_id: int) -> DbRows:
+    """Fetch every GPS sample for one activity, paginating past PostgREST's row cap.
+
+    A single `.limit(N)` request is NOT sufficient here: Supabase's REST API enforces
+    its own server-side max-rows setting (commonly 1000) that silently overrides a
+    higher client-requested limit — confirmed in production (2026-07-09): a 1730-sample
+    activity returned only 1000 rows for a `.limit(5000)` request, truncating the
+    second half of the ride and causing a real, silent missed crossing. `.range()`
+    paging in fixed-size pages, ordered by `sample_index`, is the only way to
+    guarantee every sample is read regardless of that server cap.
+    """
+    samples: DbRows = []
+    for page in range(_MAX_SAMPLE_PAGES):
+        start = page * _SAMPLE_PAGE_SIZE
+        chunk = cast(
+            DbRows,
+            db.table("activity_samples")
+            .select("latitude, longitude")
+            .eq("user_id", user_id)
+            .eq("garmin_activity_id", activity_id)
+            .not_.is_("latitude", "null")
+            .order("sample_index")
+            .range(start, start + _SAMPLE_PAGE_SIZE - 1)
+            .execute()
+            .data
+            or [],
+        )
+        samples.extend(chunk)
+        if len(chunk) < _SAMPLE_PAGE_SIZE:
+            break
+    return samples
+
+
 def _process_activity(db: Any, *, user_id: str, activity: dict[str, Any], cols: DbRows) -> None:
-    # One `activity_samples` query per activity (N+1) is deliberate here, not an
+    # One `activity_samples` fetch per activity (N+1) is deliberate here, not an
     # oversight: batching all activities' samples into a single `.in_(...)` query
     # would multiply the row count returned per request, making it *more* likely to
     # hit PostgREST's server-side row cap and silently truncate — exactly the
-    # correctness risk the per-activity `.limit(5000)` below was added to prevent.
+    # correctness risk `_fetch_all_samples`'s pagination is designed to prevent.
     # This runs in the nightly background cron (not a user-facing request path), and
     # the cursor bounds it to a handful of new activities per user per day after the
     # first backfill run, so the extra round-trips are an acceptable trade for
-    # guaranteed-bounded, non-truncating reads.
+    # guaranteed-complete, non-truncating reads.
     activity_id = activity["garmin_activity_id"]
     start_time = activity["start_time"]
-    samples = cast(
-        DbRows,
-        db.table("activity_samples")
-        .select("latitude, longitude")
-        .eq("user_id", user_id)
-        .eq("garmin_activity_id", activity_id)
-        .not_.is_("latitude", "null")
-        .limit(5000)
-        .execute()
-        .data
-        or [],
-    )
+    samples = _fetch_all_samples(db, user_id, activity_id)
     crossing_rows = _match_activity(
         user_id=user_id,
         activity_id=activity_id,
