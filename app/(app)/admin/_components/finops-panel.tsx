@@ -82,7 +82,16 @@ export async function FinopsPanel() {
           <CardTitle className="text-sm font-medium">Coût estimé / jour (7j)</CardTitle>
         </CardHeader>
         <CardContent>
-          <CostPerDayChart data={overview.cost_per_day_7d} />
+          <div>
+            <p className="sr-only">
+              Coût IA estimé par jour sur les 7 derniers jours :{' '}
+              {overview.cost_per_day_7d
+                .map((p) => `${p.date} : ${p.cost_usd.toFixed(4)} dollars`)
+                .join(', ')}
+              .
+            </p>
+            <CostPerDayChart data={overview.cost_per_day_7d} />
+          </div>
         </CardContent>
       </Card>
     </section>
