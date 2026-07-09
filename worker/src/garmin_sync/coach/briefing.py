@@ -41,6 +41,8 @@ log = logging.getLogger(__name__)
 # Race is intentionally not in the map — race day overrides everything.
 _DOWNGRADE_ONE_LEVEL: dict[str, str] = {
     "intervals": "threshold",
+    "pma": "threshold",
+    "sprint": "endurance",
     "threshold": "endurance",
     "long": "endurance",
     "endurance": "recovery",
@@ -425,7 +427,14 @@ def build_coach_recommendation(
 def _hard_session(session: dict[str, Any] | None) -> bool:
     if not session:
         return False
-    return str(session.get("session_type") or "") in {"threshold", "intervals", "long", "race"}
+    return str(session.get("session_type") or "") in {
+        "threshold",
+        "intervals",
+        "pma",
+        "sprint",
+        "long",
+        "race",
+    }
 
 
 def _hard_session_guardrail_factors(

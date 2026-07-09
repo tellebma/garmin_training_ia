@@ -81,16 +81,24 @@ _HARD_TYPES_BY_LEVEL: dict[int, set[str]] = {
 _FILTERABLE_HARD_TYPES = {"threshold", "intervals", "sprint", "pma"}
 
 
-def pick_session_types_for_phase(phase: Phase, *, max_level: int = 5) -> list[str]:
+def pick_session_types_for_phase(
+    phase: Phase, *, max_level: int = 5, progress: float = 1.0
+) -> list[str]:
     """Return the canonical set of session types for a given phase.
 
     `max_level` (1-5) borne l'intensité : un niveau faible retire les types durs
     (threshold/pma/sprint) au profit d'endurance/recovery.
+
+    `progress` (0..1, cf. `_progress_for_offset`) gate `pma` à la 2e moitié de la
+    phase build (progress >= 0.5) — trop tôt dans le plan, pma n'apparaît pas
+    encore. Par défaut 1.0 pour rester rétro-compatible avec les appels existants.
     """
     if phase == "base":
         base = ["endurance", "long", "recovery"]
     elif phase == "build":
-        base = ["endurance", "threshold", "pma", "long"]
+        base = ["endurance", "threshold", "long"]
+        if progress >= 0.5:
+            base.append("pma")
     elif phase == "peak":
         base = ["pma", "sprint", "endurance", "long"]
     else:  # taper
@@ -179,7 +187,7 @@ def _rest_day_session(*, day: date, phase: Phase, week_offset: int) -> dict[str,
     }
 
 
-_HARD_SESSION_TYPES = {"threshold", "intervals"}
+_HARD_SESSION_TYPES = {"threshold", "intervals", "pma", "sprint"}
 _LONG_RECOVERY_TYPES = {"long", "recovery"}
 
 
@@ -281,7 +289,8 @@ _ELEVATION_THRESHOLD_M: dict[str, int] = {
 }
 
 # Per-session weight for distributing the weekly elevation target. Long absorbs
-# most of the D+, intervals/recovery zero (intervals are typically track-based).
+# most of the D+, intervals/recovery zero (pma/sprint are typically track-based;
+# intervals is kept only for schema compatibility, no longer emitted).
 _ELEVATION_SESSION_WEIGHT: dict[str, float] = {
     "long": 2.0,
     "endurance": 1.0,
@@ -458,6 +467,7 @@ def _build_week_sessions(
     race_date: date,
     race_sport: str,
     weekly_elevation_by_sport: dict[str, int] | None = None,
+    progress: float = 1.0,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions.
 
@@ -473,7 +483,7 @@ def _build_week_sessions(
 
     level = athlete_level(sports_strengths)
     max_level = min((sports_strengths.get(s, 3) for s in sports_in_race), default=3)
-    types_for_phase = pick_session_types_for_phase(phase, max_level=max_level)
+    types_for_phase = pick_session_types_for_phase(phase, max_level=max_level, progress=progress)
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
 
     # Deload weeks (every 4th, except taper) need a stricter rest floor.
@@ -648,6 +658,7 @@ def _build_all_week_sessions(
             race_date=race_date,
             race_sport=race_sport,
             weekly_elevation_by_sport=weekly_elevation_by_sport,
+            progress=progress,
         )
         all_sessions.extend(sessions)
     return all_sessions

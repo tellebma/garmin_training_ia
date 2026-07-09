@@ -10,6 +10,7 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    _pick_session_type,
     _progress_for_offset,
     cap_weekly_ramp_by_sport,
     compute_first_week_tss_multiplier,
@@ -136,6 +137,42 @@ def test_peak_phase_excludes_sprint_and_pma_for_low_level() -> None:
     assert "sprint" not in types
     assert "pma" not in types
     assert "endurance" in types
+
+
+def test_build_phase_excludes_pma_in_first_half_even_at_high_level() -> None:
+    # progress < 0.5 -> 1re moitié de build : pma pas encore introduit, même à
+    # un niveau athlète élevé.
+    types = pick_session_types_for_phase("build", max_level=5, progress=0.3)
+    assert "pma" not in types
+
+
+def test_build_phase_includes_pma_in_second_half_at_high_level() -> None:
+    # progress >= 0.5 -> 2e moitié de build : pma apparaît.
+    types = pick_session_types_for_phase("build", max_level=5, progress=0.6)
+    assert "pma" in types
+
+
+def test_build_phase_default_progress_keeps_pma_backward_compatible() -> None:
+    # Sans argument progress (défaut 1.0), le comportement existant est
+    # inchangé : pma reste présent, comme avant l'introduction du gating.
+    types = pick_session_types_for_phase("build", max_level=5)
+    assert "pma" in types
+
+
+def test_pick_session_type_avoids_pma_the_day_after_a_pma_day() -> None:
+    # day_idx=1 (mardi) n'est pas un slot réservé (long=dimanche, recovery=lundi/jeudi),
+    # donc _pick_session_type applique la logique anti back-to-back hard.
+    picked = _pick_session_type(
+        day_idx=1, types_for_phase=["pma", "sprint", "endurance"], used_types=["pma"]
+    )
+    assert picked not in ("pma", "sprint")
+
+
+def test_pick_session_type_avoids_sprint_the_day_after_a_sprint_day() -> None:
+    picked = _pick_session_type(
+        day_idx=1, types_for_phase=["pma", "sprint", "endurance"], used_types=["sprint"]
+    )
+    assert picked not in ("pma", "sprint")
 
 
 def test_peak_phase_allows_sprint_not_pma_at_level3() -> None:

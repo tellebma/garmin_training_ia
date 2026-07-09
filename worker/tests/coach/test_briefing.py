@@ -114,6 +114,21 @@ def test_hard_session_guardrail_adds_penalty_for_unfavorable_recovery_signal():
     ]
 
 
+def test_hard_session_guardrail_adds_penalty_for_pma_session():
+    factors = _hard_session_guardrail_factors(
+        {"session_type": "pma"},
+        [ReadinessFactor("tsb_negative", -8, "TSB négatif.")],
+    )
+
+    assert factors == [
+        ReadinessFactor(
+            "hard_session_guardrail",
+            -10,
+            "Séance dure prévue alors qu'un signal de récupération est défavorable.",
+        )
+    ]
+
+
 def test_format_explanation_md_ready_no_negatives():
     md = format_explanation_md([], "ready")
     assert "Bonne" in md

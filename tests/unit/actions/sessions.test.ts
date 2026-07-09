@@ -212,4 +212,46 @@ describe('sessions Server Actions', () => {
     if (!result.success) expect(result.error).toBe('invalid_session_type')
     expect(supabaseFrom).not.toHaveBeenCalled()
   })
+
+  it.each(['pma', 'sprint'])(
+    'applySessionAdjustment does not reject %s as an invalid session type',
+    async (sessionType) => {
+      supabaseGetSession.mockResolvedValueOnce({
+        data: { session: { user: { id: 'u1' }, access_token: 'jwt-1' } },
+      })
+      const selectMaybeSingle = vi.fn().mockResolvedValueOnce({
+        data: {
+          id: 'sess-1',
+          user_id: 'u1',
+          session_type: 'endurance',
+          target_duration_s: 3600,
+          target_tss: 60,
+        },
+        error: null,
+      })
+      const selectEqUser = vi.fn(() => ({ maybeSingle: selectMaybeSingle }))
+      const selectEqId = vi.fn(() => ({ eq: selectEqUser }))
+      const selectQuery = {
+        select: vi.fn(() => ({ eq: selectEqId })),
+      }
+      const updateEqUser = vi.fn().mockResolvedValueOnce({ error: null })
+      const updateEqId = vi.fn(() => ({ eq: updateEqUser }))
+      const updateQuery = {
+        update: vi.fn(() => ({ eq: updateEqId })),
+      }
+      const upsertQuery = {
+        upsert: vi.fn().mockResolvedValueOnce({ error: null }),
+      }
+      supabaseFrom
+        .mockReturnValueOnce(selectQuery)
+        .mockReturnValueOnce(updateQuery)
+        .mockReturnValueOnce(upsertQuery)
+
+      const { applySessionAdjustment } = await import('@/app/actions/sessions')
+      const result = await applySessionAdjustment('sess-1', sessionType)
+
+      expect(result.success).toBe(true)
+      if (!result.success) expect(result.error).not.toBe('invalid_session_type')
+    }
+  )
 })
