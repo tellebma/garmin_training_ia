@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Activity, CalendarDays, History, LineChart, User } from 'lucide-react'
+import { Activity, CalendarDays, History, LineChart, Shield, User } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,8 +20,11 @@ const items: NavItem[] = [
   { href: '/profile', label: 'Profil', icon: User },
 ]
 
-export function SideNav() {
+const adminItem: NavItem = { href: '/admin', label: 'Admin', icon: Shield }
+
+export function SideNav({ isAdmin = false }: { readonly isAdmin?: boolean }) {
   const pathname = usePathname()
+  const allItems = isAdmin ? [...items, adminItem] : items
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r md:flex">
       <div className="px-6 py-6">
@@ -29,7 +32,7 @@ export function SideNav() {
       </div>
       <nav className="flex-1 px-3">
         <ul className="space-y-1">
-          {items.map((item) => {
+          {allItems.map((item) => {
             const active = pathname === item.href
             const Icon = item.icon
             return (
