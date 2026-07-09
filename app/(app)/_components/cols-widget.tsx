@@ -36,7 +36,7 @@ export function ColsWidget({ summaries }: Readonly<{ summaries: ColSummary[] }>)
             <tr key={summary.id}>
               <td className="py-2 font-medium">{summary.name}</td>
               <td className="text-muted-foreground py-2">
-                {summary.elevationM !== null ? `${String(summary.elevationM)} m` : '—'}
+                {summary.elevationM === null ? '—' : `${String(summary.elevationM)} m`}
               </td>
               <td className="text-muted-foreground py-2">{summary.distanceKm} km</td>
               <td

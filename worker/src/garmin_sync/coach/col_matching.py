@@ -7,6 +7,8 @@ from typing import Any, cast
 from garmin_sync.coach.geo import haversine_m
 from garmin_sync.supabase_client import get_admin_client
 
+DbRows = list[dict[str, Any]]
+
 _NEARBY_RADIUS_M = 50_000
 _CROSSING_THRESHOLD_M = 150.0
 
@@ -29,80 +31,19 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
     """
     db = get_admin_client()
 
-    all_cols = cast(
-        "list[dict[str, Any]]",
-        db.table("cols").select("id, latitude, longitude").execute().data or [],
-    )
-    nearby_cols = [
-        col
-        for col in all_cols
-        if haversine_m(home_lat, home_lon, float(col["latitude"]), float(col["longitude"]))
-        <= _NEARBY_RADIUS_M
-    ]
+    nearby_cols = _fetch_nearby_cols(db, home_lat, home_lon)
     if not nearby_cols:
         return
 
-    profile_response = (
-        db.table("athlete_profiles")
-        .select("col_matching_cursor")
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    profile = cast(
-        "dict[str, Any] | None",
-        profile_response.data if profile_response else None,
-    )
-    cursor = profile.get("col_matching_cursor") if profile else None
-
-    query = (
-        db.table("activities")
-        .select("garmin_activity_id, start_time")
-        .eq("user_id", user_id)
-        .not_.is_("route_polyline", "null")
-    )
-    if cursor:
-        query = query.gt("start_time", cursor)
-    activities = cast("list[dict[str, Any]]", query.order("start_time").execute().data or [])
+    cursor = _fetch_cursor(db, user_id)
+    activities = _fetch_pending_activities(db, user_id, cursor)
     if not activities:
         return
 
-    # One `activity_samples` query per activity (N+1) is deliberate here, not an
-    # oversight: batching all activities' samples into a single `.in_(...)` query
-    # would multiply the row count returned per request, making it *more* likely to
-    # hit PostgREST's server-side row cap and silently truncate — exactly the
-    # correctness risk the per-activity `.limit(5000)` above was added to prevent.
-    # This runs in the nightly background cron (not a user-facing request path), and
-    # the cursor bounds it to a handful of new activities per user per day after the
-    # first backfill run, so the extra round-trips are an acceptable trade for
-    # guaranteed-bounded, non-truncating reads.
     max_start_time: str | None = cursor
     for activity in activities:
-        activity_id = activity["garmin_activity_id"]
         start_time = activity["start_time"]
-        samples = cast(
-            "list[dict[str, Any]]",
-            db.table("activity_samples")
-            .select("latitude, longitude")
-            .eq("user_id", user_id)
-            .eq("garmin_activity_id", activity_id)
-            .not_.is_("latitude", "null")
-            .limit(5000)
-            .execute()
-            .data
-            or [],
-        )
-        crossing_rows = _match_activity(
-            user_id=user_id,
-            activity_id=activity_id,
-            start_time=start_time,
-            samples=samples,
-            cols=nearby_cols,
-        )
-        if crossing_rows:
-            db.table("col_crossings").upsert(
-                crossing_rows, on_conflict="user_id,col_id,garmin_activity_id"
-            ).execute()
+        _process_activity(db, user_id=user_id, activity=activity, cols=nearby_cols)
         if max_start_time is None or start_time > max_start_time:
             max_start_time = start_time
 
@@ -112,15 +53,89 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
         ).execute()
 
 
+def _fetch_nearby_cols(db: Any, home_lat: float, home_lon: float) -> DbRows:
+    all_cols = cast(
+        DbRows,
+        db.table("cols").select("id, latitude, longitude").execute().data or [],
+    )
+    return [
+        col
+        for col in all_cols
+        if haversine_m(home_lat, home_lon, float(col["latitude"]), float(col["longitude"]))
+        <= _NEARBY_RADIUS_M
+    ]
+
+
+def _fetch_cursor(db: Any, user_id: str) -> str | None:
+    profile_response = (
+        db.table("athlete_profiles")
+        .select("col_matching_cursor")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    profile = cast("dict[str, Any] | None", profile_response.data if profile_response else None)
+    return profile.get("col_matching_cursor") if profile else None
+
+
+def _fetch_pending_activities(db: Any, user_id: str, cursor: str | None) -> DbRows:
+    query = (
+        db.table("activities")
+        .select("garmin_activity_id, start_time")
+        .eq("user_id", user_id)
+        .not_.is_("route_polyline", "null")
+    )
+    if cursor:
+        query = query.gt("start_time", cursor)
+    return cast(DbRows, query.order("start_time").execute().data or [])
+
+
+def _process_activity(db: Any, *, user_id: str, activity: dict[str, Any], cols: DbRows) -> None:
+    # One `activity_samples` query per activity (N+1) is deliberate here, not an
+    # oversight: batching all activities' samples into a single `.in_(...)` query
+    # would multiply the row count returned per request, making it *more* likely to
+    # hit PostgREST's server-side row cap and silently truncate — exactly the
+    # correctness risk the per-activity `.limit(5000)` below was added to prevent.
+    # This runs in the nightly background cron (not a user-facing request path), and
+    # the cursor bounds it to a handful of new activities per user per day after the
+    # first backfill run, so the extra round-trips are an acceptable trade for
+    # guaranteed-bounded, non-truncating reads.
+    activity_id = activity["garmin_activity_id"]
+    start_time = activity["start_time"]
+    samples = cast(
+        DbRows,
+        db.table("activity_samples")
+        .select("latitude, longitude")
+        .eq("user_id", user_id)
+        .eq("garmin_activity_id", activity_id)
+        .not_.is_("latitude", "null")
+        .limit(5000)
+        .execute()
+        .data
+        or [],
+    )
+    crossing_rows = _match_activity(
+        user_id=user_id,
+        activity_id=activity_id,
+        start_time=start_time,
+        samples=samples,
+        cols=cols,
+    )
+    if crossing_rows:
+        db.table("col_crossings").upsert(
+            crossing_rows, on_conflict="user_id,col_id,garmin_activity_id"
+        ).execute()
+
+
 def _match_activity(
     *,
     user_id: str,
     activity_id: int,
     start_time: str,
-    samples: list[dict[str, Any]],
-    cols: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+    samples: DbRows,
+    cols: DbRows,
+) -> DbRows:
+    rows: DbRows = []
     for col in cols:
         distances = (
             haversine_m(
