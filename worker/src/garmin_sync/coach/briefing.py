@@ -314,6 +314,21 @@ def _score_stress(daily: dict[str, Any] | None, baseline: float | None) -> list[
     return []
 
 
+def _score_steps(daily: dict[str, Any] | None, baseline: float | None) -> list[ReadinessFactor]:
+    if not daily or not baseline or baseline <= 0:
+        return []
+    steps = daily.get("steps")
+    if steps is None:
+        return []
+    if steps > baseline * 1.5:
+        return [
+            ReadinessFactor(
+                "steps_high", -5, f"Beaucoup de pas hier ({steps} vs médiane {baseline:.0f})."
+            )
+        ]
+    return []
+
+
 def derive_status(score: int) -> Status:
     if score >= READY_MIN:
         return "ready"
@@ -684,7 +699,7 @@ def _load_daily_metrics(db: Any, user_id: str, today: date) -> dict[str, Any] | 
     yesterday = today - timedelta(days=1)
     resp = (
         db.table("daily_metrics")
-        .select("resting_hr, body_battery_low, body_battery_high, stress_avg")
+        .select("resting_hr, body_battery_low, body_battery_high, stress_avg, steps")
         .eq("user_id", user_id)
         .eq("date", yesterday.isoformat())
         .maybe_single()
@@ -715,7 +730,7 @@ def _load_recovery_baselines(db: Any, user_id: str) -> dict[str, Any] | None:
     """Load the single recovery_baselines row for this user (one row per user)."""
     resp = (
         db.table("recovery_baselines")
-        .select("hrv, resting_hr, sleep, stress, body_battery")
+        .select("hrv, resting_hr, sleep, stress, body_battery, steps")
         .eq("user_id", user_id)
         .maybe_single()
         .execute()
@@ -809,6 +824,7 @@ class _RecoveryInputs:
     sleep_duration: float | None
     sleep_score: float | None
     body_battery: float | None
+    steps: float | None
 
 
 def _resolve_recovery_baselines(rb: dict[str, Any] | None) -> _RecoveryInputs:
@@ -825,6 +841,7 @@ def _resolve_recovery_baselines(rb: dict[str, Any] | None) -> _RecoveryInputs:
         sleep_duration=sleep_dur,
         sleep_score=sleep_score,
         body_battery=_gated_baseline(data.get("body_battery")),
+        steps=_gated_baseline(data.get("steps")),
     )
 
 
@@ -874,6 +891,7 @@ def compute_briefing(user_id: str, today: date | None = None) -> DailyBriefing:
     )
     factors.extend(_score_resting_hr(daily, rh_baseline))
     factors.extend(_score_stress(daily, rec.stress))
+    factors.extend(_score_steps(daily, rec.steps))
     factors.extend(_score_tsb(tsb))
     factors.extend(_score_body_battery(daily, baseline=rec.body_battery))
     factors.extend(_activity_review_factors(activity_review))

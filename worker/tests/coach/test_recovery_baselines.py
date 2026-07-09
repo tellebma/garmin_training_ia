@@ -131,7 +131,7 @@ class _FakeDb:
         return self.queries.setdefault(name, _FakeQuery([]))
 
 
-def test_recompute_upserts_five_metrics(monkeypatch: "Any") -> None:
+def test_recompute_upserts_six_metrics_including_steps(monkeypatch: "Any") -> None:
     today = date.today()
     days = [today - timedelta(days=i) for i in range(14)]
     db = _FakeDb(
@@ -146,6 +146,7 @@ def test_recompute_upserts_five_metrics(monkeypatch: "Any") -> None:
                     "resting_hr": 48,
                     "stress_avg": 30,
                     "body_battery_high": 85,
+                    "steps": 8000,
                 }
                 for d in days
             ],
@@ -160,9 +161,10 @@ def test_recompute_upserts_five_metrics(monkeypatch: "Any") -> None:
     assert upserted is not None
     row = upserted[0]
     assert row["user_id"] == "user-1"
-    for key in ("hrv", "resting_hr", "sleep", "stress", "body_battery"):
+    for key in ("hrv", "resting_hr", "sleep", "stress", "body_battery", "steps"):
         assert key in row
         assert row[key]["confidence"] == "medium"  # 14 days
+    assert row["steps"]["baseline"] == 8000.0
 
 
 def test_recompute_never_raises(monkeypatch: "Any") -> None:
