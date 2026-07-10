@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     openai_timeout_s: int = Field(default=30)
     openai_max_attempts: int = Field(default=3, ge=1)
     gps_backfill_batch: int = Field(default=8)
+    strava_client_id: str
+    strava_client_secret: SecretStr
+    strava_webhook_verify_token: SecretStr
 
     @staticmethod
     def _check_fernet_key_shape(raw: str) -> None:
