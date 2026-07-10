@@ -103,7 +103,7 @@ export function ActivityRouteMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const sample = hoverIndex !== null ? samples[hoverIndex] : undefined
+    const sample = hoverIndex === null ? undefined : samples[hoverIndex]
     if (!sample || typeof sample.latitude !== 'number' || typeof sample.longitude !== 'number') {
       markerRef.current?.remove()
       markerRef.current = null
