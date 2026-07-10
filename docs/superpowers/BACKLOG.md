@@ -70,6 +70,8 @@ compréhensibles pour un athlète non expert.
 - **E14.2 P1 — Carte d'activité** : afficher le tracé GPS dans `/history/[id]` avec
   dénivelé et survol corrélé FC/allure. Recoupe E9.5 et la spec E8a.
   Livrable B livré : vignettes SVG dans l'historique, trace colorée par métrique (FC/vitesse/altitude) sur le détail, heatmap globale sur /stats.
+  Livrable C livré : survol corrélé FC/allure — survoler le graphique de métriques sur la
+  fiche activité met en évidence le point correspondant sur la carte GPS (PR #100).
 - **E14.3 P2 — Bulles explicatives** (rétrogradé P1 → P2 le 2026-06-28) : infobulles sur charge (CTL), forme (TSB),
   fatigue (ATL), HRV, TSS, zones, dérive cardio. Expliquer « c'est quoi » et « comment
   l'utiliser pour progresser » en langage simple, plus un glossaire accessible.
