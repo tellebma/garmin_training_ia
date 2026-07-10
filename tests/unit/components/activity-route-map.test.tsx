@@ -13,6 +13,15 @@ const on = vi.fn((event: string, cb: () => void) => {
   if (event === 'load') cb()
 })
 
+const markerConstructor = vi.fn()
+const markerSetLngLat = vi.fn(function (this: unknown) {
+  return this
+})
+const markerAddTo = vi.fn(function (this: unknown) {
+  return this
+})
+const markerRemove = vi.fn()
+
 vi.mock('maplibre-gl', () => ({
   default: {
     Map: vi.fn(function (this: Record<string, unknown>) {
@@ -24,6 +33,12 @@ vi.mock('maplibre-gl', () => ({
       this.getLayer = getLayer
       this.setPaintProperty = setPaintProperty
       this.remove = removeMock
+    }),
+    Marker: vi.fn(function (this: Record<string, unknown>) {
+      markerConstructor()
+      this.setLngLat = markerSetLngLat
+      this.addTo = markerAddTo
+      this.remove = markerRemove
     }),
   },
 }))
@@ -93,6 +108,10 @@ describe('ActivityRouteMap', () => {
     getLayer.mockImplementation((_id: string) => ({ id: 'route-line' }))
     setPaintProperty.mockClear()
     routeBoundsMock.mockClear()
+    markerConstructor.mockClear()
+    markerSetLngLat.mockClear()
+    markerAddTo.mockClear()
+    markerRemove.mockClear()
   })
 
   it('adds the route source once the map loads', () => {
@@ -140,5 +159,45 @@ describe('ActivityRouteMap', () => {
     expect(addSource).toHaveBeenCalledWith('route', expect.anything())
     expect(addLayer).toHaveBeenCalled()
     expect(fitBounds).not.toHaveBeenCalled()
+  })
+
+  describe('hoverIndex marker', () => {
+    const samples = [sample(45.1, 4.1), sample(45.2, 4.2), sample(null, null)]
+
+    it('creates a marker at the hovered sample coordinates', () => {
+      render(<ActivityRouteMap samples={samples} hoverIndex={1} />)
+      expect(markerConstructor).toHaveBeenCalledTimes(1)
+      expect(markerSetLngLat).toHaveBeenCalledWith([4.2, 45.2])
+      expect(markerAddTo).toHaveBeenCalled()
+    })
+
+    it('moves the existing marker instead of recreating it when hoverIndex changes', () => {
+      const { rerender } = render(<ActivityRouteMap samples={samples} hoverIndex={0} />)
+      expect(markerConstructor).toHaveBeenCalledTimes(1)
+      markerSetLngLat.mockClear()
+
+      rerender(<ActivityRouteMap samples={samples} hoverIndex={1} />)
+      expect(markerConstructor).toHaveBeenCalledTimes(1)
+      expect(markerSetLngLat).toHaveBeenCalledWith([4.2, 45.2])
+    })
+
+    it('removes the marker when hoverIndex becomes null', () => {
+      const { rerender } = render(<ActivityRouteMap samples={samples} hoverIndex={0} />)
+      expect(markerAddTo).toHaveBeenCalledTimes(1)
+
+      rerender(<ActivityRouteMap samples={samples} hoverIndex={null} />)
+      expect(markerRemove).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not create a marker when the hovered sample has no GPS coordinates', () => {
+      render(<ActivityRouteMap samples={samples} hoverIndex={2} />)
+      expect(markerConstructor).not.toHaveBeenCalled()
+      expect(markerAddTo).not.toHaveBeenCalled()
+    })
+
+    it('does not create a marker when hoverIndex is not provided', () => {
+      render(<ActivityRouteMap samples={samples} />)
+      expect(markerConstructor).not.toHaveBeenCalled()
+    })
   })
 })

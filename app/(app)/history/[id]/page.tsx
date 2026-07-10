@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { ArrowLeft, Flame, Gauge, HeartPulse, Mountain, Route, Timer, Zap } from 'lucide-react'
 import { ActivityDetailSkeleton } from '../../_components/skeletons/activity-detail-skeleton'
 import { ActivityComparisonChart } from '../../_components/charts/activity-comparison-chart'
-import { ActivitySamplesChart } from '../../_components/charts/activity-samples-chart'
+import { ActivityMapChartSync } from '../../_components/charts/activity-map-chart-sync'
 import { ChartCard } from '../../_components/chart-card'
 import { MetricTile } from '../../_components/metric-tile'
 import { SPORT_LABEL } from '../../_components/sport-icon'
@@ -26,7 +26,6 @@ import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import type { ActivityFeedbackDto, PlannedSession, Sport } from '@/lib/dashboard/types'
-import { ActivityRouteMapLazy } from '../../_components/maps/activity-route-map-lazy'
 import { ActivityFeedbackForm } from './activity-feedback-form'
 
 export const revalidate = 300
@@ -286,22 +285,8 @@ async function ActivityDetailBody({
         <ActivityComparisonChart data={analysis.chartData} />
       </ChartCard>
 
-      {gpsSampleCount >= 2 && (
-        <ChartCard
-          title="Trace GPS"
-          description="Parcours de l'activité d'après les données Garmin."
-        >
-          <ActivityRouteMapLazy samples={samples} />
-        </ChartCard>
-      )}
-
       {samples.length > 0 && (
-        <ChartCard
-          title="Courbes d'activité"
-          description="Fréquence cardiaque, altitude, puissance, cadence et allure selon les données Garmin disponibles."
-        >
-          <ActivitySamplesChart data={samples} sport={sport} />
-        </ChartCard>
+        <ActivityMapChartSync samples={samples} sport={sport} showMap={gpsSampleCount >= 2} />
       )}
 
       {sampleSummary && (

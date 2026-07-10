@@ -17,9 +17,17 @@ interface MetricPanelProps {
   readonly xUnit: 'min' | 'km'
   readonly showXAxis: boolean
   readonly height?: number
+  readonly onHoverIndexChange?: (index: number | null) => void
 }
 
-export function MetricPanel({ descriptor, data, xUnit, showXAxis, height = 96 }: MetricPanelProps) {
+export function MetricPanel({
+  descriptor,
+  data,
+  xUnit,
+  showXAxis,
+  height = 96,
+  onHoverIndexChange,
+}: MetricPanelProps) {
   return (
     <div>
       <div className="text-muted-foreground mb-1 flex items-center gap-2 text-xs">
@@ -36,6 +44,14 @@ export function MetricPanel({ descriptor, data, xUnit, showXAxis, height = 96 }:
           data={data}
           syncId="activity-samples"
           margin={{ top: 4, right: 8, left: -16, bottom: showXAxis ? 0 : -8 }}
+          onMouseMove={(state: { activeTooltipIndex?: number }) => {
+            onHoverIndexChange?.(
+              typeof state.activeTooltipIndex === 'number' ? state.activeTooltipIndex : null
+            )
+          }}
+          onMouseLeave={() => {
+            onHoverIndexChange?.(null)
+          }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis

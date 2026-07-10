@@ -10,9 +10,15 @@ interface ActivitySamplesChartProps {
   readonly data: ActivitySample[]
   readonly sport: Sport
   readonly height?: number
+  readonly onHoverIndexChange?: (index: number | null) => void
 }
 
-export function ActivitySamplesChart({ data, sport, height = 96 }: ActivitySamplesChartProps) {
+export function ActivitySamplesChart({
+  data,
+  sport,
+  height = 96,
+  onHoverIndexChange,
+}: ActivitySamplesChartProps) {
   const distanceAvailable = hasDistance(data)
   const [xBasis, setXBasis] = useState<'time' | 'distance'>('time')
   const [hidden, setHidden] = useState<Set<MetricKey>>(new Set())
@@ -94,6 +100,7 @@ export function ActivitySamplesChart({ data, sport, height = 96 }: ActivitySampl
               xUnit={effectiveBasis === 'distance' ? 'km' : 'min'}
               showXAxis={idx === visible.length - 1}
               height={height}
+              {...(onHoverIndexChange !== undefined && { onHoverIndexChange })}
             />
           ))}
         </div>
