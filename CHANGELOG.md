@@ -1,3 +1,13 @@
+## [1.7.1](https://github.com/tellebma/garmin_training_ia/compare/v1.7.0...v1.7.1) (2026-07-10)
+
+### Bug Fixes
+
+* **e16.1:** dedupe auth.getUser() across layout and page guards ([#99](https://github.com/tellebma/garmin_training_ia/issues/99)) ([17edb41](https://github.com/tellebma/garmin_training_ia/commit/17edb414dae889f2ee0dd2051ada5bc4d47869d7))
+
+### Documentation
+
+* **e8:** parcours géolocalisés & planification GPX — spec + plan ([#98](https://github.com/tellebma/garmin_training_ia/issues/98)) ([d45c9b4](https://github.com/tellebma/garmin_training_ia/commit/d45c9b4ce4be82cc23b4a99e73f8a5c049369d88))
+
 ## [1.7.0](https://github.com/tellebma/garmin_training_ia/compare/v1.6.0...v1.7.0) (2026-07-09)
 
 ### Features
