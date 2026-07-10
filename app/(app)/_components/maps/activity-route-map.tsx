@@ -32,11 +32,17 @@ const FALLBACK_GRADIENT = [
 interface ActivityRouteMapProps {
   readonly samples: ActivitySample[]
   readonly height?: number
+  readonly hoverIndex?: number | null
 }
 
-export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProps) {
+export function ActivityRouteMap({
+  samples,
+  height = 360,
+  hoverIndex = null,
+}: ActivityRouteMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
   const [metric, setMetric] = useState<RouteMetric>('hr')
 
   // Keep a ref so the map 'load' handler always reads the latest metric
@@ -80,6 +86,7 @@ export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProp
 
     return () => {
       mapRef.current = null
+      markerRef.current = null
       map.remove()
     }
   }, [samples])
@@ -91,6 +98,26 @@ export function ActivityRouteMap({ samples, height = 360 }: ActivityRouteMapProp
     const gradient = buildMetricGradient(samples, metric)
     map.setPaintProperty('route-line', 'line-gradient', gradient ?? FALLBACK_GRADIENT)
   }, [samples, metric])
+
+  // Show/move a marker on the point that is currently hovered in the correlated chart.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const sample = hoverIndex === null ? undefined : samples[hoverIndex]
+    if (!sample || typeof sample.latitude !== 'number' || typeof sample.longitude !== 'number') {
+      markerRef.current?.remove()
+      markerRef.current = null
+      return
+    }
+    const lngLat: [number, number] = [sample.longitude, sample.latitude]
+    if (markerRef.current) {
+      markerRef.current.setLngLat(lngLat)
+    } else {
+      const el = document.createElement('div')
+      el.className = 'h-3 w-3 rounded-full border-2 border-white bg-cyan-400 shadow'
+      markerRef.current = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map)
+    }
+  }, [hoverIndex, samples])
 
   const available = availableMetrics(samples)
 
