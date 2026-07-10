@@ -2,10 +2,13 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 
-const getUser = vi.fn()
+const getCurrentUser = vi.fn()
 const rpc = vi.fn()
+vi.mock('@/lib/supabase/current-user', () => ({
+  getCurrentUser: (...args: unknown[]) => getCurrentUser(...args) as unknown,
+}))
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => Promise.resolve({ auth: { getUser }, rpc }),
+  createClient: () => Promise.resolve({ rpc }),
 }))
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
@@ -33,7 +36,7 @@ vi.mock('@/app/actions/garmin-sync', () => ({
 import AppLayout from '@/app/(app)/layout'
 
 beforeEach(() => {
-  getUser.mockReset()
+  getCurrentUser.mockReset()
   rpc.mockReset()
 })
 
@@ -41,7 +44,7 @@ afterEach(cleanup)
 
 describe('AppLayout maintenance mode', () => {
   it('shows the maintenance page to a non-admin when maintenance_mode is active', async () => {
-    getUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    getCurrentUser.mockResolvedValue({ id: 'u1' })
     rpc.mockImplementation((fn: string) => {
       if (fn === 'is_admin_caller') return Promise.resolve({ data: false })
       if (fn === 'is_feature_flag_active') return Promise.resolve({ data: true })
@@ -54,7 +57,7 @@ describe('AppLayout maintenance mode', () => {
   })
 
   it('still shows normal content to an admin during maintenance', async () => {
-    getUser.mockResolvedValue({ data: { user: { id: 'owner' } } })
+    getCurrentUser.mockResolvedValue({ id: 'owner' })
     rpc.mockImplementation((fn: string) => {
       if (fn === 'is_admin_caller') return Promise.resolve({ data: true })
       if (fn === 'is_feature_flag_active') return Promise.resolve({ data: true })

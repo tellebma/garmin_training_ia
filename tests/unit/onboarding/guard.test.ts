@@ -5,13 +5,16 @@ beforeAll(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key-test'
 })
 
-const getUser = vi.fn()
+const getCurrentUser = vi.fn()
 const fromMock = vi.fn()
+
+vi.mock('@/lib/supabase/current-user', () => ({
+  getCurrentUser: (...args: unknown[]) => getCurrentUser(...args) as unknown,
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () =>
     Promise.resolve({
-      auth: { getUser },
       from: (...args: unknown[]) => fromMock(...args) as unknown,
     }),
 }))
@@ -30,7 +33,7 @@ function mkSelect(data: { onboarding_completed_at: string | null } | null) {
 }
 
 beforeEach(() => {
-  getUser.mockReset()
+  getCurrentUser.mockReset()
   fromMock.mockReset()
   redirect.mockClear()
 })
@@ -41,27 +44,27 @@ afterEach(() => {
 
 describe('requireOnboarded', () => {
   it('redirects to /login when no user', async () => {
-    getUser.mockResolvedValueOnce({ data: { user: null } })
+    getCurrentUser.mockResolvedValueOnce(null)
     const { requireOnboarded } = await import('@/lib/onboarding/guard')
     await expect(requireOnboarded()).rejects.toThrow(/__REDIRECT__:\/login/)
   })
 
   it('redirects to /onboarding when onboarding not completed', async () => {
-    getUser.mockResolvedValueOnce({ data: { user: { id: 'u1' } } })
+    getCurrentUser.mockResolvedValueOnce({ id: 'u1' })
     fromMock.mockReturnValueOnce(mkSelect({ onboarding_completed_at: null }))
     const { requireOnboarded } = await import('@/lib/onboarding/guard')
     await expect(requireOnboarded()).rejects.toThrow(/__REDIRECT__:\/onboarding/)
   })
 
   it('redirects to /onboarding when profile is null', async () => {
-    getUser.mockResolvedValueOnce({ data: { user: { id: 'u1' } } })
+    getCurrentUser.mockResolvedValueOnce({ id: 'u1' })
     fromMock.mockReturnValueOnce(mkSelect(null))
     const { requireOnboarded } = await import('@/lib/onboarding/guard')
     await expect(requireOnboarded()).rejects.toThrow(/__REDIRECT__:\/onboarding/)
   })
 
   it('returns user.id when onboarding completed', async () => {
-    getUser.mockResolvedValueOnce({ data: { user: { id: 'u1' } } })
+    getCurrentUser.mockResolvedValueOnce({ id: 'u1' })
     fromMock.mockReturnValueOnce(mkSelect({ onboarding_completed_at: '2026-01-15T12:00:00Z' }))
     const { requireOnboarded } = await import('@/lib/onboarding/guard')
     const userId = await requireOnboarded()
