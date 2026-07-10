@@ -2,19 +2,18 @@ import { redirect } from 'next/navigation'
 import { BottomNav } from '@/components/nav/bottom-nav'
 import { SideNav } from '@/components/nav/side-nav'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/lib/supabase/current-user'
 import { SyncNowButton } from '@/app/(app)/_components/sync-now-button'
 import { MaintenancePage } from '@/app/(app)/_components/maintenance-page'
 
 export default async function AppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) {
     redirect('/login')
   }
 
+  const supabase = await createClient()
   const [adminResult, maintenanceResult] = await Promise.all([
     supabase.rpc('is_admin_caller'),
     supabase.rpc('is_feature_flag_active', { p_key: 'maintenance_mode' }),

@@ -696,9 +696,16 @@ runtime)** :
   le layout, pour ne payer l'auth qu'une fois par requête.
 
 **Actions** :
-- E16.1 P0 — Supprimer le double appel auth (layout + `requireOnboarded`) via `cache()` ou
-  garde unique au layout. Gain transversal sur le TTFB de toutes les pages.
-  (Remontée P0 le 2026-06-28 — plafond de latence partagé, fix court.)
+- **E16.1 P0 — Supprimer le double appel auth (layout + `requireOnboarded`) — V1 livrée** :
+  `lib/supabase/current-user.ts` expose un `getCurrentUser()` unique, enveloppé par
+  React `cache()` (mémoïsation par requête App Router — « Request Memoization »,
+  distincte de `unstable_cache`). `app/(app)/layout.tsx`, `lib/onboarding/guard.ts`
+  (`requireOnboarded`) et `lib/admin/guard.ts` (`requireAdmin`) appellent tous cette même
+  fonction au lieu de refaire chacun `supabase.auth.getUser()` — un seul aller-retour
+  réseau auth par requête, dans l'arbre layout + page, avant que le rendu/streaming
+  démarre. Le recheck intentionnel `is_admin_caller()` dans `requireAdmin()` (defense-in-
+  depth documentée) est inchangé, seul l'appel `auth.getUser()` sous-jacent est partagé.
+  Pas de middleware Next.js introduit (cf. piège documenté dans `CLAUDE.md`).
 - E16.2 P2 — Passer `/plan` et `/history` en sections `<Suspense>` + skeletons dédiés.
 - E16.3 P2 — Ajouter un `loading.tsx` à `/onboarding`.
 - E16.4 P2 — Empreinte de fraîcheur des données pour invalider finement (déjà listé comme

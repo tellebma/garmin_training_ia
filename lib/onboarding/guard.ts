@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/lib/supabase/current-user'
 
 /**
  * Use at the top of any protected (non-onboarding) page. Redirects:
@@ -9,11 +10,10 @@ import { createClient } from '@/lib/supabase/server'
  * Returns the authenticated user_id once both checks pass.
  */
 export async function requireOnboarded(): Promise<string> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) redirect('/login')
+
+  const supabase = await createClient()
 
   const { data } = await supabase
     .from('athlete_profiles')

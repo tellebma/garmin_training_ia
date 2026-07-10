@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/lib/supabase/current-user'
 
 /**
  * Use at the top of app/(app)/admin/page.tsx. Redirects:
@@ -12,14 +13,15 @@ import { createClient } from '@/lib/supabase/server'
  * for the maintenance-mode gate, so this re-check may look redundant. It is
  * intentional defense-in-depth — the admin page must not rely solely on the
  * shared layout for its own admin gate — not an oversight to be deduplicated.
+ * (The underlying auth.getUser() call is shared via getCurrentUser()'s
+ * request-scoped cache(); the is_admin_caller() RPC re-check itself still
+ * runs independently here, on purpose.)
  */
 export async function requireAdmin(): Promise<string> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) redirect('/login')
 
+  const supabase = await createClient()
   const result = await supabase.rpc('is_admin_caller')
   const isAdmin = result.data as boolean | null
   if (!isAdmin) redirect('/today')
