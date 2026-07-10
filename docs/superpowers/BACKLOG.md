@@ -696,7 +696,8 @@ runtime)** :
   le layout, pour ne payer l'auth qu'une fois par requête.
 
 **Actions** :
-- **E16.1 P0 — Supprimer le double appel auth (layout + `requireOnboarded`) — V1 livrée** :
+- **E16.1 P0 — Supprimer le double appel auth (layout + `requireOnboarded`) — V1 livrée**
+  (PR #99) :
   `lib/supabase/current-user.ts` expose un `getCurrentUser()` unique, enveloppé par
   React `cache()` (mémoïsation par requête App Router — « Request Memoization »,
   distincte de `unstable_cache`). `app/(app)/layout.tsx`, `lib/onboarding/guard.ts`
