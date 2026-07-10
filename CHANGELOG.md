@@ -1,3 +1,9 @@
+## [1.8.0](https://github.com/tellebma/garmin_training_ia/compare/v1.7.1...v1.8.0) (2026-07-10)
+
+### Features
+
+* **e14.2:** survol corrélé FC/allure entre carte GPS et graphiques ([#100](https://github.com/tellebma/garmin_training_ia/issues/100)) ([44e2fbf](https://github.com/tellebma/garmin_training_ia/commit/44e2fbf4e9512bace69503a6111f35a642365478))
+
 ## [1.7.1](https://github.com/tellebma/garmin_training_ia/compare/v1.7.0...v1.7.1) (2026-07-10)
 
 ### Bug Fixes
