@@ -505,3 +505,95 @@ def test_garmin_sync_started(client: ASGITestClient, monkeypatch: pytest.MonkeyP
     assert r.status_code == 200
     assert r.json() == {"status": "started"}
     assert seen == {"user_id": "u1", "trigger": "manual"}
+
+
+def test_strava_connect_requires_jwt(client: ASGITestClient) -> None:
+    r = client.post("/strava/connect", json={"code": "abc"})
+    assert r.status_code == 401
+
+
+def test_strava_connect_returns_worker_status(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    monkeypatch.setattr(
+        "garmin_sync.strava_connect.start_connect_flow",
+        lambda *, user_id, code: {"status": "connected"},
+    )
+
+    r = client.post("/strava/connect", json={"code": "abc"}, headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    assert r.json() == {"status": "connected"}
+
+
+def test_strava_disconnect_requires_jwt(client: ASGITestClient) -> None:
+    r = client.post("/strava/disconnect")
+    assert r.status_code == 401
+
+
+def test_strava_disconnect_returns_worker_status(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    monkeypatch.setattr(
+        "garmin_sync.strava_connect.disconnect", lambda *, user_id: {"status": "disconnected"}
+    )
+
+    r = client.post("/strava/disconnect", headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200
+    assert r.json() == {"status": "disconnected"}
+
+
+def test_strava_webhook_get_echoes_challenge(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "garmin_sync.strava_webhook.verify_challenge",
+        lambda *, mode, token, challenge: challenge,
+    )
+
+    r = client.get(
+        "/strava/webhook",
+        params={"hub.mode": "subscribe", "hub.verify_token": "t", "hub.challenge": "xyz"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"hub.challenge": "xyz"}
+
+
+def test_strava_webhook_get_rejects_bad_token(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "garmin_sync.strava_webhook.verify_challenge",
+        lambda *, mode, token, challenge: None,
+    )
+
+    r = client.get(
+        "/strava/webhook",
+        params={"hub.mode": "subscribe", "hub.verify_token": "wrong", "hub.challenge": "xyz"},
+    )
+    assert r.status_code == 403
+
+
+def test_strava_webhook_post_dispatches_event(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    received = []
+    monkeypatch.setattr(
+        "garmin_sync.strava_webhook.handle_event",
+        lambda payload: received.append(payload) or {"status": "stored"},
+    )
+
+    r = client.post(
+        "/strava/webhook",
+        json={"object_type": "activity", "aspect_type": "create", "object_id": 1, "owner_id": 2},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"status": "received"}
+    assert received == [
+        {"object_type": "activity", "aspect_type": "create", "object_id": 1, "owner_id": 2}
+    ]
