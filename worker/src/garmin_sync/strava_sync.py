@@ -27,7 +27,7 @@ def _load_credentials(db: Any, user_id: str) -> dict[str, Any] | None:
         db.table("athlete_strava_credentials")
         .select("oauth_tokens_encrypted")
         .eq("user_id", user_id)
-        .single()
+        .maybe_single()
         .execute()
         .data,
     )
@@ -49,6 +49,9 @@ def get_valid_access_token(user_id: str) -> str | None:
         strava_rate_limit.check_or_raise()
         refreshed = strava_client.refresh_access_token(blob["refresh_token"])
         strava_rate_limit.record_call()
+    except strava_rate_limit.StravaRateLimitExceeded:
+        log.warning("Strava rate limit hit during token refresh for user=%s", user_id)
+        return None
     except Exception:
         log.warning("Strava token refresh failed for user=%s", user_id)
         db.table("athlete_strava_credentials").update(

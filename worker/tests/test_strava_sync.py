@@ -22,7 +22,7 @@ def _encrypted_tokens(
 def _mock_db_with_credentials(encrypted: str | None) -> MagicMock:
     db = MagicMock()
     data = {"oauth_tokens_encrypted": encrypted} if encrypted else None
-    chain = db.table.return_value.select.return_value.eq.return_value.single.return_value
+    chain = db.table.return_value.select.return_value.eq.return_value.maybe_single.return_value
     chain.execute.return_value = MagicMock(data=data)
     return db
 
@@ -80,8 +80,9 @@ def test_get_valid_access_token_does_not_record_call_when_rate_limited(monkeypat
 
     assert token is None
     assert not record_mock.called
-    update_call = db.table.return_value.update
-    assert "token_refresh_failed_at" in update_call.call_args[0][0]
+    # Rate-limit exhaustion is not a token-refresh failure: it must not mark
+    # the user's Strava auth as broken (token_refresh_failed_at untouched).
+    assert not db.table.return_value.update.called
 
 
 def test_get_valid_access_token_returns_none_when_no_credentials(monkeypatch):
