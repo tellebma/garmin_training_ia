@@ -1,3 +1,9 @@
+## [1.9.0](https://github.com/tellebma/garmin_training_ia/compare/v1.8.0...v1.9.0) (2026-07-11)
+
+### Features
+
+* **e15.1:** intégration Strava — OAuth2 + webhook temps réel ([#101](https://github.com/tellebma/garmin_training_ia/issues/101)) ([ffaf787](https://github.com/tellebma/garmin_training_ia/commit/ffaf787794a006bb4a837f92f3fb85de6b0382c0))
+
 ## [1.8.0](https://github.com/tellebma/garmin_training_ia/compare/v1.7.1...v1.8.0) (2026-07-10)
 
 ### Features
