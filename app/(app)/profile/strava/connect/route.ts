@@ -9,8 +9,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   await requireOnboarded()
 
   const { origin } = new URL(request.url)
-  const state = crypto.randomUUID()
   const { STRAVA_CLIENT_ID } = getServerEnv()
+  if (!STRAVA_CLIENT_ID) {
+    return NextResponse.redirect(`${origin}/profile?strava=error`)
+  }
+
+  const state = crypto.randomUUID()
 
   const authorizeUrl = new URL('https://www.strava.com/oauth/authorize')
   authorizeUrl.searchParams.set('client_id', STRAVA_CLIENT_ID)

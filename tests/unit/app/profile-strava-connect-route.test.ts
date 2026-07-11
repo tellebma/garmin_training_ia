@@ -5,8 +5,9 @@ vi.mock('@/lib/onboarding/guard', () => ({
   requireOnboarded: (...a: unknown[]) => requireOnboarded(...a) as unknown,
 }))
 
+const getServerEnv = vi.fn()
 vi.mock('@/lib/env', () => ({
-  getServerEnv: () => ({ WORKER_URL: 'http://localhost:8080', STRAVA_CLIENT_ID: 'client-123' }),
+  getServerEnv: () => getServerEnv() as unknown,
 }))
 
 import { GET } from '@/app/(app)/profile/strava/connect/route'
@@ -14,6 +15,11 @@ import { GET } from '@/app/(app)/profile/strava/connect/route'
 beforeEach(() => {
   requireOnboarded.mockReset()
   requireOnboarded.mockResolvedValue('u1')
+  getServerEnv.mockReset()
+  getServerEnv.mockReturnValue({
+    WORKER_URL: 'http://localhost:8080',
+    STRAVA_CLIENT_ID: 'client-123',
+  })
 })
 
 describe('GET /profile/strava/connect', () => {
@@ -33,5 +39,21 @@ describe('GET /profile/strava/connect', () => {
     const setCookie = response.headers.get('set-cookie')
     expect(setCookie).toContain('strava_oauth_state=')
     expect(setCookie).toContain('HttpOnly')
+  })
+
+  it('redirects to /profile?strava=error when STRAVA_CLIENT_ID is not configured', async () => {
+    getServerEnv.mockReturnValue({
+      WORKER_URL: 'http://localhost:8080',
+      STRAVA_CLIENT_ID: undefined,
+    })
+    const request = new Request('https://app.example.com/profile/strava/connect')
+
+    const response = await GET(request)
+
+    const location = response.headers.get('location')
+    expect(location).toBe('https://app.example.com/profile?strava=error')
+    expect(location).not.toContain('strava.com')
+    const setCookie = response.headers.get('set-cookie')
+    expect(setCookie).toBeNull()
   })
 })

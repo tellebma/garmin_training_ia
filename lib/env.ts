@@ -9,7 +9,7 @@ const publicSchema = z.object({
 // Server-only env vars (NEVER exposed to the browser)
 const serverSchema = z.object({
   WORKER_URL: z.url().default('http://localhost:8080'),
-  STRAVA_CLIENT_ID: z.string().min(1),
+  STRAVA_CLIENT_ID: z.string().optional(),
 })
 
 const publicParsed = publicSchema.safeParse({
