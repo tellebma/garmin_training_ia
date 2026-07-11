@@ -8,7 +8,10 @@ from garmin_sync.crypto import TokenCipher
 
 
 def _encrypted_tokens(
-    *, access_token="at", refresh_token="rt", expires_at=None  # noqa: S107
+    *,
+    access_token="at",
+    refresh_token="rt",
+    expires_at=None,  # noqa: S107
 ) -> str:
     import time
 
