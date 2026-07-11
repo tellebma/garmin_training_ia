@@ -52,6 +52,9 @@ def get_valid_access_token(user_id: str) -> str | None:
     except strava_rate_limit.StravaRateLimitExceeded:
         log.warning("Strava rate limit hit during token refresh for user=%s", user_id)
         return None
+    except strava_client.StravaRateLimitError:
+        log.warning("Strava remote rate limit (429) hit during token refresh for user=%s", user_id)
+        return None
     except Exception:
         log.warning("Strava token refresh failed for user=%s", user_id)
         db.table("athlete_strava_credentials").update(

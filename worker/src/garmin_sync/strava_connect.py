@@ -78,16 +78,15 @@ def start_connect_flow(*, user_id: str, code: str) -> dict[str, Any]:
 
 
 def disconnect(*, user_id: str) -> dict[str, Any]:
-    db = supabase_client.get_admin_client()
-    row = cast(
-        "dict[str, Any] | None",
+    db: Any = supabase_client.get_admin_client()
+    resp = (
         db.table("athlete_strava_credentials")
         .select("oauth_tokens_encrypted")
         .eq("user_id", user_id)
-        .single()
+        .maybe_single()
         .execute()
-        .data,
     )
+    row = cast("dict[str, Any] | None", resp.data if resp else None)
     if not row:
         return {"status": "not_connected"}
 

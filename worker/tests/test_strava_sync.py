@@ -85,6 +85,32 @@ def test_get_valid_access_token_does_not_record_call_when_rate_limited(monkeypat
     assert not db.table.return_value.update.called
 
 
+def test_get_valid_access_token_does_not_record_failure_on_remote_rate_limit(monkeypatch):
+    import time
+
+    from garmin_sync.strava_client import StravaRateLimitError
+
+    encrypted = _encrypted_tokens(expires_at=int(time.time()) - 10)
+    db = _mock_db_with_credentials(encrypted)
+    monkeypatch.setattr("garmin_sync.supabase_client.get_admin_client", lambda: db)
+    monkeypatch.setattr("garmin_sync.strava_rate_limit.check_or_raise", MagicMock())
+    record_mock = MagicMock()
+    monkeypatch.setattr("garmin_sync.strava_rate_limit.record_call", record_mock)
+
+    def raise_remote_rate_limited(rt: str):
+        raise StravaRateLimitError("429 from Strava")
+
+    monkeypatch.setattr("garmin_sync.strava_client.refresh_access_token", raise_remote_rate_limited)
+
+    token = strava_sync.get_valid_access_token("u1")
+
+    assert token is None
+    assert not record_mock.called
+    # A remote 429 from Strava is transient, not an auth failure: it must not
+    # mark the user's Strava auth as broken (token_refresh_failed_at untouched).
+    assert not db.table.return_value.update.called
+
+
 def test_get_valid_access_token_returns_none_when_no_credentials(monkeypatch):
     db = _mock_db_with_credentials(None)
     monkeypatch.setattr("garmin_sync.supabase_client.get_admin_client", lambda: db)

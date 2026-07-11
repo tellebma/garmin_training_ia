@@ -78,7 +78,7 @@ def test_disconnect_deletes_credentials_and_revokes_token(monkeypatch):
 
     db = MagicMock()
     single_result = MagicMock(data={"oauth_tokens_encrypted": encrypted})
-    select_chain = db.table.return_value.select.return_value.eq.return_value.single
+    select_chain = db.table.return_value.select.return_value.eq.return_value.maybe_single
     select_chain.return_value.execute.return_value = single_result
     monkeypatch.setattr("garmin_sync.supabase_client.get_admin_client", lambda: db)
 
@@ -101,7 +101,7 @@ def test_disconnect_succeeds_even_if_revoke_fails(monkeypatch):
 
     db = MagicMock()
     single_result = MagicMock(data={"oauth_tokens_encrypted": encrypted})
-    select_chain = db.table.return_value.select.return_value.eq.return_value.single
+    select_chain = db.table.return_value.select.return_value.eq.return_value.maybe_single
     select_chain.return_value.execute.return_value = single_result
     monkeypatch.setattr("garmin_sync.supabase_client.get_admin_client", lambda: db)
 
@@ -119,7 +119,7 @@ def test_disconnect_succeeds_even_if_revoke_fails(monkeypatch):
 def test_disconnect_when_no_credentials_row(monkeypatch):
     db = MagicMock()
     single_result = MagicMock(data=None)
-    select_chain = db.table.return_value.select.return_value.eq.return_value.single
+    select_chain = db.table.return_value.select.return_value.eq.return_value.maybe_single
     select_chain.return_value.execute.return_value = single_result
     monkeypatch.setattr("garmin_sync.supabase_client.get_admin_client", lambda: db)
 
