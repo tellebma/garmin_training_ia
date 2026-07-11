@@ -4,12 +4,14 @@ const ORIGINAL_FETCH = globalThis.fetch
 const ORIGINAL_WORKER_URL = process.env.WORKER_URL
 const ORIGINAL_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const ORIGINAL_SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const ORIGINAL_STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID
 
 describe('workerPost', () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co'
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key-test'
     process.env.WORKER_URL = 'https://worker.local'
+    process.env.STRAVA_CLIENT_ID = 'test-strava-client-id'
     vi.resetModules()
   })
 
@@ -18,6 +20,7 @@ describe('workerPost', () => {
     process.env.WORKER_URL = ORIGINAL_WORKER_URL
     process.env.NEXT_PUBLIC_SUPABASE_URL = ORIGINAL_SUPABASE_URL
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = ORIGINAL_SUPABASE_ANON
+    process.env.STRAVA_CLIENT_ID = ORIGINAL_STRAVA_CLIENT_ID
   })
 
   it('sends Bearer JWT header and JSON body', async () => {

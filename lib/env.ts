@@ -9,6 +9,7 @@ const publicSchema = z.object({
 // Server-only env vars (NEVER exposed to the browser)
 const serverSchema = z.object({
   WORKER_URL: z.url().default('http://localhost:8080'),
+  STRAVA_CLIENT_ID: z.string().min(1),
 })
 
 const publicParsed = publicSchema.safeParse({
@@ -29,6 +30,7 @@ export const env = publicParsed.data
 export function getServerEnv() {
   const parsed = serverSchema.safeParse({
     WORKER_URL: process.env.WORKER_URL,
+    STRAVA_CLIENT_ID: process.env.STRAVA_CLIENT_ID,
   })
   if (!parsed.success) {
     throw new Error('Invalid server env: ' + JSON.stringify(parsed.error.issues))
