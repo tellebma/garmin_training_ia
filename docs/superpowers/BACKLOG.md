@@ -82,22 +82,37 @@ compréhensibles pour un athlète non expert.
 
 Récupérer les activités plus vite sans seulement augmenter la fréquence du polling.
 
-- **E15.1 P1 — Intégration Strava (compte lié + ingestion temps réel)** : OAuth2
-  (`athlete_strava_credentials`, refresh token chiffré comme `garmin_credentials`) +
-  écran « Connecter Strava » sur `/profile` (à côté de Garmin, pas en remplacement).
-  Webhook Strava (`POST /strava/webhook`, validation `hub.challenge`) déclenche un pull
-  de l'activité créée/mise à jour dans les secondes, sans polling. Mapping activité
-  Strava -> `activities` (mêmes colonnes que le transformer Garmin ; `source = 'strava'`
-  pour distinguer/dédupliquer si l'athlète a aussi Garmin -> Strava actif côté Garmin
-  Connect, cas fréquent). Gratuit en usage perso/petit volume (rate limit 100 req/15 min,
-  1000/jour, largement suffisant pour un pull par webhook). Chemin recommandé pour
-  couvrir les activités de **toute marque qui synchronise déjà vers Strava** — beaucoup
-  d'athlètes Suunto/Coros/Wahoo/Apple Watch le font déjà nativement ou via l'appli
-  constructeur — sans développer une intégration par marque. **Limite connue : Strava
-  n'expose pas les métriques de wellness** (sommeil, HRV, composition corporelle, FC
-  repos quotidienne) dont dépend le calcul Banister/readiness (`daily_metrics`,
-  `sleep`, `hrv`) — seules les activités (allure/FC/puissance/GPS) sont couvertes.
-  Voir E15.5 pour la donnée wellness non-Garmin.
+- **E15.1 P1 — Intégration Strava (compte lié + ingestion temps réel) — V1 livrée** (branche
+  feat/e15.1-strava-integration) : OAuth2 complet avec `athlete_strava_credentials`
+  (refresh token chiffré Fernet, pattern SEC-1-hardened), profil utilisateur actualisé
+  lors du connect. Front : écran « Connecter Strava » sur `/profile` (à côté de Garmin,
+  pas en remplacement), avec états connected/not-connected/token-stale et bouton
+  disconnect. Worker : 4 endpoints FastAPI (`POST /strava/connect`, `/strava/disconnect`,
+  `GET /strava/webhook` validation challenge, `POST /strava/webhook` event dispatch).
+  Webhook Strava déclenche un pull de l'activité créée/mise à jour/supprimée dans les
+  secondes (sans polling). Mapping activité Strava → `activities` (mêmes colonnes que le
+  transformer Garmin), `source = 'strava'` pour distinguer/dédupliquer si l'athlète a
+  aussi Garmin → Strava actif côté Garmin Connect (cas fréquent). Dédup avec règle
+  Garmin-priority (activité Strava ignorée si activité Garmin existe pour même
+  user/sport dans ±5 min). Rate limiting app-wide (100 req/15 min, 1000/jour, via
+  sliding window `strava_rate_limit.py`). Backfill 90 jours au connect (threaded
+  async), token refresh transparent. Couvre activités de **toute marque qui synchro vers
+  Strava** (Suunto/Coros/Wahoo/Apple Watch nativement ou via appli).
+  
+  Suite (hors scope V1) : GPS samples/courbes détaillées pour activités Strava (`activity_samples`
+  généralisation, E15.5), données wellness non-Garmin (Polar, E15.5), positionnement produit
+  « Strava suffit » (E15.6).
+  
+  Action owner restante (manuelle, hors repo) : créer l'application Strava API à
+  https://www.strava.com/settings/api pour obtenir `client_id`/`client_secret`. Définir
+  « Authorization Callback Domain » au domaine apex de l'app (ex. `garmin-training-ia.vercel.app`
+  — Strava n'accepte que le domaine nu). Ajouter les secrets `STRAVA_CLIENT_ID`,
+  `STRAVA_CLIENT_SECRET`, `STRAVA_WEBHOOK_VERIFY_TOKEN` (string aléatoire que vous générez une
+  fois) au worker (`.env`/UNRAID `docker-compose.prod.yml`) et `STRAVA_CLIENT_ID` à Vercel
+  (même valeur que le worker, non-secret). Après deploy worker, créer une fois la souscription
+  webhook app-wide en POSTant à `https://www.strava.com/api/v3/push_subscriptions` avec
+  `client_id`, `client_secret`, `callback_url=https://garmin-sync.tellebma.fr/strava/webhook`,
+  `verify_token=<STRAVA_WEBHOOK_VERIFY_TOKEN>` que vous avez défini.
 - **E15.2 P2 — Garmin officiel** : évaluer Garmin Health/Activity API (webhooks push) —
   réservé au programme partenaire, validation B2B. La lib `python-garminconnect`
   actuelle ne fait que du polling non officiel.
