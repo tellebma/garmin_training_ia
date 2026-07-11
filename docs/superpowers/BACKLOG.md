@@ -99,9 +99,30 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   async), token refresh transparent. Couvre activités de **toute marque qui synchro vers
   Strava** (Suunto/Coros/Wahoo/Apple Watch nativement ou via appli).
   
-  Suite (hors scope V1) : GPS samples/courbes détaillées pour activités Strava (`activity_samples`
-  généralisation, E15.5), données wellness non-Garmin (Polar, E15.5), positionnement produit
-  « Strava suffit » (E15.6).
+  Suite (hors scope V1) :
+  - GPS samples/courbes détaillées pour activités Strava (`activity_samples` généralisation, E15.5).
+  - Données wellness non-Garmin (Polar, E15.5).
+  - Positionnement produit « Strava suffit » (E15.6).
+  - **Dédup bidirectionnelle** : le dédup V1 est unidirectionnel (Strava → Garmin). Dans l'ordre
+    courant Strava-then-Garmin, les deux lignes persévèrent. Ajouter un contrôle réciprocal dans
+    le chemin Garmin (et vice-versa pour chaque source future E15.5) pour effacer un Strava/Polar
+    existant quand un Garmin arrive. Scope : audit ordre arrivée, test multi-source, logique sync
+    par source. Suite post-E15.1, avant multi-sources.
+  - **Sécurisation webhook Strava delete** : l'endpoint `POST /strava/webhook` accepte les delete
+    sans HMAC signature ni vérification API. IP allowlisting au reverse-proxy (Nginx owner UNRAID)
+    sur les plages Strava publiques bloquera les delete forgés. Action owner restante (infra, hors
+    repo) — à faire avant d'ouvrir au public ou dès le merge E15.1 pour la durabilité. Spec
+    technique en annexe de la migration worker E15.1.
+  - **TSS null pour activités Strava** : la transformation supporte HR-based TSS via
+    `fc_max_bpm`/`ftp_watts` du profil, mais le call site ne passe pas ces paramètres — TSS reste
+    null en V1 (décision scope validée). Conséquence : athlète Strava-seul a charge d'entraînement
+    invisible au coach (CTL/ATL/TSB ignorent ces activités). Plumbing existe, c'est un petit
+    wiring. Suite rapide post-V1 dès que readiness/briefing pour Strava devient prioritaire.
+  - **Pas de banner confirmation/erreur OAuth** : route callback redirige vers `/profile?strava=connected`
+    ou `?strava=error`, mais `app/(app)/profile/page.tsx` n'lit pas les `searchParams` — succès
+    visible indirectement (card change), but erreur silencieuse. À câbler sur un toast/banner visible.
+  - **`StravaDisconnectButton` sans loading/error state** : `disconnectStrava()` s'exécute async
+    sans indicateur pending ni feedback d'erreur. À ajouter skeleton/disabled state pendant l'appel.
   
   Action owner restante (manuelle, hors repo) : créer l'application Strava API à
   https://www.strava.com/settings/api pour obtenir `client_id`/`client_secret`. Définir
