@@ -108,11 +108,18 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
     le chemin Garmin (et vice-versa pour chaque source future E15.5) pour effacer un Strava/Polar
     existant quand un Garmin arrive. Scope : audit ordre arrivée, test multi-source, logique sync
     par source. Suite post-E15.1, avant multi-sources.
-  - **Sécurisation webhook Strava delete** : l'endpoint `POST /strava/webhook` accepte les delete
-    sans HMAC signature ni vérification API. IP allowlisting au reverse-proxy (Nginx owner UNRAID)
-    sur les plages Strava publiques bloquera les delete forgés. Action owner restante (infra, hors
-    repo) — à faire avant d'ouvrir au public ou dès le merge E15.1 pour la durabilité. Spec
-    technique en annexe de la migration worker E15.1.
+  - **Sécurisation webhook Strava (déauth + rate-limit DoS + thread exhaustion)** : l'endpoint
+    `POST /strava/webhook` accepte TOUS les events (create/update/delete/deauth) sans HMAC signature
+    ni vérification JWT. Trois vecteurs critiques : (1) POSTer `{authorized: 'false'}` supprime
+    entièrement les credentials Strava de la victime ; (2) des events `create`/`update` forgés
+    consomment la budget app-wide rate-limit (100 req/15 min, 1000/jour) pour TOUS les utilisateurs,
+    causant une DoS silencieuse du backfill/webhook/token-refresh ; (3) chaque POST lance un
+    unbounded daemon thread sans rate-limiting endpoint. **Action owner IMMÉDIATE (merge-coupled,
+    hors repo)** : configurer IP allowlisting strict au reverse-proxy Nginx (Nginx Proxy Manager
+    UNRAID) sur les plages d'IPs webhook Strava publiques. Le worker auto-déploie sur `main` et
+    l'endpoint devient internet-reachable immédiatement — **à faire AT/BEFORE merge E15.1, pas en
+    suite**, sinon les trois vecteurs sont exploitables en prod. Spec technique détaillée en
+    section E15.1 du spec design (webhook trust-model).
   - **TSS null pour activités Strava** : la transformation supporte HR-based TSS via
     `fc_max_bpm`/`ftp_watts` du profil, mais le call site ne passe pas ces paramètres — TSS reste
     null en V1 (décision scope validée). Conséquence : athlète Strava-seul a charge d'entraînement
@@ -124,16 +131,26 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   - **`StravaDisconnectButton` sans loading/error state** : `disconnectStrava()` s'exécute async
     sans indicateur pending ni feedback d'erreur. À ajouter skeleton/disabled state pendant l'appel.
   
-  Action owner restante (manuelle, hors repo) : créer l'application Strava API à
-  https://www.strava.com/settings/api pour obtenir `client_id`/`client_secret`. Définir
-  « Authorization Callback Domain » au domaine apex de l'app (ex. `garmin-training-ia.vercel.app`
-  — Strava n'accepte que le domaine nu). Ajouter les secrets `STRAVA_CLIENT_ID`,
-  `STRAVA_CLIENT_SECRET`, `STRAVA_WEBHOOK_VERIFY_TOKEN` (string aléatoire que vous générez une
-  fois) au worker (`.env`/UNRAID `docker-compose.prod.yml`) et `STRAVA_CLIENT_ID` à Vercel
-  (même valeur que le worker, non-secret). Après deploy worker, créer une fois la souscription
-  webhook app-wide en POSTant à `https://www.strava.com/api/v3/push_subscriptions` avec
-  `client_id`, `client_secret`, `callback_url=https://garmin-sync.tellebma.fr/strava/webhook`,
-  `verify_token=<STRAVA_WEBHOOK_VERIFY_TOKEN>` que vous avez défini.
+  Action owner restante (manuelle, hors repo) :
+  
+  **SETUP** (avant merge E15.1 pour que la merge ne break pas) :
+  - Créer l'application Strava API à https://www.strava.com/settings/api pour obtenir
+    `client_id`/`client_secret`. Définir « Authorization Callback Domain » au domaine apex
+    de l'app (ex. `garmin-training-ia.vercel.app` — Strava n'accepte que le domaine nu).
+  - Ajouter les secrets `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_WEBHOOK_VERIFY_TOKEN`
+    (string aléatoire que vous générez une fois) au worker (`.env`/UNRAID `docker-compose.prod.yml`)
+    et `STRAVA_CLIENT_ID` à Vercel (même valeur que le worker, non-secret).
+  
+  **APRÈS DEPLOY WORKER** (immédiatement, merge-coupled) :
+  - Créer une fois la souscription webhook app-wide en POSTant à
+    `https://www.strava.com/api/v3/push_subscriptions` avec `client_id`, `client_secret`,
+    `callback_url=https://garmin-sync.tellebma.fr/strava/webhook`,
+    `verify_token=<STRAVA_WEBHOOK_VERIFY_TOKEN>` que vous avez défini.
+  - **🚨 SÉCURITÉ MERGE-COUPLED** : configurer IP allowlisting au reverse-proxy Nginx
+    (Nginx Proxy Manager UNRAID) pour que seules les plages d'IPs webhook Strava publiques
+    puissent POSTer à `/strava/webhook`. Sans cela, les trois vecteurs d'exploitation
+    documentés en « Suite E15.1 » sont exploitables en prod dès le merge. À FAIRE AT/BEFORE
+    MERGE, pas après.
 - **E15.2 P2 — Garmin officiel** : évaluer Garmin Health/Activity API (webhooks push) —
   réservé au programme partenaire, validation B2B. La lib `python-garminconnect`
   actuelle ne fait que du polling non officiel.
