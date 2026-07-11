@@ -100,3 +100,22 @@ export async function workerTriggerSync(
 ): Promise<SyncTriggerResult> {
   return workerPost<SyncTriggerResult>(`/garmin/sync?trigger=${trigger}`, {}, jwt)
 }
+
+export type StravaConnectResult =
+  | { status: 'connected' }
+  | { status: 'strava_auth_error' }
+  | { status: 'rate_limited' }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
+export type StravaDisconnectResult =
+  | { status: 'disconnected' }
+  | { status: 'not_connected' }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
+export async function workerStravaConnect(jwt: string, code: string): Promise<StravaConnectResult> {
+  return workerPost<StravaConnectResult>('/strava/connect', { code }, jwt)
+}
+
+export async function workerStravaDisconnect(jwt: string): Promise<StravaDisconnectResult> {
+  return workerPost<StravaDisconnectResult>('/strava/disconnect', {}, jwt)
+}

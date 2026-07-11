@@ -13,5 +13,8 @@ def _fake_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FERNET_KEY", "Mk7-aBcDEfGhIjKlMnOpQrStUvWxYz0123456789abc=")
     monkeypatch.setenv("WORKER_SHARED_TOKEN", "shared-token-test")
     monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("STRAVA_CLIENT_ID", "12345")
+    monkeypatch.setenv("STRAVA_CLIENT_SECRET", "strava-secret-test")
+    monkeypatch.setenv("STRAVA_WEBHOOK_VERIFY_TOKEN", "verify-token-test")
     # Disable Sentry in tests
     monkeypatch.delenv("SENTRY_DSN", raising=False)

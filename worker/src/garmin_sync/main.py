@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from fastapi import APIRouter, FastAPI, Header, HTTPException, status
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -168,6 +168,73 @@ async def garmin_mfa(
         return resume_connect_flow(user_id=user_id, challenge_id=body.challenge_id, code=body.code)
     except Exception as e:
         return report_endpoint_error(e, endpoint="garmin_mfa", user_id=user_id)
+
+
+class StravaConnectRequest(BaseModel):
+    code: str
+
+
+@router.post("/strava/connect")
+async def strava_connect(
+    body: StravaConnectRequest,
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.strava_connect import start_connect_flow
+
+        return start_connect_flow(user_id=user_id, code=body.code)
+    except Exception as e:
+        return report_endpoint_error(e, endpoint="strava_connect", user_id=user_id)
+
+
+@router.post("/strava/disconnect")
+async def strava_disconnect(
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.strava_connect import disconnect
+
+        return disconnect(user_id=user_id)
+    except Exception as e:
+        return report_endpoint_error(e, endpoint="strava_disconnect", user_id=user_id)
+
+
+@router.get("/strava/webhook")
+async def strava_webhook_verify(
+    hub_mode: Annotated[str | None, Query(alias="hub.mode")] = None,
+    hub_verify_token: Annotated[str | None, Query(alias="hub.verify_token")] = None,
+    hub_challenge: Annotated[str | None, Query(alias="hub.challenge")] = None,
+) -> dict[str, str]:
+    from garmin_sync.strava_webhook import verify_challenge
+
+    challenge = verify_challenge(mode=hub_mode, token=hub_verify_token, challenge=hub_challenge)
+    if challenge is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid verify token")
+    return {"hub.challenge": challenge}
+
+
+@router.post("/strava/webhook")
+async def strava_webhook_event(payload: dict[str, Any]) -> dict[str, str]:
+    """Ack immediately (Strava requires <2s); process in the background.
+
+    Errors are swallowed here on purpose — Strava does not retry on 200, and
+    we never want a transient DB hiccup to make Strava disable the
+    subscription after repeated non-2xx responses.
+    """
+    import threading
+
+    def _run() -> None:
+        try:
+            from garmin_sync.strava_webhook import handle_event
+
+            handle_event(payload)
+        except Exception:
+            log.exception("Strava webhook event processing failed: %s", payload)
+
+    threading.Thread(target=_run, name="strava-webhook-event", daemon=True).start()
+    return {"status": "received"}
 
 
 @router.post("/garmin/profile-sync")

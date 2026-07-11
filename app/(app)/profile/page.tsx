@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { SignOutButton } from '@/components/auth/sign-out-button'
+import { StravaDisconnectButton } from '@/components/strava/disconnect-button'
 import { Button } from '@/components/ui/button'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
@@ -55,6 +56,14 @@ interface GarminCredentialsRow {
   updated_at: string
 }
 
+interface StravaCredentialsRow {
+  last_sync_at: string | null
+  last_sync_status: string | null
+  initial_sync_completed_at: string | null
+  token_refresh_failed_at: string | null
+  updated_at: string
+}
+
 function formatDateTime(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
@@ -68,41 +77,55 @@ export default async function ProfilePage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: race }, { data: garmin }, { data: adjustmentDecisions }] =
-    await Promise.all([
-      supabase
-        .from('athlete_profiles')
-        .select(
-          'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, css_per_100m_s, garmin_synced_at, available_days, hours_per_week, sports_strengths'
-        )
-        .eq('user_id', userId)
-        .single<AthleteProfileRow>(),
-      supabase
-        .from('race_goals')
-        .select('race_date, discipline, name, location, target_time_seconds, legs')
-        .eq('user_id', userId)
-        .eq('is_primary', true)
-        .maybeSingle<RaceGoalRow>(),
-      supabase
-        .from('garmin_credentials')
-        .select(
-          'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
-        )
-        .eq('user_id', userId)
-        .maybeSingle<GarminCredentialsRow>(),
-      supabase
-        .from('coach_adjustment_decisions')
-        .select(
-          'id, planned_session_id, original_session_type, suggested_session_type, decision, source, created_at, planned_sessions(date, sport, session_type)'
-        )
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(10)
-        .overrideTypes<CoachAdjustmentDecisionRow[], { merge: false }>(),
-    ])
+  const [
+    { data: profile },
+    { data: race },
+    { data: garmin },
+    { data: strava },
+    { data: adjustmentDecisions },
+  ] = await Promise.all([
+    supabase
+      .from('athlete_profiles')
+      .select(
+        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, css_per_100m_s, garmin_synced_at, available_days, hours_per_week, sports_strengths'
+      )
+      .eq('user_id', userId)
+      .single<AthleteProfileRow>(),
+    supabase
+      .from('race_goals')
+      .select('race_date, discipline, name, location, target_time_seconds, legs')
+      .eq('user_id', userId)
+      .eq('is_primary', true)
+      .maybeSingle<RaceGoalRow>(),
+    supabase
+      .from('garmin_credentials')
+      .select(
+        'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
+      )
+      .eq('user_id', userId)
+      .maybeSingle<GarminCredentialsRow>(),
+    supabase
+      .from('athlete_strava_credentials')
+      .select(
+        'last_sync_at, last_sync_status, initial_sync_completed_at, token_refresh_failed_at, updated_at'
+      )
+      .eq('user_id', userId)
+      .maybeSingle<StravaCredentialsRow>(),
+    supabase
+      .from('coach_adjustment_decisions')
+      .select(
+        'id, planned_session_id, original_session_type, suggested_session_type, decision, source, created_at, planned_sessions(date, sport, session_type)'
+      )
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .overrideTypes<CoachAdjustmentDecisionRow[], { merge: false }>(),
+  ])
 
   const garminConnected = garmin !== null
   const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
+  const stravaConnected = strava !== null
+  const stravaAuthStale = strava !== null && strava.token_refresh_failed_at !== null
 
   // Build typed initial props for edit forms
   const persoInitial: PersonInput = {
@@ -192,6 +215,53 @@ export default async function ProfilePage() {
             <Button asChild variant="outline">
               <Link href="/profile/garmin">Reconnecter</Link>
             </Button>
+          </>
+        )}
+      </section>
+
+      {/* Strava Connect section */}
+      <section className="space-y-3 rounded-lg border p-6">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Strava</h2>
+          {stravaConnected && !stravaAuthStale && (
+            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              Connecté
+            </span>
+          )}
+          {stravaAuthStale && (
+            <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+              Token expiré
+            </span>
+          )}
+        </div>
+
+        {!stravaConnected && (
+          <>
+            <p className="text-muted-foreground text-sm">
+              Connecte ton compte Strava pour synchroniser tes activités en temps réel — utile si ta
+              montre n&apos;est pas Garmin.
+            </p>
+            <Button asChild variant="outline">
+              <Link href="/profile/strava/connect">Connecter Strava</Link>
+            </Button>
+          </>
+        )}
+
+        {stravaConnected && (
+          <>
+            <dl className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <dt>Connecté le</dt>
+              <dd className="text-foreground">{formatDateTime(strava.updated_at)}</dd>
+              <dt>Backfill 90 j</dt>
+              <dd className="text-foreground">
+                {strava.initial_sync_completed_at
+                  ? `terminé le ${formatDateTime(strava.initial_sync_completed_at)}`
+                  : 'en cours'}
+              </dd>
+              <dt>Dernier événement</dt>
+              <dd className="text-foreground">{formatDateTime(strava.last_sync_at)}</dd>
+            </dl>
+            <StravaDisconnectButton />
           </>
         )}
       </section>
