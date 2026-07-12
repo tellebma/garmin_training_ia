@@ -154,6 +154,18 @@ Objectif : un suivi lisible et fiable d'un coup d'œil sur GitHub. Garder Projec
 `BACKLOG.md` synchronisés ; ne jamais faire avancer une tâche sans refléter son état sur le
 board.
 
+### Changelog utilisateur (`docs/nouveautes.md`) — à tenir à jour à chaque feature visible
+
+Depuis E21, l'app affiche un badge "nouveautés" (cloche) alimenté par `docs/nouveautes.md` —
+distinct de `CHANGELOG.md` (généré par semantic-release, technique/anglais, illisible pour un
+utilisateur final). **Au merge de toute feature ou changement visible par l'utilisateur**
+(nouvel écran, nouvelle donnée affichée, changement de comportement perceptible), ajouter une
+entrée dans `docs/nouveautes.md` : 1 à 3 puces courtes en français, orientées bénéfice
+utilisateur, sous une section `## <version> — <date>` correspondant à la version qui sera
+taguée par semantic-release. Ne pas ajouter d'entrée pour les changements internes (refactor,
+CI, quality gates, fixes non visibles, dépendances). Ce rappel s'ajoute — sans le remplacer —
+à la mise à jour de `BACKLOG.md` et du Project décrite ci-dessus.
+
 > Note outillage : la mise à jour du Project (v2) nécessite un token GitHub avec le scope
 > `project` (ou `read:project` en lecture). Si le token courant ne l'a pas
 > (`gh auth refresh -s project`), basculer sur des **Issues** liées au Project en attendant.

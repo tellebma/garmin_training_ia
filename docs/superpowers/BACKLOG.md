@@ -654,6 +654,36 @@ allowlist UI + inscription ouverte, initialement en « Suite »). Spec :
   (flag `is_admin` généralisé), affichage du coût converti en €, bannissement d'un compte
   déjà actif, ciblage de feature flag par utilisateur.
 
+### EPIC E19 — Lien cliquable vers l'historique depuis /today
+
+**Priorité : P2 — Statut : à planifier**
+
+Sur `/today`, la carte "Dernière activité" n'est pas cliquable alors que le même composant
+(`ActivityRow`) l'est déjà sur `/history`. Fix ciblé : envelopper la carte dans un `Link`
+vers `/history/[id]` (route déjà existante). Spec :
+`docs/superpowers/specs/2026-07-12-e19-lien-derniere-activite-today-design.md`.
+
+### EPIC E20 — Cols gravis sur la fiche activité
+
+**Priorité : P2 — Statut : à planifier**
+
+`col_crossings` (E9, 2026-07-08) a déjà un `garmin_activity_id`, permettant de lier les cols
+franchis à une activité précise. Nouvelle section "Cols gravis" sur `/history/[id]` (nom +
+altitude des cols franchis pendant cette activité), affichée uniquement si ≥1 col — widget
+isolé avec son propre `Suspense` (pas dans le `Promise.all` bloquant de la page, cf. retour
+owner sur "Mes cols"). Spec :
+`docs/superpowers/specs/2026-07-12-e20-cols-gravis-fiche-activite-design.md`.
+
+### EPIC E21 — Notifications de nouveautés (changelog interne)
+
+**Priorité : P2 — Statut : à planifier**
+
+Badge "nouveautés" (cloche) dans la nav, alimenté par un nouveau fichier éditorial
+`docs/nouveautes.md` (distinct du `CHANGELOG.md` technique semantic-release) — 1-3 puces FR
+par version. État lu/non-lu stocké sur `athlete_profiles.last_seen_changelog_version`. Rappel
+de mise à jour ajouté à `CLAUDE.md`. Spec :
+`docs/superpowers/specs/2026-07-12-e21-notifications-nouveautes-design.md`.
+
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 
 **Priorité : P1 — Statut : V1 livrée (auto-apply, sans gate)**
