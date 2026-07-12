@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -53,3 +54,38 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      # En échec, ce job ne bloque aucune PR (il tourne post-merge sur main) et
+      # passait inaperçu dans les Actions — vécu le 2026-07-09 : 5 push
+      # consécutifs en échec pendant 3 jours, colonnes/tables jamais appliquées
+      # en prod sans que personne ne le remarque. Une issue GitHub le rend visible.
+      - name: Open/update tracking issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          existing=$(gh issue list --repo "${{ github.repository }}" --label supabase-migrations-ko --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" \
+              --body "Nouvel échec de \`supabase db push\` sur main (commit ${{ github.sha }}) : $RUN_URL"
+          else
+            printf 'Le push automatique des migrations Supabase a échoué sur main (commit %s).\n\nTant que cette issue reste ouverte, aucune migration nouvelle n'\''atteint la prod.\n\nRun : %s\n\nVoir QUALITY_GATES.md § Migrations Supabase pour la procédure de diagnostic/repair.\n' \
+              "${{ github.sha }}" "$RUN_URL" > /tmp/issue-body.md
+            gh issue create --repo "${{ github.repository }}" \
+              --title "supabase db push (prod) en échec" \
+              --label supabase-migrations-ko \
+              --body-file /tmp/issue-body.md
+          fi
+
+      - name: Close tracking issue on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --repo "${{ github.repository }}" --label supabase-migrations-ko --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" \
+              --body "Résolu : \`supabase db push\` repasse au vert sur main (commit ${{ github.sha }})."
+            gh issue close "$existing" --repo "${{ github.repository }}"
+          fi

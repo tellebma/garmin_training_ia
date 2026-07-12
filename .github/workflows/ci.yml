@@ -142,6 +142,29 @@ jobs:
           fi
           echo "OK : no emoji in UI source"
 
+  migrations-lint:
+    name: Supabase migrations lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for duplicate migration version prefixes
+        run: |
+          # Chaque fichier supabase/migrations/<version>_<name>.sql doit avoir un
+          # <version> (timestamp) unique — supabase db push l'utilise comme clé
+          # dans schema_migrations. Un doublon désynchronise l'historique remote
+          # (vécu le 2026-07-09 : deux fichiers au même timestamp ont bloqué tous
+          # les `db push` suivants sans qu'on s'en aperçoive pendant 3 jours).
+          cd supabase/migrations
+          dupes=$(ls *.sql | sed -E 's/^([0-9]{14})_.*/\1/' | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "Timestamps de migration en doublon détectés :"
+            echo "$dupes"
+            echo
+            echo "Chaque fichier doit avoir un préfixe timestamp unique. Renomme l'un des fichiers concernés."
+            exit 1
+          fi
+          echo "OK : tous les préfixes de version de migration sont uniques"
+
   sonarqube:
     name: SonarQube scan + gate
     runs-on: ubuntu-latest
