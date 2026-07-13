@@ -1134,6 +1134,14 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
 
 ## Post-MVP technique
 
+- Requête `cols` non bornée spatialement : `ColsWidgetLoader` (`app/(app)/stats/page.tsx`)
+  fait un `select` complet de la table `cols` (partagée entre tous les users) et filtre le
+  rayon de 50km côté JS (`lib/dashboard/cols.ts`). Comportement préexistant au widget cols,
+  amplifié par l'ajout des sommets (`natural=peak` bien plus dense que `mountain_pass=yes`
+  en zone montagneuse). Acceptable à l'échelle MVP (owner + quelques amis, une région), à
+  borner (préfiltre lat/lon ou requête spatiale PostGIS/RPC) avant l'ouverture beta à
+  plusieurs régions. Identifié lors de la revue finale de branche
+  `feat/e-post-mvp-cols-sommets` (2026-07-13).
 - Custom SMTP Supabase (Resend gratuit 100/jour) — rate limits du SMTP intégré.
 - Vercel Speed Insights pour monitoring perf prod.
 - Script `scripts/sync-email-templates.ts` qui pousse les templates depuis le repo
