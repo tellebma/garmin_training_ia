@@ -29,4 +29,13 @@ describe('parseChangelog', () => {
       { version: '1.6.0', date: '2026-07-09', bullets: ['kept.'] },
     ])
   })
+
+  it('parses long bullets on a single physical line without truncation', () => {
+    const longBullet =
+      'Connecte ton compte Strava : tes activités arrivent maintenant en temps réel, dès que tu termines une sortie.'
+    const md = `## 1.9.0 — 2026-07-11\n\n- ${longBullet}\n`
+    expect(parseChangelog(md)).toEqual([
+      { version: '1.9.0', date: '2026-07-11', bullets: [longBullet] },
+    ])
+  })
 })
