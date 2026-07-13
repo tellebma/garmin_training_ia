@@ -116,6 +116,7 @@ def test_refresh_fetches_and_upserts_when_cache_is_stale(monkeypatch: Any) -> No
     named = next(r for r in db.cols_query.upserted if r["osm_id"] == 123)
     assert named["name"] == "Col du Truc"
     assert named["elevation_m"] == 1850
+    assert named["type"] == "col"
     unnamed = next(r for r in db.cols_query.upserted if r["osm_id"] == 456)
     assert "Col (OSM #456)" in unnamed["name"]
     assert db.profile_query.updated is not None
@@ -167,7 +168,13 @@ def test_refresh_truncates_overly_long_col_names(monkeypatch: Any) -> None:
     long_name = "A" * 500
     httpx_mock.get.return_value.json.return_value = {
         "elements": [
-            {"type": "node", "id": 789, "lat": 45.0, "lon": 6.0, "tags": {"name": long_name}}
+            {
+                "type": "node",
+                "id": 789,
+                "lat": 45.0,
+                "lon": 6.0,
+                "tags": {"mountain_pass": "yes", "name": long_name},
+            }
         ]
     }
     monkeypatch.setattr(mod, "httpx", httpx_mock)
@@ -190,3 +197,111 @@ def test_refresh_always_fetches_when_never_cached(monkeypatch: Any) -> None:
     mod.refresh_nearby_cols("user-1", 45.0, 6.0)
 
     httpx_mock.get.assert_called_once()
+
+
+def test_build_query_includes_both_overpass_tags() -> None:
+    query = mod._build_query(45.0, 6.0)
+    assert "mountain_pass=yes" in query
+    assert "natural=peak" in query
+
+
+def test_refresh_classifies_peak_and_filters_by_elevation(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    httpx_mock = MagicMock()
+    httpx_mock.get.return_value.json.return_value = {
+        "elements": [
+            {
+                "type": "node",
+                "id": 901,
+                "lat": 45.82,
+                "lon": 4.52,
+                "tags": {"natural": "peak", "name": "Crêt d'Arjoux", "ele": "815"},
+            },
+            {
+                "type": "node",
+                "id": 902,
+                "lat": 45.83,
+                "lon": 4.53,
+                "tags": {"natural": "peak", "name": "Petite Butte", "ele": "300"},
+            },
+            {
+                "type": "node",
+                "id": 903,
+                "lat": 45.84,
+                "lon": 4.54,
+                "tags": {"natural": "peak", "name": "Sommet Sans Altitude"},
+            },
+        ]
+    }
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+    assert db.cols_query.upserted is not None
+    assert len(db.cols_query.upserted) == 1
+    row = db.cols_query.upserted[0]
+    assert row["osm_id"] == 901
+    assert row["type"] == "peak"
+    assert row["name"] == "Crêt d'Arjoux"
+    assert row["elevation_m"] == 815
+
+
+def test_refresh_prioritizes_col_type_when_both_tags_present(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    httpx_mock = MagicMock()
+    httpx_mock.get.return_value.json.return_value = {
+        "elements": [
+            {
+                "type": "node",
+                "id": 777,
+                "lat": 45.0,
+                "lon": 6.0,
+                # ele volontairement < 500 pour vérifier qu'aucun filtre
+                # d'altitude ne s'applique quand le nœud est classé 'col'.
+                "tags": {
+                    "mountain_pass": "yes",
+                    "natural": "peak",
+                    "ele": "300",
+                    "name": "Col-Sommet",
+                },
+            },
+        ]
+    }
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+    assert db.cols_query.upserted is not None
+    assert len(db.cols_query.upserted) == 1
+    assert db.cols_query.upserted[0]["type"] == "col"
+
+
+def test_refresh_default_name_for_unnamed_peak(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    httpx_mock = MagicMock()
+    httpx_mock.get.return_value.json.return_value = {
+        "elements": [
+            {
+                "type": "node",
+                "id": 555,
+                "lat": 45.0,
+                "lon": 6.0,
+                "tags": {"natural": "peak", "ele": "900"},
+            },
+        ]
+    }
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+    assert db.cols_query.upserted is not None
+    assert "Sommet (OSM #555)" in db.cols_query.upserted[0]["name"]
