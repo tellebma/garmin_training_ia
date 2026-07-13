@@ -305,3 +305,33 @@ def test_refresh_default_name_for_unnamed_peak(monkeypatch: Any) -> None:
 
     assert db.cols_query.upserted is not None
     assert "Sommet (OSM #555)" in db.cols_query.upserted[0]["name"]
+
+
+def test_refresh_keeps_peak_at_exact_elevation_boundary(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    httpx_mock = MagicMock()
+    httpx_mock.get.return_value.json.return_value = {
+        "elements": [
+            {
+                "type": "node",
+                "id": 904,
+                "lat": 45.85,
+                "lon": 4.55,
+                "tags": {"natural": "peak", "name": "Sommet Limite", "ele": "500"},
+            },
+        ]
+    }
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+    assert db.cols_query.upserted is not None
+    assert len(db.cols_query.upserted) == 1
+    row = db.cols_query.upserted[0]
+    assert row["osm_id"] == 904
+    assert row["type"] == "peak"
+    assert row["name"] == "Sommet Limite"
+    assert row["elevation_m"] == 500
