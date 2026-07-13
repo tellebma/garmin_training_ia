@@ -42,6 +42,7 @@ describe('markChangelogSeen', () => {
 
     await expect(markChangelogSeen('1.9.0')).resolves.toEqual({ success: true })
     expect(profileQuery.update).toHaveBeenCalledWith({ last_seen_changelog_version: '1.9.0' })
+    expect(eq).toHaveBeenCalledWith('user_id', 'user-1')
   })
 
   it('returns success: false on a database error', async () => {
