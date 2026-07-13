@@ -1,5 +1,6 @@
 // app/(app)/today/page.tsx
 import { Suspense } from 'react'
+import Link from 'next/link'
 import {
   Activity as ActivityIcon,
   BatteryCharging,
@@ -267,7 +268,9 @@ export default async function TodayPage() {
           Dernière activité
         </h2>
         {lastActivity ? (
-          <ActivityRow activity={lastActivity} />
+          <Link href={`/history/${lastActivity.id}`} className="block">
+            <ActivityRow activity={lastActivity} />
+          </Link>
         ) : (
           <EmptyState
             icon={ActivityIcon}

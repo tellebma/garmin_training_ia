@@ -1118,6 +1118,19 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
   liste des cols par l'utilisateur, distinction montée stricte vs simple passage,
   mini-carte visuelle des cols.
 
+### P2 — Sommets (natural=peak) dans le widget cols
+
+- Le widget « Mes cols » ne référence que `mountain_pass=yes` (OSM) : les sommets
+  hors col routier (ex. Crêt d'Arjoux, natural=peak) sont invisibles quelle que soit
+  leur pertinence locale. Comparaison faite avec ColQuest (chasse aux cols/sommets
+  via matching Strava) qui suit un modèle proche de la détection par proximité GPS
+  déjà en place ici.
+- Extension de la table `cols` existante (colonne `type` col/peak, pas de nouvelle
+  table), requête Overpass combinée (`mountain_pass=yes` + `natural=peak`), filtre
+  d'altitude ≥ 500m sur les sommets uniquement. Widget renommé « Mes cols & sommets »,
+  deux sections triées séparément.
+- Spec : `docs/superpowers/specs/2026-07-12-cols-sommets-peaks-design.md`.
+
 ## Post-MVP technique
 
 - Custom SMTP Supabase (Resend gratuit 100/jour) — rate limits du SMTP intégré.

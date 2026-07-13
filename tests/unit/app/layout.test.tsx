@@ -4,11 +4,19 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 const getCurrentUser = vi.fn()
 const rpc = vi.fn()
+const maybeSingle = vi.fn(() => Promise.resolve({ data: null }))
+const from = vi.fn(() => ({
+  select: () => ({
+    eq: () => ({
+      maybeSingle,
+    }),
+  }),
+}))
 vi.mock('@/lib/supabase/current-user', () => ({
   getCurrentUser: (...args: unknown[]) => getCurrentUser(...args) as unknown,
 }))
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => Promise.resolve({ rpc }),
+  createClient: () => Promise.resolve({ rpc, from }),
 }))
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
@@ -38,6 +46,8 @@ import AppLayout from '@/app/(app)/layout'
 beforeEach(() => {
   getCurrentUser.mockReset()
   rpc.mockReset()
+  from.mockClear()
+  maybeSingle.mockClear()
 })
 
 afterEach(cleanup)
