@@ -79,3 +79,29 @@ export function computeColsSummary({
     .toSorted((a, b) => b.crossingsCount - a.crossingsCount || a.distanceKm - b.distanceKm)
     .map(({ _distanceKm, ...summary }) => summary)
 }
+
+export interface ActivityColCrossingRowDto {
+  col_id: string
+  crossed_at: string
+  cols: { name: string; elevation_m: number | null }
+}
+
+export interface ActivityColCrossingDto {
+  colId: string
+  name: string
+  elevationM: number | null
+  crossedAt: string
+}
+
+export function toActivityColCrossings(
+  rows: ActivityColCrossingRowDto[]
+): ActivityColCrossingDto[] {
+  return rows
+    .map((r) => ({
+      colId: r.col_id,
+      name: r.cols.name,
+      elevationM: r.cols.elevation_m,
+      crossedAt: r.crossed_at,
+    }))
+    .toSorted((a, b) => a.crossedAt.localeCompare(b.crossedAt))
+}

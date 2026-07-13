@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { computeColsSummary, haversineKm } from '@/lib/dashboard/cols'
-import type { ColCrossingRowDto, ColDto } from '@/lib/dashboard/cols'
+import { computeColsSummary, haversineKm, toActivityColCrossings } from '@/lib/dashboard/cols'
+import type { ColCrossingRowDto, ColDto, ActivityColCrossingDto } from '@/lib/dashboard/cols'
 
 const HOME_LAT = 45.0
 const HOME_LON = 6.0
@@ -77,5 +77,43 @@ describe('computeColsSummary', () => {
       crossings: [],
     })
     expect(out).toEqual([])
+  })
+})
+
+describe('toActivityColCrossings', () => {
+  it('returns an empty array for no rows', () => {
+    expect(toActivityColCrossings([])).toEqual([])
+  })
+
+  it('maps and sorts rows chronologically by crossed_at', () => {
+    const rows = [
+      {
+        col_id: 'col-b',
+        crossed_at: '2026-06-01T10:00:00Z',
+        cols: { name: 'Col B', elevation_m: 1200 },
+      },
+      {
+        col_id: 'col-a',
+        crossed_at: '2026-06-01T08:00:00Z',
+        cols: { name: 'Col A', elevation_m: 1800 },
+      },
+    ]
+    const out = toActivityColCrossings(rows)
+    const expected: ActivityColCrossingDto[] = [
+      { colId: 'col-a', name: 'Col A', elevationM: 1800, crossedAt: '2026-06-01T08:00:00Z' },
+      { colId: 'col-b', name: 'Col B', elevationM: 1200, crossedAt: '2026-06-01T10:00:00Z' },
+    ]
+    expect(out).toEqual(expected)
+  })
+
+  it('preserves a null elevation_m as null', () => {
+    const rows = [
+      {
+        col_id: 'col-c',
+        crossed_at: '2026-06-01T08:00:00Z',
+        cols: { name: 'Col C', elevation_m: null },
+      },
+    ]
+    expect(toActivityColCrossings(rows)[0]?.elevationM).toBeNull()
   })
 })
