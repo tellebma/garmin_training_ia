@@ -18,6 +18,9 @@ export async function ActivityColsGravis({
     .eq('garmin_activity_id', garminActivityId)
     .order('crossed_at', { ascending: true })
 
+  // PostgREST's embedded `cols(...)` is a to-one object at runtime (col_crossings.col_id
+  // is a many-to-one FK to cols) — the untyped client just infers it conservatively as an
+  // array, hence the double cast rather than a direct one.
   const crossings = toActivityColCrossings((data ?? []) as unknown as ActivityColCrossingRowDto[])
   if (crossings.length === 0) return null
 
