@@ -80,10 +80,19 @@ export function computeColsSummary({
     .map(({ _distanceKm, ...summary }) => summary)
 }
 
+interface EmbeddedCol {
+  name: string
+  elevation_m: number | null
+}
+
 export interface ActivityColCrossingRowDto {
   col_id: string
   crossed_at: string
-  cols: { name: string; elevation_m: number | null }
+  // PostgREST embeds a to-one relation as a single object at runtime (col_crossings.col_id
+  // is a many-to-one FK to cols), but this project's untyped Supabase client infers embedded
+  // relations as arrays regardless of cardinality — accept both shapes honestly instead of
+  // asserting the narrower one away.
+  cols: EmbeddedCol | EmbeddedCol[]
 }
 
 export interface ActivityColCrossingDto {
@@ -93,15 +102,20 @@ export interface ActivityColCrossingDto {
   crossedAt: string
 }
 
+function firstCol(cols: EmbeddedCol | EmbeddedCol[]): EmbeddedCol | undefined {
+  return Array.isArray(cols) ? cols[0] : cols
+}
+
 export function toActivityColCrossings(
   rows: ActivityColCrossingRowDto[]
 ): ActivityColCrossingDto[] {
   return rows
-    .map((r) => ({
-      colId: r.col_id,
-      name: r.cols.name,
-      elevationM: r.cols.elevation_m,
-      crossedAt: r.crossed_at,
-    }))
+    .flatMap((r) => {
+      const col = firstCol(r.cols)
+      if (!col) return []
+      return [
+        { colId: r.col_id, name: col.name, elevationM: col.elevation_m, crossedAt: r.crossed_at },
+      ]
+    })
     .toSorted((a, b) => a.crossedAt.localeCompare(b.crossedAt))
 }

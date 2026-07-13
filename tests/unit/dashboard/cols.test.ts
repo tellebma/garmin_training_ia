@@ -116,4 +116,29 @@ describe('toActivityColCrossings', () => {
     ]
     expect(toActivityColCrossings(rows)[0]?.elevationM).toBeNull()
   })
+
+  it('also accepts cols embedded as a single-element array (PostgREST inference quirk)', () => {
+    const rows = [
+      {
+        col_id: 'col-d',
+        crossed_at: '2026-06-01T08:00:00Z',
+        cols: [{ name: 'Col D', elevation_m: 900 }],
+      },
+    ]
+    expect(toActivityColCrossings(rows)).toEqual<ActivityColCrossingDto[]>([
+      { colId: 'col-d', name: 'Col D', elevationM: 900, crossedAt: '2026-06-01T08:00:00Z' },
+    ])
+  })
+
+  it('drops a row whose embedded cols array is empty rather than throwing', () => {
+    const rows = [
+      { col_id: 'col-e', crossed_at: '2026-06-01T08:00:00Z', cols: [] },
+      {
+        col_id: 'col-f',
+        crossed_at: '2026-06-01T09:00:00Z',
+        cols: { name: 'Col F', elevation_m: 1000 },
+      },
+    ]
+    expect(toActivityColCrossings(rows).map((c) => c.colId)).toEqual(['col-f'])
+  })
 })

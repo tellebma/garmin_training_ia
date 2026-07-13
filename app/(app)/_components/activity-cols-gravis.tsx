@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { toActivityColCrossings } from '@/lib/dashboard/cols'
-import type { ActivityColCrossingRowDto } from '@/lib/dashboard/cols'
 import { ChartCard } from './chart-card'
 
 export async function ActivityColsGravis({
@@ -18,10 +17,7 @@ export async function ActivityColsGravis({
     .eq('garmin_activity_id', garminActivityId)
     .order('crossed_at', { ascending: true })
 
-  // PostgREST's embedded `cols(...)` is a to-one object at runtime (col_crossings.col_id
-  // is a many-to-one FK to cols) — the untyped client just infers it conservatively as an
-  // array, hence the double cast rather than a direct one.
-  const crossings = toActivityColCrossings((data ?? []) as unknown as ActivityColCrossingRowDto[])
+  const crossings = toActivityColCrossings(data ?? [])
   if (crossings.length === 0) return null
 
   return (
