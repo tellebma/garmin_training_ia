@@ -1,3 +1,17 @@
+## [1.10.0](https://github.com/tellebma/garmin_training_ia/compare/v1.9.0...v1.10.0) (2026-07-13)
+
+### Features
+
+* lien /today→historique, cols gravis sur activité, notifications de nouveautés (E19/E20/E21) ([#103](https://github.com/tellebma/garmin_training_ia/issues/103)) ([cbd80d5](https://github.com/tellebma/garmin_training_ia/commit/cbd80d523072d22df93e67096c1eb413e284d5d0)), closes [#82](https://github.com/tellebma/garmin_training_ia/issues/82)
+
+### Documentation
+
+* cadre 3 nouveaux EPICs (E19/E20/E21) et normalise les timestamps de migrations E18/cols ([1db7cbf](https://github.com/tellebma/garmin_training_ia/commit/1db7cbf1eb6b258a7a38cdf148e449de2e3307f6))
+
+### CI
+
+* **supabase:** bloque les collisions de timestamp de migration + notifie les échecs de push prod ([d4327f0](https://github.com/tellebma/garmin_training_ia/commit/d4327f09edba81b655617d1d6e3738a01f108997))
+
 ## [1.9.0](https://github.com/tellebma/garmin_training_ia/compare/v1.8.0...v1.9.0) (2026-07-11)
 
 ### Features
