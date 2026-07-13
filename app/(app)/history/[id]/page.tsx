@@ -2,7 +2,9 @@ import { Suspense } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Flame, Gauge, HeartPulse, Mountain, Route, Timer, Zap } from 'lucide-react'
+import { ActivityColsGravis } from '../../_components/activity-cols-gravis'
 import { ActivityDetailSkeleton } from '../../_components/skeletons/activity-detail-skeleton'
+import { ColsGravisSkeleton } from '../../_components/skeletons/cols-gravis-skeleton'
 import { ActivityComparisonChart } from '../../_components/charts/activity-comparison-chart'
 import { ActivityMapChartSync } from '../../_components/charts/activity-map-chart-sync'
 import { ChartCard } from '../../_components/chart-card'
@@ -128,6 +130,10 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
 
       <Suspense fallback={<ActivityDetailSkeleton />}>
         <ActivityDetailBody userId={userId} activity={activity} />
+      </Suspense>
+
+      <Suspense fallback={<ColsGravisSkeleton />}>
+        <ActivityColsGravis userId={userId} garminActivityId={activity.garmin_activity_id} />
       </Suspense>
     </div>
   )
