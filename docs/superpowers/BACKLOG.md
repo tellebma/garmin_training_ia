@@ -1130,6 +1130,7 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
   d'altitude ≥ 500m sur les sommets uniquement. Widget renommé « Mes cols & sommets »,
   deux sections triées séparément.
 - Spec : `docs/superpowers/specs/2026-07-12-cols-sommets-peaks-design.md`.
+- Plan : `docs/superpowers/plans/2026-07-12-cols-sommets-peaks.md`.
 
 ## Post-MVP technique
 
