@@ -129,3 +129,19 @@ def test_settings_loads_strava_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.strava_client_id == "12345"
     assert settings.strava_client_secret.get_secret_value() == "strava-secret-test"
     assert settings.strava_webhook_verify_token.get_secret_value() == "verify-token-test"
+    assert settings.strava_configured is True
+
+
+def test_settings_boots_without_strava_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Strava is an optional integration: its absence must not prevent the
+    # worker from booting (otherwise Garmin sync goes down with it).
+    monkeypatch.delenv("STRAVA_CLIENT_ID", raising=False)
+    monkeypatch.delenv("STRAVA_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("STRAVA_WEBHOOK_VERIFY_TOKEN", raising=False)
+
+    settings = Settings()
+
+    assert settings.strava_client_id == ""
+    assert settings.strava_client_secret.get_secret_value() == ""
+    assert settings.strava_webhook_verify_token.get_secret_value() == ""
+    assert settings.strava_configured is False

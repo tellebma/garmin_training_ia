@@ -30,6 +30,10 @@ class StravaRateLimitError(StravaError):
     """Strava returned 429 — application-wide rate limit hit."""
 
 
+class StravaNotConfiguredError(StravaError):
+    """Strava OAuth secrets are missing — the integration is disabled."""
+
+
 def _client() -> httpx.Client:
     return httpx.Client(timeout=_TIMEOUT_S)
 
@@ -43,8 +47,15 @@ def _raise_for_status(response: httpx.Response) -> None:
         raise StravaError(f"HTTP {response.status_code}: {response.text[:500]}")
 
 
-def exchange_code(code: str) -> dict[str, Any]:
+def _require_configured() -> Any:
     settings = get_settings()
+    if not settings.strava_configured:
+        raise StravaNotConfiguredError("Strava integration is not configured on this worker")
+    return settings
+
+
+def exchange_code(code: str) -> dict[str, Any]:
+    settings = _require_configured()
     with _client() as client:
         response = client.post(
             f"{_AUTH_BASE}/oauth/token",
@@ -60,7 +71,7 @@ def exchange_code(code: str) -> dict[str, Any]:
 
 
 def refresh_access_token(refresh_token: str) -> dict[str, Any]:
-    settings = get_settings()
+    settings = _require_configured()
     with _client() as client:
         response = client.post(
             f"{_AUTH_BASE}/oauth/token",

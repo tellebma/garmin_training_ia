@@ -34,9 +34,11 @@ class Settings(BaseSettings):
     openai_timeout_s: int = Field(default=30)
     openai_max_attempts: int = Field(default=3, ge=1)
     gps_backfill_batch: int = Field(default=8)
-    strava_client_id: str
-    strava_client_secret: SecretStr
-    strava_webhook_verify_token: SecretStr
+    # Strava is an optional integration. Empty defaults keep the worker booting
+    # (and Garmin sync running) on deployments where Strava isn't configured.
+    strava_client_id: str = Field(default="")
+    strava_client_secret: SecretStr = Field(default=SecretStr(""))
+    strava_webhook_verify_token: SecretStr = Field(default=SecretStr(""))
 
     @staticmethod
     def _check_fernet_key_shape(raw: str) -> None:
@@ -64,6 +66,15 @@ class Settings(BaseSettings):
         for key in keys:
             cls._check_fernet_key_shape(key)
         return v
+
+    @property
+    def strava_configured(self) -> bool:
+        """True when all Strava OAuth/webhook secrets are present."""
+        return bool(
+            self.strava_client_id
+            and self.strava_client_secret.get_secret_value()
+            and self.strava_webhook_verify_token.get_secret_value()
+        )
 
     def fernet_key_chain(self) -> list[str]:
         """Ordered list of Fernet keys: active key first, then legacy keys.
