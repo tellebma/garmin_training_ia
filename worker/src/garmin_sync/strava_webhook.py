@@ -14,7 +14,10 @@ log = logging.getLogger(__name__)
 def verify_challenge(*, mode: str | None, token: str | None, challenge: str | None) -> str | None:
     if mode != "subscribe" or not token or not challenge:
         return None
-    expected = get_settings().strava_webhook_verify_token.get_secret_value()
+    settings = get_settings()
+    if not settings.strava_configured:
+        return None
+    expected = settings.strava_webhook_verify_token.get_secret_value()
     if token != expected:
         return None
     return challenge
