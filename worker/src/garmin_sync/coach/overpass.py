@@ -71,6 +71,29 @@ def _should_refresh(profile: dict[str, Any], home_lat: float, home_lon: float) -
     return moved_m > _CACHE_MOVE_THRESHOLD_M
 
 
+def _element_to_row(element: dict[str, Any]) -> dict[str, Any] | None:
+    """Map one Overpass node to a `cols` row, or None if it should be skipped."""
+    if element.get("type") != "node" or "lat" not in element or "lon" not in element:
+        return None
+    tags = element.get("tags", {})
+    col_type = _classify(tags)
+    if col_type is None:
+        return None
+    elevation_m = _parse_elevation(tags.get("ele"))
+    if col_type == "peak" and (elevation_m is None or elevation_m < _MIN_PEAK_ELEVATION_M):
+        return None
+    default_name = "Col" if col_type == "col" else "Sommet"
+    return {
+        "osm_id": element["id"],
+        "name": (tags.get("name") or f"{default_name} (OSM #{element['id']})")[:_MAX_NAME_LENGTH],
+        "latitude": element["lat"],
+        "longitude": element["lon"],
+        "elevation_m": elevation_m,
+        "type": col_type,
+        "fetched_at": _now().isoformat(),
+    }
+
+
 def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     """Refresh the shared `cols` cache from Overpass if stale or the user moved."""
     db = get_admin_client()
@@ -96,29 +119,9 @@ def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
 
     rows: list[dict[str, Any]] = []
     for element in elements:
-        if element.get("type") != "node" or "lat" not in element or "lon" not in element:
-            continue
-        tags = element.get("tags", {})
-        col_type = _classify(tags)
-        if col_type is None:
-            continue
-        elevation_m = _parse_elevation(tags.get("ele"))
-        if col_type == "peak" and (elevation_m is None or elevation_m < _MIN_PEAK_ELEVATION_M):
-            continue
-        default_name = "Col" if col_type == "col" else "Sommet"
-        rows.append(
-            {
-                "osm_id": element["id"],
-                "name": (tags.get("name") or f"{default_name} (OSM #{element['id']})")[
-                    :_MAX_NAME_LENGTH
-                ],
-                "latitude": element["lat"],
-                "longitude": element["lon"],
-                "elevation_m": elevation_m,
-                "type": col_type,
-                "fetched_at": _now().isoformat(),
-            }
-        )
+        row = _element_to_row(element)
+        if row is not None:
+            rows.append(row)
     if rows:
         db.table("cols").upsert(rows, on_conflict="osm_id").execute()
 
