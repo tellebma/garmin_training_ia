@@ -16,9 +16,18 @@ _TIMEOUT_S = 30.0
 _CACHE_MAX_AGE_DAYS = 30
 _CACHE_MOVE_THRESHOLD_M = 5_000
 _MAX_NAME_LENGTH = 200
+_MIN_PEAK_ELEVATION_M = 500
 # Overpass rejects requests without an identifying User-Agent (406 Not Acceptable),
 # per its usage policy: https://operations.osmfoundation.org/policies/overpass/
 _HEADERS = {"User-Agent": "garmin-training-coach/1.0 (github.com/tellebma/garmin_training_ia)"}
+
+
+def _classify(tags: dict[str, Any]) -> str | None:
+    if tags.get("mountain_pass") == "yes":
+        return "col"
+    if tags.get("natural") == "peak":
+        return "peak"
+    return None
 
 
 def _now() -> datetime:
@@ -28,7 +37,10 @@ def _now() -> datetime:
 def _build_query(home_lat: float, home_lon: float) -> str:
     return (
         "[out:json][timeout:25];"
+        "("
         f"node[mountain_pass=yes](around:{_RADIUS_M},{home_lat},{home_lon});"
+        f"node[natural=peak](around:{_RADIUS_M},{home_lat},{home_lon});"
+        ");"
         "out;"
     )
 
@@ -59,6 +71,29 @@ def _should_refresh(profile: dict[str, Any], home_lat: float, home_lon: float) -
     return moved_m > _CACHE_MOVE_THRESHOLD_M
 
 
+def _element_to_row(element: dict[str, Any]) -> dict[str, Any] | None:
+    """Map one Overpass node to a `cols` row, or None if it should be skipped."""
+    if element.get("type") != "node" or "lat" not in element or "lon" not in element:
+        return None
+    tags = element.get("tags", {})
+    col_type = _classify(tags)
+    if col_type is None:
+        return None
+    elevation_m = _parse_elevation(tags.get("ele"))
+    if col_type == "peak" and (elevation_m is None or elevation_m < _MIN_PEAK_ELEVATION_M):
+        return None
+    default_name = "Col" if col_type == "col" else "Sommet"
+    return {
+        "osm_id": element["id"],
+        "name": (tags.get("name") or f"{default_name} (OSM #{element['id']})")[:_MAX_NAME_LENGTH],
+        "latitude": element["lat"],
+        "longitude": element["lon"],
+        "elevation_m": elevation_m,
+        "type": col_type,
+        "fetched_at": _now().isoformat(),
+    }
+
+
 def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     """Refresh the shared `cols` cache from Overpass if stale or the user moved."""
     db = get_admin_client()
@@ -82,20 +117,11 @@ def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     response.raise_for_status()
     elements = response.json().get("elements", [])
 
-    rows = [
-        {
-            "osm_id": element["id"],
-            "name": (element.get("tags", {}).get("name") or f"Col (OSM #{element['id']})")[
-                :_MAX_NAME_LENGTH
-            ],
-            "latitude": element["lat"],
-            "longitude": element["lon"],
-            "elevation_m": _parse_elevation(element.get("tags", {}).get("ele")),
-            "fetched_at": _now().isoformat(),
-        }
-        for element in elements
-        if element.get("type") == "node" and "lat" in element and "lon" in element
-    ]
+    rows: list[dict[str, Any]] = []
+    for element in elements:
+        row = _element_to_row(element)
+        if row is not None:
+            rows.append(row)
     if rows:
         db.table("cols").upsert(rows, on_conflict="osm_id").execute()
 

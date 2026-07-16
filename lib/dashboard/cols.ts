@@ -1,12 +1,15 @@
 const DEFAULT_RADIUS_KM = 50
 const EARTH_RADIUS_KM = 6371
 
+export type ColType = 'col' | 'peak'
+
 export interface ColDto {
   id: string
   name: string
   latitude: number
   longitude: number
   elevation_m: number | null
+  type: ColType
 }
 
 export interface ColCrossingRowDto {
@@ -21,6 +24,12 @@ export interface ColSummary {
   distanceKm: number
   crossingsCount: number
   lastCrossedAt: string | null
+  type: ColType
+}
+
+export interface GroupedColsSummary {
+  cols: ColSummary[]
+  peaks: ColSummary[]
 }
 
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -45,7 +54,7 @@ export function computeColsSummary({
   cols: ColDto[]
   crossings: ColCrossingRowDto[]
   radiusKm?: number
-}): ColSummary[] {
+}): GroupedColsSummary {
   const crossingsByCol = new Map<string, { count: number; lastCrossedAt: string }>()
   for (const crossing of crossings) {
     const existing = crossingsByCol.get(crossing.col_id)
@@ -70,14 +79,20 @@ export function computeColsSummary({
         distanceKm: Math.round(distanceKm * 10) / 10,
         crossingsCount: crossing?.count ?? 0,
         lastCrossedAt: crossing?.lastCrossedAt ?? null,
+        type: col.type,
         _distanceKm: distanceKm,
       }
     })
     .filter((summary) => summary._distanceKm <= radiusKm)
 
-  return summaries
+  const sorted = summaries
     .toSorted((a, b) => b.crossingsCount - a.crossingsCount || a.distanceKm - b.distanceKm)
     .map(({ _distanceKm, ...summary }) => summary)
+
+  return {
+    cols: sorted.filter((summary) => summary.type === 'col'),
+    peaks: sorted.filter((summary) => summary.type === 'peak'),
+  }
 }
 
 interface EmbeddedCol {

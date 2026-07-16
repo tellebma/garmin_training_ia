@@ -384,7 +384,10 @@ async function ColsWidgetLoader({ userId }: { readonly userId: string }) {
 
   if (profile?.lat == null || profile.lon == null) {
     return (
-      <ChartCard title="Mes cols" description="Cols dans un rayon de 50 km autour de chez toi">
+      <ChartCard
+        title="Mes cols & sommets"
+        description="Cols et sommets dans un rayon de 50 km autour de chez toi"
+      >
         <EmptyState
           icon={ActivityIcon}
           title="Domicile pas encore situé"
@@ -395,21 +398,21 @@ async function ColsWidgetLoader({ userId }: { readonly userId: string }) {
   }
 
   const [colsRes, crossingsRes] = await Promise.all([
-    supabase.from('cols').select('id, name, latitude, longitude, elevation_m'),
+    supabase.from('cols').select('id, name, latitude, longitude, elevation_m, type'),
     supabase.from('col_crossings').select('col_id, crossed_at').eq('user_id', userId),
   ])
 
   const cols: ColDto[] = colsRes.data ?? []
   const crossings: ColCrossingRowDto[] = crossingsRes.data ?? []
 
-  const summaries = computeColsSummary({
+  const { cols: colSummaries, peaks: peakSummaries } = computeColsSummary({
     homeLat: Number(profile.lat),
     homeLon: Number(profile.lon),
     cols,
     crossings,
   })
 
-  return <ColsWidget summaries={summaries} />
+  return <ColsWidget cols={colSummaries} peaks={peakSummaries} />
 }
 
 export default async function StatsPage({ searchParams }: Props) {

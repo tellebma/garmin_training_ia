@@ -49,24 +49,17 @@ function ColsTable({
   )
 }
 
-export function ColsWidget({ summaries }: Readonly<{ summaries: ColSummary[] }>) {
+function ColsSection({ title, summaries }: Readonly<{ title: string; summaries: ColSummary[] }>) {
   if (summaries.length === 0) {
-    return (
-      <ChartCard title="Mes cols" description="Cols dans un rayon de 50 km autour de chez toi">
-        <EmptyState
-          icon={Mountain}
-          title="Aucun col recensé"
-          description="Aucun col dans un rayon de 50 km autour de chez toi."
-        />
-      </ChartCard>
-    )
+    return null
   }
 
   const visible = summaries.slice(0, VISIBLE_COUNT)
   const rest = summaries.slice(VISIBLE_COUNT)
 
   return (
-    <ChartCard title="Mes cols" description="Cols dans un rayon de 50 km autour de chez toi">
+    <div className="space-y-2">
+      <h3 className="text-muted-foreground text-xs font-semibold uppercase">{title}</h3>
       <ColsTable summaries={visible} />
       {rest.length > 0 && (
         <details className="mt-2 text-sm">
@@ -78,6 +71,35 @@ export function ColsWidget({ summaries }: Readonly<{ summaries: ColSummary[] }>)
           </div>
         </details>
       )}
+    </div>
+  )
+}
+
+export function ColsWidget({ cols, peaks }: Readonly<{ cols: ColSummary[]; peaks: ColSummary[] }>) {
+  if (cols.length === 0 && peaks.length === 0) {
+    return (
+      <ChartCard
+        title="Mes cols & sommets"
+        description="Cols et sommets dans un rayon de 50 km autour de chez toi"
+      >
+        <EmptyState
+          icon={Mountain}
+          title="Aucun col ni sommet recensé"
+          description="Aucun col ni sommet dans un rayon de 50 km autour de chez toi."
+        />
+      </ChartCard>
+    )
+  }
+
+  return (
+    <ChartCard
+      title="Mes cols & sommets"
+      description="Cols et sommets dans un rayon de 50 km autour de chez toi"
+    >
+      <div className="space-y-6">
+        <ColsSection title="Cols" summaries={cols} />
+        <ColsSection title="Sommets" summaries={peaks} />
+      </div>
     </ChartCard>
   )
 }

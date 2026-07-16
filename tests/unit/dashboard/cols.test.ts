@@ -12,6 +12,7 @@ function mkCol(overrides: Partial<ColDto>): ColDto {
     latitude: 45.05,
     longitude: 6.05,
     elevation_m: 1850,
+    type: 'col',
     ...overrides,
   }
 }
@@ -35,7 +36,7 @@ describe('computeColsSummary', () => {
       mkCol({ id: 'far', latitude: 50.0, longitude: 2.0 }),
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings: [] })
-    expect(out.map((c) => c.id)).toEqual(['near'])
+    expect(out.cols.map((c) => c.id)).toEqual(['near'])
   })
 
   it('counts crossings per col and keeps 0-count cols', () => {
@@ -48,8 +49,8 @@ describe('computeColsSummary', () => {
       { col_id: 'col-a', crossed_at: '2026-06-15T08:00:00Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    const colA = out.find((c) => c.id === 'col-a')
-    const colB = out.find((c) => c.id === 'col-b')
+    const colA = out.cols.find((c) => c.id === 'col-a')
+    const colB = out.cols.find((c) => c.id === 'col-b')
     expect(colA?.crossingsCount).toBe(2)
     expect(colA?.lastCrossedAt).toBe('2026-06-15T08:00:00Z')
     expect(colB?.crossingsCount).toBe(0)
@@ -66,17 +67,43 @@ describe('computeColsSummary', () => {
       { col_id: 'far-climbed', crossed_at: '2026-06-01T08:00:00Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    expect(out.map((c) => c.id)).toEqual(['far-climbed', 'near-unclimbed', 'far-unclimbed'])
+    expect(out.cols.map((c) => c.id)).toEqual(['far-climbed', 'near-unclimbed', 'far-unclimbed'])
   })
 
-  it('returns an empty array when there are no cols in range', () => {
+  it('returns empty groups when there are no cols in range', () => {
     const out = computeColsSummary({
       homeLat: HOME_LAT,
       homeLon: HOME_LON,
       cols: [],
       crossings: [],
     })
-    expect(out).toEqual([])
+    expect(out).toEqual({ cols: [], peaks: [] })
+  })
+
+  it('groups cols and peaks into separate, independently sorted lists', () => {
+    const cols: ColDto[] = [
+      mkCol({ id: 'col-a', latitude: 45.01, longitude: 6.01, type: 'col' }),
+      mkCol({
+        id: 'peak-a',
+        latitude: 45.02,
+        longitude: 6.02,
+        type: 'peak',
+        name: 'Crêt du Machin',
+      }),
+      mkCol({
+        id: 'peak-b',
+        latitude: 45.03,
+        longitude: 6.03,
+        type: 'peak',
+        name: 'Crêt du Bidule',
+      }),
+    ]
+    const crossings: ColCrossingRowDto[] = [
+      { col_id: 'peak-b', crossed_at: '2026-06-01T08:00:00Z' },
+    ]
+    const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
+    expect(out.cols.map((c) => c.id)).toEqual(['col-a'])
+    expect(out.peaks.map((c) => c.id)).toEqual(['peak-b', 'peak-a'])
   })
 })
 
