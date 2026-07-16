@@ -1,3 +1,9 @@
+## [1.10.1](https://github.com/tellebma/garmin_training_ia/compare/v1.10.0...v1.10.1) (2026-07-16)
+
+### Bug Fixes
+
+* **worker:** rend l'intégration Strava optionnelle (ne bloque plus le boot) ([#104](https://github.com/tellebma/garmin_training_ia/issues/104)) ([b49c2e1](https://github.com/tellebma/garmin_training_ia/commit/b49c2e137b727bc05fceb2da264fcc35140edaf9))
+
 ## [1.10.0](https://github.com/tellebma/garmin_training_ia/compare/v1.9.0...v1.10.0) (2026-07-13)
 
 ### Features
