@@ -1,3 +1,9 @@
+## [1.11.0](https://github.com/tellebma/garmin_training_ia/compare/v1.10.1...v1.11.0) (2026-07-16)
+
+### Features
+
+* ajoute les sommets (natural=peak) au widget cols ([#102](https://github.com/tellebma/garmin_training_ia/issues/102)) ([0303b96](https://github.com/tellebma/garmin_training_ia/commit/0303b96db603d625c1b1d9c5ddf09ad4f8bd61ba))
+
 ## [1.10.1](https://github.com/tellebma/garmin_training_ia/compare/v1.10.0...v1.10.1) (2026-07-16)
 
 ### Bug Fixes
