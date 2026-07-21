@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ColsWidget } from '@/app/(app)/_components/cols-widget'
 import type { ColSummary } from '@/lib/dashboard/cols'
 
@@ -75,14 +75,21 @@ describe('ColsWidget', () => {
     expect(screen.queryByText(/Afficher les/)).toBeNull()
   })
 
-  it('truncates past 10 rows behind a details/summary toggle', () => {
+  it('hides rows past 10 until the toggle is expanded', () => {
     const summaries = Array.from({ length: 13 }, (_, i) =>
       mkSummary({ id: `col-${String(i)}`, name: `Col ${String(i)}` })
     )
     render(<ColsWidget cols={summaries} peaks={[]} />)
     expect(screen.getByText('Col 0')).not.toBeNull()
     expect(screen.getByText('Col 9')).not.toBeNull()
-    expect(screen.getByText('Afficher les 3 autres')).not.toBeNull()
+    // Extra rows are absent from the DOM until the user expands the section.
+    expect(screen.queryByText('Col 12')).toBeNull()
+
+    const toggle = screen.getByRole('button', { name: /Afficher les 3 autres/ })
+    fireEvent.click(toggle)
+
     expect(screen.getByText('Col 12')).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Réduire/ })).not.toBeNull()
+    expect(screen.queryByText(/Afficher les/)).toBeNull()
   })
 })

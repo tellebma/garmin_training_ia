@@ -1,5 +1,11 @@
 # Nouveautés
 
+## 1.12.0 — 2026-07-22
+
+- La liste « Mes cols & sommets » est plus lisible : le bouton pour dérouler les cols suivants
+  passe proprement en bas de chaque section (avec un compteur et une flèche), au lieu de
+  s'afficher au milieu du tableau.
+
 ## 1.11.0 — 2026-07-13
 
 - Le widget « Mes cols » devient « Mes cols & sommets » : en plus des cols routiers, les
