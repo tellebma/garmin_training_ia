@@ -1,5 +1,9 @@
-import { Mountain } from 'lucide-react'
+'use client'
+
+import { useState } from 'react'
+import { ChevronDown, Mountain } from 'lucide-react'
 import type { ColSummary } from '@/lib/dashboard/cols'
+import { cn } from '@/lib/utils'
 import { ChartCard } from './chart-card'
 import { EmptyState } from './empty-state'
 
@@ -9,22 +13,17 @@ function crossingsLabel(count: number): string {
   return count === 1 ? '1 fois' : `${String(count)} fois`
 }
 
-function ColsTable({
-  summaries,
-  showHeader = true,
-}: Readonly<{ summaries: ColSummary[]; showHeader?: boolean }>) {
+function ColsTable({ summaries }: Readonly<{ summaries: ColSummary[] }>) {
   return (
     <table className="w-full text-sm">
-      {showHeader && (
-        <thead>
-          <tr className="text-muted-foreground border-b text-left text-xs uppercase">
-            <th className="py-2 font-medium">Nom</th>
-            <th className="py-2 font-medium">Altitude</th>
-            <th className="py-2 font-medium">Distance</th>
-            <th className="py-2 text-right font-medium">Grimpé</th>
-          </tr>
-        </thead>
-      )}
+      <thead>
+        <tr className="text-muted-foreground border-b text-left text-xs uppercase">
+          <th className="py-2 font-medium">Nom</th>
+          <th className="py-2 font-medium">Altitude</th>
+          <th className="py-2 font-medium">Distance</th>
+          <th className="py-2 text-right font-medium">Grimpé</th>
+        </tr>
+      </thead>
       <tbody className="divide-y">
         {summaries.map((summary) => (
           <tr key={summary.id}>
@@ -50,26 +49,37 @@ function ColsTable({
 }
 
 function ColsSection({ title, summaries }: Readonly<{ title: string; summaries: ColSummary[] }>) {
+  const [expanded, setExpanded] = useState(false)
+
   if (summaries.length === 0) {
     return null
   }
 
-  const visible = summaries.slice(0, VISIBLE_COUNT)
-  const rest = summaries.slice(VISIBLE_COUNT)
+  const hiddenCount = summaries.length - VISIBLE_COUNT
+  const rows = expanded ? summaries : summaries.slice(0, VISIBLE_COUNT)
 
   return (
     <div className="space-y-2">
-      <h3 className="text-muted-foreground text-xs font-semibold uppercase">{title}</h3>
-      <ColsTable summaries={visible} />
-      {rest.length > 0 && (
-        <details className="mt-2 text-sm">
-          <summary className="text-muted-foreground cursor-pointer">
-            Afficher les {rest.length} autres
-          </summary>
-          <div className="mt-2">
-            <ColsTable summaries={rest} showHeader={false} />
-          </div>
-        </details>
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-muted-foreground text-xs font-semibold uppercase">{title}</h3>
+        <span className="text-muted-foreground text-xs tabular-nums">{summaries.length}</span>
+      </div>
+      <ColsTable summaries={rows} />
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setExpanded((value) => !value)
+          }}
+          aria-expanded={expanded}
+          className="text-muted-foreground hover:text-foreground flex w-full items-center justify-center gap-1.5 border-t pt-2 text-xs font-medium transition-colors"
+        >
+          {expanded ? 'Réduire' : `Afficher les ${String(hiddenCount)} autres`}
+          <ChevronDown
+            className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}
+            aria-hidden
+          />
+        </button>
       )}
     </div>
   )
