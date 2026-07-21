@@ -726,7 +726,13 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         race_dplus_by_sport=race_dplus_by_sport, weeks_count=weeks_count
     )
 
-    week_start = today - timedelta(days=today.weekday())
+    # Anchor the week grid so the LAST week ENDS on race_date (race day = last day
+    # of the last week). Previously week_start was pinned to the Monday of the
+    # current week while phases were counted from ``today`` — the two origins
+    # diverged, leaving the plan ending up to 13 days before the race with no
+    # taper and no race session (prod bug 2026-07). Days before ``today`` (when the
+    # grid starts slightly in the past) are dropped just before insert.
+    week_start = race_date - timedelta(days=weeks_count * 7 - 1)
     all_sessions = _build_all_week_sessions(
         phases=phases,
         today_state=today_state,
@@ -783,6 +789,12 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         .execute()
     )
     plan_id = cast(DbRows, insert_resp.data)[0]["id"]
+
+    # Drop any session dated before today: when the week grid starts a few days in
+    # the past (race offset not a whole number of weeks), those days are already
+    # gone and would only ever show up as empty, never-generated sessions.
+    today_iso = today.isoformat()
+    all_sessions = [s for s in all_sessions if s["date"] >= today_iso]
 
     for s in all_sessions:
         s["plan_id"] = plan_id
