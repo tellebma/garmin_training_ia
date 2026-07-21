@@ -1,3 +1,9 @@
+## [1.12.0](https://github.com/tellebma/garmin_training_ia/compare/v1.11.1...v1.12.0) (2026-07-21)
+
+### Features
+
+* **stats:** bouton d'expansion en pied de section pour cols & sommets ([#106](https://github.com/tellebma/garmin_training_ia/issues/106)) ([2b586d4](https://github.com/tellebma/garmin_training_ia/commit/2b586d48a9d94268f3deef2881ec3503969106ed))
+
 ## [1.11.1](https://github.com/tellebma/garmin_training_ia/compare/v1.11.0...v1.11.1) (2026-07-21)
 
 ### Bug Fixes
