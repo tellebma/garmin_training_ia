@@ -175,6 +175,19 @@ def _generate_and_persist(
             sport=session.get("sport"),
             session_type=session.get("session_type"),
         )
+        # Enregistre le coût des tentatives brûlées (sinon 3 requêtes facturées
+        # disparaissent du finops — chemin dominant vu le taux d'échec réel).
+        if e.usage is not None:
+            record_llm_usage(
+                user_id=user_id,
+                feature="session_workout",
+                model=e.usage.model,
+                prompt_tokens=e.usage.prompt_tokens,
+                completion_tokens=e.usage.completion_tokens,
+                attempts=e.attempts,
+                status="failed",
+                session_id=session["id"],
+            )
         try:
             db.table("planned_sessions").update(
                 {"workout_generation_failed_at": datetime.now(UTC).isoformat()}
@@ -195,6 +208,9 @@ def _generate_and_persist(
         model=result.usage.model,
         prompt_tokens=result.usage.prompt_tokens,
         completion_tokens=result.usage.completion_tokens,
+        attempts=result.attempts,
+        status="ok",
+        session_id=session["id"],
     )
     return True
 
@@ -293,9 +309,25 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
     race_ctx = _race_context(race, weeks, activity_review)
     session_for_generation = _session_with_activity_review_note(session, activity_review)
 
-    result = generate_workout_for_session(
-        session=session_for_generation, athlete=athlete, race_context=race_ctx
-    )
+    try:
+        result = generate_workout_for_session(
+            session=session_for_generation, athlete=athlete, race_context=race_ctx
+        )
+    except OpenAIError as e:
+        # Enregistre aussi le coût des tentatives brûlées côté regen (F6), puis
+        # laisse l'endpoint remonter l'error_id générique.
+        if e.usage is not None:
+            record_llm_usage(
+                user_id=user_id,
+                feature="session_workout",
+                model=e.usage.model,
+                prompt_tokens=e.usage.prompt_tokens,
+                completion_tokens=e.usage.completion_tokens,
+                attempts=e.attempts,
+                status="failed",
+                session_id=session_id,
+            )
+        raise
     db.table("planned_sessions").update(
         {
             "workout": result.workout.model_dump(),
@@ -309,5 +341,8 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
         model=result.usage.model,
         prompt_tokens=result.usage.prompt_tokens,
         completion_tokens=result.usage.completion_tokens,
+        attempts=result.attempts,
+        status="ok",
+        session_id=session_id,
     )
     return {"status": "ok", "workout": result.workout.model_dump()}

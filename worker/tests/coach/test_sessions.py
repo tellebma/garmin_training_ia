@@ -351,6 +351,9 @@ def test_regenerate_session_updates_existing(
         model="gpt-4o-mini",
         prompt_tokens=100,
         completion_tokens=50,
+        attempts=1,
+        status="ok",
+        session_id="s1",
     )
 
 
