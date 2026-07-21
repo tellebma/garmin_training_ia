@@ -1,3 +1,9 @@
+## [1.11.1](https://github.com/tellebma/garmin_training_ia/compare/v1.11.0...v1.11.1) (2026-07-21)
+
+### Bug Fixes
+
+* admin_overview() jsonb_agg order-by (page admin finops cassée) ([#105](https://github.com/tellebma/garmin_training_ia/issues/105)) ([06cf43c](https://github.com/tellebma/garmin_training_ia/commit/06cf43ca14865ddb8e1d87d751f71ccfb71d95ae))
+
 ## [1.11.0](https://github.com/tellebma/garmin_training_ia/compare/v1.10.1...v1.11.0) (2026-07-16)
 
 ### Features
