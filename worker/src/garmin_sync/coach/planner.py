@@ -109,13 +109,30 @@ def pick_session_types_for_phase(
     return filtered or ["endurance"]
 
 
-def _ramp_rate_for_week(week_offset: int, phase: Phase) -> float:
-    """Ramp rate for a given week. Deload every 4th week (1-indexed)."""
-    if phase == "taper":
-        return TAPER_RAMP_RATE
-    if (week_offset + 1) % 4 == 0:
-        return DELOAD_RAMP_RATE
-    return NORMAL_RAMP_RATE
+def compute_week_load_multipliers(phases: Sequence[tuple[int, Phase]]) -> list[float]:
+    """Cumulative weekly load multiplier per week (compounding +5% ramp).
+
+    Normal build weeks apply the current progression then compound
+    ``NORMAL_RAMP_RATE`` for the next week; deload (every 4th week) and taper weeks
+    apply their reduction to the current progression WITHOUT advancing it (a
+    step-back that resumes the build where it left off).
+
+    Fixes the flat-load bug: previously every normal week got a fixed 1.05x of a
+    CONSTANT base_weekly, so weeks 1, 2, 5, 9… were all identical and the only
+    "progression" came from CTL drift between weekly regenerations (≈ nil).
+    """
+    multipliers: list[float] = []
+    progression = 1.0
+    for offset, phase in phases:
+        is_deload = phase != "taper" and (offset + 1) % 4 == 0
+        if phase == "taper":
+            multipliers.append(round(progression * TAPER_RAMP_RATE, 4))
+        elif is_deload:
+            multipliers.append(round(progression * DELOAD_RAMP_RATE, 4))
+        else:
+            multipliers.append(round(progression, 4))
+            progression *= NORMAL_RAMP_RATE
+    return multipliers
 
 
 def _progress_for_offset(offset: int, phases: Sequence[tuple[int, str]]) -> float:
@@ -625,12 +642,12 @@ def _build_all_week_sessions(
     """Build planned sessions for all weeks of the plan."""
     all_sessions: list[dict[str, Any]] = []
     prev_tss_by_sport: dict[str, float] | None = None
-    for offset, phase in phases:
-        ramp = _ramp_rate_for_week(offset, phase)
+    load_multipliers = compute_week_load_multipliers(phases)
+    for i, (offset, phase) in enumerate(phases):
         base_weekly = max(
             today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
         )
-        weekly_tss = base_weekly * ramp
+        weekly_tss = base_weekly * load_multipliers[i]
         if offset == 0:
             weekly_tss *= first_week_tss_multiplier
         progress = _progress_for_offset(offset, phases)
