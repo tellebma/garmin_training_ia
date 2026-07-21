@@ -24,6 +24,15 @@ interface WebpackConfigShape {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Bundle `docs/nouveautes.md` into the serverless function trace.
+  // `lib/changelog/read.ts` reads it at runtime via `fs.readFile(process.cwd()/docs/…)`,
+  // but the file lives outside the app graph so @vercel/nft doesn't trace it. Without
+  // this, the file is missing from the Vercel Lambda, the read fails (caught → ''), and
+  // the "Nouveautés" bell shows no entries in production. The `'/*'` key applies to all
+  // routes (the (app) layout that loads the changelog wraps every page).
+  outputFileTracingIncludes: {
+    '/*': ['./docs/nouveautes.md'],
+  },
   // Fix "ReferenceError: __dirname is not defined" on Vercel.
   // Pre-compiled deps shipped inside Next.js (e.g. ua-parser-js) reference
   // __dirname / __filename. On Vercel's serverless runtime those globals are
