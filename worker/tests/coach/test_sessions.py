@@ -55,6 +55,7 @@ def test_ensure_sessions_skips_already_generated(mock_db, mock_gen):
         "failed_count": 0,
         "skipped_count": 0,
         "deferred_count": 0,
+        "abandoned_count": 0,
     }
     mock_gen.assert_not_called()
 
@@ -166,6 +167,33 @@ def test_ensure_sessions_records_usage_on_total_failure(
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_abandons_session_after_max_failures(mock_db, mock_gen):
+    """Une séance dont l'enveloppe est insatisfiable ne doit plus rebrûler d'appels
+    indéfiniment : au-delà de MAX_GENERATION_FAILURES elle est abandonnée."""
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [
+        {
+            "id": "s1",
+            "sport": "run",
+            "session_type": "endurance",
+            "target_duration_s": 3000,
+            "target_tss": 50,
+            "phase": "base",
+            "date": "2026-05-21",
+            "workout_generation_failures": 3,
+        }
+    ]
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["abandoned_count"] == 1
+    assert result["generated_count"] == 0
+    mock_gen.assert_not_called()
+
+
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
 def test_ensure_sessions_skips_rest_days(mock_db, mock_gen):
     db = MagicMock()
     mock_db.return_value = db
@@ -188,6 +216,7 @@ def test_ensure_sessions_skips_rest_days(mock_db, mock_gen):
         "failed_count": 0,
         "skipped_count": 1,
         "deferred_count": 0,
+        "abandoned_count": 0,
     }
     mock_gen.assert_not_called()
 

@@ -21,6 +21,16 @@ log = logging.getLogger(__name__)
 # chaque tentative brûle openai_max_attempts appels et une alerte Discord.
 _GENERATION_BACKOFF = timedelta(hours=6)
 
+# Au-delà de ce nombre d'échecs, la séance est abandonnée : son enveloppe est
+# vraisemblablement insatisfiable par le modèle. Sans ce plafond, le backoff de 6 h
+# se rouvrait indéfiniment (~12 requêtes facturées/jour/séance, invisibles).
+MAX_GENERATION_FAILURES = 3
+
+
+def _generation_abandoned(session: dict[str, Any]) -> bool:
+    failures = session.get("workout_generation_failures") or 0
+    return isinstance(failures, int) and failures >= MAX_GENERATION_FAILURES
+
 
 def _in_generation_backoff(session: dict[str, Any], now: datetime) -> bool:
     raw = session.get("workout_generation_failed_at")
@@ -189,8 +199,12 @@ def _generate_and_persist(
                 session_id=session["id"],
             )
         try:
+            failures = (session.get("workout_generation_failures") or 0) + 1
             db.table("planned_sessions").update(
-                {"workout_generation_failed_at": datetime.now(UTC).isoformat()}
+                {
+                    "workout_generation_failed_at": datetime.now(UTC).isoformat(),
+                    "workout_generation_failures": failures,
+                }
             ).eq("id", session["id"]).execute()
         except Exception:
             log.exception("failed to mark generation backoff for session=%s", session["id"])
@@ -200,6 +214,7 @@ def _generate_and_persist(
             "workout": result.workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
             "workout_generation_failed_at": None,
+            "workout_generation_failures": 0,
         }
     ).eq("id", session["id"]).execute()
     record_llm_usage(
@@ -225,7 +240,8 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
         db.table("planned_sessions")
         .select(
             "id, sport, session_type, target_duration_s, target_tss, "
-            "target_elevation_gain_m, phase, date, workout_generation_failed_at"
+            "target_elevation_gain_m, phase, date, workout_generation_failed_at, "
+            "workout_generation_failures"
         )
         .eq("user_id", user_id)
         .is_("workout", "null")
@@ -236,11 +252,20 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
     pending = cast("list[dict[str, Any]]", pending_resp.data or [])
 
     if not pending:
-        return {"generated_count": 0, "failed_count": 0, "skipped_count": 0, "deferred_count": 0}
+        return {
+            "generated_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "deferred_count": 0,
+            "abandoned_count": 0,
+        }
 
     now = datetime.now(UTC)
-    ready = [s for s in pending if not _in_generation_backoff(s, now)]
-    deferred = len(pending) - len(ready)
+    # Séances définitivement abandonnées : ne plus jamais rebrûler d'appels dessus.
+    live = [s for s in pending if not _generation_abandoned(s)]
+    abandoned = len(pending) - len(live)
+    ready = [s for s in live if not _in_generation_backoff(s, now)]
+    deferred = len(live) - len(ready)
 
     generatable = [session for session in ready if not _should_skip_workout_generation(session)]
     skipped = len(ready) - len(generatable)
@@ -250,6 +275,7 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
             "failed_count": 0,
             "skipped_count": skipped,
             "deferred_count": deferred,
+            "abandoned_count": abandoned,
         }
 
     if not is_flag_active(db, "llm_generation_enabled"):
@@ -258,6 +284,7 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
             "failed_count": 0,
             "skipped_count": skipped + len(generatable),
             "deferred_count": deferred,
+            "abandoned_count": abandoned,
             "llm_generation_disabled": True,
         }
 
@@ -278,6 +305,7 @@ def ensure_sessions(*, user_id: str, days: int = 7) -> dict[str, int]:
         "failed_count": failed,
         "skipped_count": skipped,
         "deferred_count": deferred,
+        "abandoned_count": abandoned,
     }
 
 
