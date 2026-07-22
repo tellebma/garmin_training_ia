@@ -620,14 +620,15 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
 
     # Stable singletons so we can assert against the same mock across calls
     tp_mock = MagicMock()
-    tp_mock.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
-        {"id": "old-plan-1"}
-    ]
+    # Archivage scopé à l'utilisateur (un seul .eq) et non plus à la course.
+    tp_mock.select.return_value.eq.return_value.execute.return_value.data = [{"id": "old-plan-1"}]
     tp_mock.update.return_value.in_.return_value.execute.return_value = MagicMock()
     tp_mock.insert.return_value.execute.return_value.data = [{"id": "plan-2"}]
 
     ps_mock = MagicMock()
-    ps_mock.delete.return_value.in_.return_value.execute.return_value = MagicMock()
+    # Requête de report des workouts déjà générés : aucune séance existante ici.
+    ps_mock.select.return_value.eq.return_value.gte.return_value.execute.return_value.data = []
+    ps_mock.delete.return_value.in_.return_value.gte.return_value.execute.return_value = MagicMock()
 
     def _table_router(table_name: str):
         m = MagicMock()
@@ -652,11 +653,15 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
     result = generate_plan("u1")
     assert result["status"] == "ok"
 
-    # 1. planned_sessions of previous plans deleted
+    # 1. Seules les séances FUTURES des plans précédents sont supprimées.
     ps_mock.delete.assert_called_once()
     delete_in_args, _ = ps_mock.delete.return_value.in_.call_args
     assert delete_in_args[0] == "plan_id"
     assert delete_in_args[1] == ["old-plan-1"]
+    delete_gte_args, _ = ps_mock.delete.return_value.in_.return_value.gte.call_args
+    assert delete_gte_args == ("date", date.today().isoformat()), (
+        "le DELETE doit être borné aux séances futures (l'historique passé est conservé)"
+    )
 
     # 2. previous training_plans archived
     tp_mock.update.assert_called_once()
@@ -665,6 +670,13 @@ def test_generate_plan_archives_previous_active_plan(monkeypatch) -> None:
     update_in_args, _ = tp_mock.update.return_value.in_.call_args
     assert update_in_args[0] == "id"
     assert update_in_args[1] == ["old-plan-1"]
+
+    # 3. Les séances passées sont rattachées au nouveau plan (sinon l'historique
+    #    disparaît : les pages lisent via jointure sur le plan ACTIF).
+    reparent_args, _ = ps_mock.update.call_args
+    assert reparent_args[0] == {"plan_id": "plan-2"}
+    reparent_lt_args, _ = ps_mock.update.return_value.in_.return_value.lt.call_args
+    assert reparent_lt_args == ("date", date.today().isoformat())
 
 
 def test_beginner_build_has_no_hard_intervals() -> None:

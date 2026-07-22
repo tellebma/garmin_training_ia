@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from garmin_sync.coach.activity_review import ActivityInsight, ActivityReview
-from garmin_sync.coach.openai_client import LlmUsage, WorkoutResult
+from garmin_sync.coach.openai_client import LlmUsage, OpenAIError, WorkoutResult
 from garmin_sync.coach.sessions import (
     SessionNotFound,
     _inject_effective_strengths,
@@ -109,6 +109,59 @@ def test_ensure_sessions_generates_for_each_pending(
     assert result["generated_count"] == 2
     assert mock_gen.call_count == 2
     assert mock_record.call_count == 2
+
+
+@patch("garmin_sync.coach.sessions.is_flag_active", return_value=True)
+@patch("garmin_sync.coach.sessions.record_llm_usage")
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_records_usage_on_total_failure(
+    mock_db,
+    mock_gen,
+    mock_record,
+    _mock_flag,  # noqa: PT019
+):
+    """3 tentatives brûlées = 3 requêtes facturées : le coût doit être enregistré
+    en status 'failed'. Sans ça il disparaît du finops (écart 622 req / 11 lignes)."""
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [
+        {
+            "id": "s1",
+            "sport": "run",
+            "session_type": "endurance",
+            "target_duration_s": 3000,
+            "target_tss": 50,
+            "phase": "base",
+            "date": "2026-05-21",
+        }
+    ]
+    _profile_chain(db).data = {"fc_max_bpm": 195, "sports_strengths": {"run": 3}}
+    _race_chain(db).data = {
+        "discipline": "triathlon",
+        "total_elevation_gain_m": 350,
+        "race_date": "2026-08-15",
+    }
+
+    err = OpenAIError("OpenAI returned unrealistic workout: warmup too long")
+    err.usage = LlmUsage(model="gpt-4o-mini", prompt_tokens=900, completion_tokens=300)
+    err.attempts = 3
+    mock_gen.side_effect = err
+
+    result = ensure_sessions(user_id="u1", days=7)
+
+    assert result["failed_count"] == 1
+    assert result["generated_count"] == 0
+    mock_record.assert_called_once_with(
+        user_id="u1",
+        feature="session_workout",
+        model="gpt-4o-mini",
+        prompt_tokens=900,
+        completion_tokens=300,
+        attempts=3,
+        status="failed",
+        session_id="s1",
+    )
 
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")

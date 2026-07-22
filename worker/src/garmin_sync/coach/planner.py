@@ -681,6 +681,42 @@ def _build_all_week_sessions(
     return all_sessions
 
 
+def _workout_carry_key(session: dict[str, Any]) -> tuple[Any, ...]:
+    """Identity used to reuse a workout across a regeneration.
+
+    Same day, same sport, same type AND same target duration: anything else means
+    the session actually changed and the previous workout no longer fits its
+    numeric envelope.
+    """
+    return (
+        session.get("date"),
+        session.get("sport"),
+        session.get("session_type"),
+        session.get("target_duration_s"),
+    )
+
+
+def carry_over_workouts(
+    new_sessions: list[dict[str, Any]], existing_sessions: Sequence[dict[str, Any]]
+) -> int:
+    """Copy already-generated (already PAID) workouts onto identical new sessions.
+
+    The weekly regeneration used to drop every workout: each Monday the athlete
+    found empty sessions and the LLM re-billed the exact same generations. Returns
+    how many workouts were reused.
+    """
+    by_key = {_workout_carry_key(s): s for s in existing_sessions if s.get("workout") is not None}
+    reused = 0
+    for session in new_sessions:
+        previous = by_key.get(_workout_carry_key(session))
+        if previous is None:
+            continue
+        session["workout"] = previous["workout"]
+        session["workout_generated_at"] = previous.get("workout_generated_at")
+        reused += 1
+    return reused
+
+
 def generate_plan(user_id: str) -> dict[str, Any]:
     """Generate a training plan for the given user.
 
@@ -765,19 +801,37 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         weekly_elevation_by_sport=weekly_elevation_by_sport,
     )
 
-    # Archive previous plans for this race and delete their planned_sessions
-    # (FK has no ON DELETE CASCADE; without this, sessions of archived plans
-    # remain in planned_sessions and create duplicates on /today queries).
-    previous_plans_resp = (
-        db.table("training_plans")
-        .select("id")
+    # Drop any session dated before today: when the week grid starts a few days in
+    # the past (race offset not a whole number of weeks), those days are already
+    # gone and would only ever show up as empty, never-generated sessions.
+    today_iso = today.isoformat()
+    all_sessions = [s for s in all_sessions if s["date"] >= today_iso]
+
+    # Reuse workouts already generated (and already billed) for identical upcoming
+    # sessions, instead of re-paying the LLM for the same generations every week.
+    existing_future_resp = (
+        db.table("planned_sessions")
+        .select("date, sport, session_type, target_duration_s, workout, workout_generated_at")
         .eq("user_id", user_id)
-        .eq("race_goal_id", race["id"])
+        .gte("date", today_iso)
         .execute()
     )
+    reused_workouts = carry_over_workouts(
+        all_sessions, cast(DbRows, existing_future_resp.data or [])
+    )
+
+    # Archive ALL of the user's plans, not just this race's: scoping the cleanup to
+    # race_goal_id left an orphan ACTIVE plan (and duplicate sessions on /today)
+    # whenever the primary race changed.
+    previous_plans_resp = db.table("training_plans").select("id").eq("user_id", user_id).execute()
     previous_plan_ids = [p["id"] for p in cast(DbRows, previous_plans_resp.data or [])]
     if previous_plan_ids:
-        db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).execute()
+        # Only FUTURE sessions are replaced. Past sessions are the athlete's history
+        # (prévu/réalisé) and are re-parented to the new plan further down — the
+        # unfiltered delete used to wipe every past session on each weekly run.
+        db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).gte(
+            "date", today_iso
+        ).execute()
         db.table("training_plans").update({"status": "archived"}).in_(
             "id", previous_plan_ids
         ).execute()
@@ -807,11 +861,13 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     )
     plan_id = cast(DbRows, insert_resp.data)[0]["id"]
 
-    # Drop any session dated before today: when the week grid starts a few days in
-    # the past (race offset not a whole number of weeks), those days are already
-    # gone and would only ever show up as empty, never-generated sessions.
-    today_iso = today.isoformat()
-    all_sessions = [s for s in all_sessions if s["date"] >= today_iso]
+    if previous_plan_ids:
+        # Re-parent past sessions to the new plan so the athlete keeps their history:
+        # the app reads planned_sessions through an INNER JOIN on the ACTIVE plan, so
+        # anything left on an archived plan silently disappears from /plan and /stats.
+        db.table("planned_sessions").update({"plan_id": plan_id}).in_(
+            "plan_id", previous_plan_ids
+        ).lt("date", today_iso).execute()
 
     for s in all_sessions:
         s["plan_id"] = plan_id
@@ -824,4 +880,5 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         "plan_id": plan_id,
         "weeks_count": weeks_count,
         "sessions_count": len(all_sessions),
+        "reused_workouts": reused_workouts,
     }
