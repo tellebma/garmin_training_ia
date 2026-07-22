@@ -22,7 +22,11 @@ from garmin_sync.supabase_client import get_admin_client
 log = logging.getLogger("garmin_sync")
 
 _COSTS_URL = "https://api.openai.com/v1/organization/costs"
-_LOOKBACK_DAYS = 4
+# Fenêtre re-pullée à chaque run. 4 jours ne rattrapaient jamais les trous
+# historiques (snapshot démarré le 05/07 alors que la facturation courait depuis
+# mi-juin) : un mois glissant rend le snapshot auto-réparant, pour un seul appel
+# API (upsert idempotent par billing_date).
+_LOOKBACK_DAYS = 30
 _TIMEOUT_S = 15.0
 
 
@@ -53,7 +57,13 @@ def run_billing_sync_cron() -> dict[str, Any]:
     if not api_key:
         return {"status": "skipped_no_key"}
 
-    start_time = int((datetime.now(UTC) - timedelta(days=_LOOKBACK_DAYS)).timestamp())
+    # Aligné sur minuit UTC : avec un start_time à l'heure du cron (05:00), les
+    # buckets `1d` d'OpenAI courent de 05:00 à 05:00 et chevauchent deux jours
+    # calendaires. Comme billing_date est dérivé de bucket["start_time"], le coût
+    # de 00:00-05:00 était attribué à la veille et des journées ressortaient à
+    # 0,00 $ alors que llm_usage prouvait un usage.
+    midnight_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_time = int((midnight_utc - timedelta(days=_LOOKBACK_DAYS)).timestamp())
     try:
         buckets = _fetch_daily_costs(api_key, start_time)
         rows = [_bucket_to_row(b) for b in buckets]

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -42,6 +43,44 @@ def test_billing_sync_upserts_daily_cost(mock_httpx, _mock_settings, mock_get_cl
     rows = upsert_call.call_args.args[0]
     assert any(row["cost_usd"] == 0.42 for row in rows)
     assert result["status"] == "ok"
+
+
+@patch("garmin_sync.billing_sync.get_admin_client")
+@patch("garmin_sync.billing_sync.get_settings", return_value=_settings())
+@patch.object(billing_sync, "httpx")
+def test_billing_sync_requests_midnight_aligned_start(
+    mock_httpx,
+    _mock_settings,  # noqa: PT019
+    _mock_get_client,  # noqa: PT019
+):
+    """start_time DOIT être aligné sur minuit UTC.
+
+    Sinon les buckets `1d` d'OpenAI démarrent à l'heure du cron (05:00) et
+    chevauchent deux jours calendaires : le coût est attribué au mauvais jour et
+    des journées apparaissent à 0,00 $ alors que llm_usage prouve un usage.
+    """
+    mock_httpx.get.return_value = _openai_response([])
+
+    billing_sync.run_billing_sync_cron()
+
+    params = mock_httpx.get.call_args.kwargs["params"]
+    start = datetime.fromtimestamp(params["start_time"], tz=UTC)
+    assert (start.hour, start.minute, start.second, start.microsecond) == (0, 0, 0, 0)
+    # la fenêtre demandée doit couvrir tout le lookback (+ aujourd'hui)
+    assert params["limit"] >= billing_sync._LOOKBACK_DAYS + 1
+
+
+@patch("garmin_sync.billing_sync.get_admin_client")
+@patch("garmin_sync.billing_sync.get_settings", return_value=_settings())
+@patch.object(billing_sync, "httpx")
+def test_billing_sync_lookback_backfills_history(
+    mock_httpx,
+    _mock_settings,  # noqa: PT019
+    _mock_get_client,  # noqa: PT019
+):
+    """Un lookback de 4 jours ne rattrapait jamais les trous historiques du
+    snapshot (table démarrée le 05/07 alors que la facturation courait avant)."""
+    assert billing_sync._LOOKBACK_DAYS >= 30
 
 
 @patch("garmin_sync.billing_sync.get_admin_client")
