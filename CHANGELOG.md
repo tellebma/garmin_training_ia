@@ -1,3 +1,9 @@
+## [1.12.3](https://github.com/tellebma/garmin_training_ia/compare/v1.12.2...v1.12.3) (2026-07-23)
+
+### Bug Fixes
+
+* **coach:** génération de plan — géométrie, progression, comptage finops ([#108](https://github.com/tellebma/garmin_training_ia/issues/108)) ([d371eec](https://github.com/tellebma/garmin_training_ia/commit/d371eec597d63f8f664e12ad856239c4edcf3870))
+
 ## [1.12.2](https://github.com/tellebma/garmin_training_ia/compare/v1.12.1...v1.12.2) (2026-07-23)
 
 ### Bug Fixes
