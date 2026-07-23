@@ -176,6 +176,59 @@ def _build_user_prompt(
     return "\n".join(lines)
 
 
+def _attempt_workout(
+    client: Any,
+    model: str,
+    messages: list[dict[str, str]],
+    session: dict[str, Any],
+) -> tuple[Workout | OpenAIError, int, int]:
+    """Run one OpenAI call + envelope validation.
+
+    Returns ``(workout_or_error, prompt_tokens, completion_tokens)`` — token
+    counts are zero when the call itself failed (nothing billed).
+    """
+    try:
+        resp = client.beta.chat.completions.parse(
+            model=model, messages=messages, response_format=Workout
+        )
+    except Exception as e:  # API/network failure — no tokens billed
+        return OpenAIError(f"OpenAI call failed: {e}"), 0, 0
+
+    prompt_tokens = resp.usage.prompt_tokens if resp.usage else 0
+    completion_tokens = resp.usage.completion_tokens if resp.usage else 0
+    parsed = resp.choices[0].message.parsed
+    if parsed is None:
+        return OpenAIError("OpenAI returned no parsed payload"), prompt_tokens, completion_tokens
+
+    payload = parsed.model_dump()
+    try:
+        workout = validate_workout_for_session(Workout.model_validate(payload), session)
+    except ValueError as e:
+        error = OpenAIError(
+            f"OpenAI returned unrealistic workout: {e}",
+            raw_payload=json.dumps(payload, ensure_ascii=False),
+        )
+        return error, prompt_tokens, completion_tokens
+    return workout, prompt_tokens, completion_tokens
+
+
+def _append_corrective_feedback(messages: list[dict[str, str]], error: OpenAIError) -> None:
+    # Feed the failure back for the corrective retry (assistant echo only when
+    # a payload exists; a network failure has none).
+    if error.raw_payload:
+        messages.append({"role": "assistant", "content": error.raw_payload})
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                f"La séance précédente est invalide : {error}. "
+                "Corrige uniquement ce point en respectant les contraintes chiffrées "
+                "déjà fournies, et renvoie le workout complet."
+            ),
+        }
+    )
+
+
 def generate_workout_for_session(
     *,
     session: dict[str, Any],
@@ -208,50 +261,19 @@ def generate_workout_for_session(
 
     for _ in range(settings.openai_max_attempts):
         attempts += 1
-        resp = None
-        try:
-            resp = client.beta.chat.completions.parse(
-                model=model, messages=messages, response_format=Workout
-            )
-        except Exception as e:  # API/network failure — no tokens billed
-            last_error = OpenAIError(f"OpenAI call failed: {e}")
-
-        if resp is not None:
-            if resp.usage:
-                total_prompt += resp.usage.prompt_tokens
-                total_completion += resp.usage.completion_tokens
-            parsed = resp.choices[0].message.parsed
-            if parsed is None:
-                last_error = OpenAIError("OpenAI returned no parsed payload")
-            else:
-                payload = parsed.model_dump()
-                try:
-                    workout = validate_workout_for_session(Workout.model_validate(payload), session)
-                    return WorkoutResult(
-                        workout=workout,
-                        usage=LlmUsage(model, total_prompt, total_completion),
-                        attempts=attempts,
-                    )
-                except ValueError as e:
-                    last_error = OpenAIError(
-                        f"OpenAI returned unrealistic workout: {e}",
-                        raw_payload=json.dumps(payload, ensure_ascii=False),
-                    )
-
-        # Feed the failure back for the corrective retry (assistant echo only when
-        # a payload exists; a network failure has none).
-        if last_error is not None and last_error.raw_payload:
-            messages.append({"role": "assistant", "content": last_error.raw_payload})
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    f"La séance précédente est invalide : {last_error}. "
-                    "Corrige uniquement ce point en respectant les contraintes chiffrées "
-                    "déjà fournies, et renvoie le workout complet."
-                ),
-            }
+        result, prompt_tokens, completion_tokens = _attempt_workout(
+            client, model, messages, session
         )
+        total_prompt += prompt_tokens
+        total_completion += completion_tokens
+        if isinstance(result, Workout):
+            return WorkoutResult(
+                workout=result,
+                usage=LlmUsage(model, total_prompt, total_completion),
+                attempts=attempts,
+            )
+        last_error = result
+        _append_corrective_feedback(messages, result)
 
     err = last_error or OpenAIError("workout generation failed")
     err.usage = LlmUsage(model, total_prompt, total_completion)
