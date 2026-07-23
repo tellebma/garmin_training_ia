@@ -12,6 +12,7 @@ For 1-week plans, the whole week is taper.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Literal
 
@@ -22,8 +23,13 @@ def compute_phases(start_date: date, race_date: date) -> list[tuple[int, Phase]]
     """Return [(week_offset, phase), ...] from week 0 (start) to race week.
 
     Backward planning : taper at the end, then peak, then build, then base.
+
+    ``total_weeks`` uses ceil (not floor) so the partial week containing the race
+    day is never dropped — a floor here left the plan ending up to 6 days before
+    the race, with no taper/race session (prod bug 2026-07). Exact multiples of 7
+    are unchanged (ceil(N*7/7) == N).
     """
-    total_weeks = max(1, (race_date - start_date).days // 7)
+    total_weeks = max(1, math.ceil((race_date - start_date).days / 7))
 
     if total_weeks == 1:
         return [(0, "taper")]

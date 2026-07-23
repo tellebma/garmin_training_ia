@@ -18,6 +18,9 @@ def record_llm_usage(
     model: str,
     prompt_tokens: int,
     completion_tokens: int,
+    attempts: int = 1,
+    status: str = "ok",
+    session_id: str | None = None,
 ) -> None:
     try:
         db = get_admin_client()
@@ -30,6 +33,9 @@ def record_llm_usage(
                 "completion_tokens": completion_tokens,
                 "total_tokens": prompt_tokens + completion_tokens,
                 "cost_usd": compute_cost_usd(model, prompt_tokens, completion_tokens),
+                "attempts": attempts,
+                "status": status,
+                "session_id": session_id,
             }
         ).execute()
     except Exception as exc:

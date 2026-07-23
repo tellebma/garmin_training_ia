@@ -109,13 +109,30 @@ def pick_session_types_for_phase(
     return filtered or ["endurance"]
 
 
-def _ramp_rate_for_week(week_offset: int, phase: Phase) -> float:
-    """Ramp rate for a given week. Deload every 4th week (1-indexed)."""
-    if phase == "taper":
-        return TAPER_RAMP_RATE
-    if (week_offset + 1) % 4 == 0:
-        return DELOAD_RAMP_RATE
-    return NORMAL_RAMP_RATE
+def compute_week_load_multipliers(phases: Sequence[tuple[int, Phase]]) -> list[float]:
+    """Cumulative weekly load multiplier per week (compounding +5% ramp).
+
+    Normal build weeks apply the current progression then compound
+    ``NORMAL_RAMP_RATE`` for the next week; deload (every 4th week) and taper weeks
+    apply their reduction to the current progression WITHOUT advancing it (a
+    step-back that resumes the build where it left off).
+
+    Fixes the flat-load bug: previously every normal week got a fixed 1.05x of a
+    CONSTANT base_weekly, so weeks 1, 2, 5, 9… were all identical and the only
+    "progression" came from CTL drift between weekly regenerations (≈ nil).
+    """
+    multipliers: list[float] = []
+    progression = 1.0
+    for offset, phase in phases:
+        is_deload = phase != "taper" and (offset + 1) % 4 == 0
+        if phase == "taper":
+            multipliers.append(round(progression * TAPER_RAMP_RATE, 4))
+        elif is_deload:
+            multipliers.append(round(progression * DELOAD_RAMP_RATE, 4))
+        else:
+            multipliers.append(round(progression, 4))
+            progression *= NORMAL_RAMP_RATE
+    return multipliers
 
 
 def _progress_for_offset(offset: int, phases: Sequence[tuple[int, str]]) -> float:
@@ -433,23 +450,41 @@ def _tally_sport_weights(
     return totals
 
 
-def compute_weekly_elevation_targets(
-    *, race_dplus_by_sport: dict[str, int], weeks_count: int
-) -> dict[str, int]:
-    """Spread the race's total D+ across the plan, gated by per-sport thresholds.
+# Plancher de dénominateur pour la répartition du D+. Sans lui, la cible hebdo
+# explose à mesure que l'horizon rétrécit (le plan est régénéré chaque semaine) :
+# 2000 m donnaient 166 m/sem à 12 semaines, 500 m à 4, 1000 m à 2 — soit l'inverse
+# d'une périodisation, avec du gros dénivelé juste avant la course.
+_MIN_ELEVATION_SPREAD_WEEKS = 4
 
-    Sports whose race D+ is below _ELEVATION_THRESHOLD_M get a 0 weekly target
-    (no hill training needed). Above the threshold, distribute total / weeks.
+# Le D+ suit la phase : on accumule en build/peak, on lève le pied en base, et on
+# réduit fortement en taper (bug prod : 500 m ciblés en pleine semaine de taper).
+_ELEVATION_PHASE_FACTOR: dict[str, float] = {
+    "base": 0.7,
+    "build": 1.0,
+    "peak": 1.0,
+    "taper": 0.3,
+}
+
+
+def compute_weekly_elevation_targets(
+    *, race_dplus_by_sport: dict[str, int], weeks_count: int, phase: str = "build"
+) -> dict[str, int]:
+    """Weekly D+ target per sport, gated by per-sport thresholds.
+
+    Sports whose race D+ is below ``_ELEVATION_THRESHOLD_M`` get a 0 weekly target
+    (no hill training needed). Above it, the race's total D+ is spread over the
+    plan — but the denominator is floored at ``_MIN_ELEVATION_SPREAD_WEEKS`` so a
+    shrinking horizon can't inflate the target, and scaled by the week's phase so
+    the taper actually tapers.
     """
     if weeks_count <= 0:
         return {}
+    spread = max(weeks_count, _MIN_ELEVATION_SPREAD_WEEKS)
+    factor = _ELEVATION_PHASE_FACTOR.get(phase, 1.0)
     out: dict[str, int] = {}
     for sport, total in race_dplus_by_sport.items():
         threshold = _ELEVATION_THRESHOLD_M.get(sport, 200)
-        if total >= threshold:
-            out[sport] = total // weeks_count
-        else:
-            out[sport] = 0
+        out[sport] = round(total * factor / spread) if total >= threshold else 0
     return out
 
 
@@ -620,17 +655,22 @@ def _build_all_week_sessions(
     week_start: date,
     race_date: date,
     race_sport: str,
-    weekly_elevation_by_sport: dict[str, int],
+    race_dplus_by_sport: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Build planned sessions for all weeks of the plan."""
     all_sessions: list[dict[str, Any]] = []
     prev_tss_by_sport: dict[str, float] | None = None
-    for offset, phase in phases:
-        ramp = _ramp_rate_for_week(offset, phase)
+    load_multipliers = compute_week_load_multipliers(phases)
+    for i, (offset, phase) in enumerate(phases):
+        # Cible D+ recalculée par semaine : elle dépend de la phase (le taper doit
+        # réellement lever le pied sur le dénivelé).
+        weekly_elevation_by_sport = compute_weekly_elevation_targets(
+            race_dplus_by_sport=race_dplus_by_sport, weeks_count=weeks_count, phase=phase
+        )
         base_weekly = max(
             today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
         )
-        weekly_tss = base_weekly * ramp
+        weekly_tss = base_weekly * load_multipliers[i]
         if offset == 0:
             weekly_tss *= first_week_tss_multiplier
         progress = _progress_for_offset(offset, phases)
@@ -662,6 +702,42 @@ def _build_all_week_sessions(
         )
         all_sessions.extend(sessions)
     return all_sessions
+
+
+def _workout_carry_key(session: dict[str, Any]) -> tuple[Any, ...]:
+    """Identity used to reuse a workout across a regeneration.
+
+    Same day, same sport, same type AND same target duration: anything else means
+    the session actually changed and the previous workout no longer fits its
+    numeric envelope.
+    """
+    return (
+        session.get("date"),
+        session.get("sport"),
+        session.get("session_type"),
+        session.get("target_duration_s"),
+    )
+
+
+def carry_over_workouts(
+    new_sessions: list[dict[str, Any]], existing_sessions: Sequence[dict[str, Any]]
+) -> int:
+    """Copy already-generated (already PAID) workouts onto identical new sessions.
+
+    The weekly regeneration used to drop every workout: each Monday the athlete
+    found empty sessions and the LLM re-billed the exact same generations. Returns
+    how many workouts were reused.
+    """
+    by_key = {_workout_carry_key(s): s for s in existing_sessions if s.get("workout") is not None}
+    reused = 0
+    for session in new_sessions:
+        previous = by_key.get(_workout_carry_key(session))
+        if previous is None:
+            continue
+        session["workout"] = previous["workout"]
+        session["workout_generated_at"] = previous.get("workout_generated_at")
+        reused += 1
+    return reused
 
 
 def generate_plan(user_id: str) -> dict[str, Any]:
@@ -720,13 +796,17 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     )
     available_days = profile.get("available_days") or ["mon", "wed", "fri"]
 
-    # Per-sport race D+ -> per-week target D+, gated by the sport's threshold.
+    # Per-sport race D+ — la cible hebdo est dérivée par semaine (phase-aware)
+    # dans _build_all_week_sessions.
     race_dplus_by_sport = compute_elevation_per_sport(race.get("legs") or [])
-    weekly_elevation_by_sport = compute_weekly_elevation_targets(
-        race_dplus_by_sport=race_dplus_by_sport, weeks_count=weeks_count
-    )
 
-    week_start = today - timedelta(days=today.weekday())
+    # Anchor the week grid so the LAST week ENDS on race_date (race day = last day
+    # of the last week). Previously week_start was pinned to the Monday of the
+    # current week while phases were counted from ``today`` — the two origins
+    # diverged, leaving the plan ending up to 13 days before the race with no
+    # taper and no race session (prod bug 2026-07). Days before ``today`` (when the
+    # grid starts slightly in the past) are dropped just before insert.
+    week_start = race_date - timedelta(days=weeks_count * 7 - 1)
     all_sessions = _build_all_week_sessions(
         phases=phases,
         today_state=today_state,
@@ -739,22 +819,40 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         week_start=week_start,
         race_date=race_date,
         race_sport=race_sport,
-        weekly_elevation_by_sport=weekly_elevation_by_sport,
+        race_dplus_by_sport=race_dplus_by_sport,
     )
 
-    # Archive previous plans for this race and delete their planned_sessions
-    # (FK has no ON DELETE CASCADE; without this, sessions of archived plans
-    # remain in planned_sessions and create duplicates on /today queries).
-    previous_plans_resp = (
-        db.table("training_plans")
-        .select("id")
+    # Drop any session dated before today: when the week grid starts a few days in
+    # the past (race offset not a whole number of weeks), those days are already
+    # gone and would only ever show up as empty, never-generated sessions.
+    today_iso = today.isoformat()
+    all_sessions = [s for s in all_sessions if s["date"] >= today_iso]
+
+    # Reuse workouts already generated (and already billed) for identical upcoming
+    # sessions, instead of re-paying the LLM for the same generations every week.
+    existing_future_resp = (
+        db.table("planned_sessions")
+        .select("date, sport, session_type, target_duration_s, workout, workout_generated_at")
         .eq("user_id", user_id)
-        .eq("race_goal_id", race["id"])
+        .gte("date", today_iso)
         .execute()
     )
+    reused_workouts = carry_over_workouts(
+        all_sessions, cast(DbRows, existing_future_resp.data or [])
+    )
+
+    # Archive ALL of the user's plans, not just this race's: scoping the cleanup to
+    # race_goal_id left an orphan ACTIVE plan (and duplicate sessions on /today)
+    # whenever the primary race changed.
+    previous_plans_resp = db.table("training_plans").select("id").eq("user_id", user_id).execute()
     previous_plan_ids = [p["id"] for p in cast(DbRows, previous_plans_resp.data or [])]
     if previous_plan_ids:
-        db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).execute()
+        # Only FUTURE sessions are replaced. Past sessions are the athlete's history
+        # (prévu/réalisé) and are re-parented to the new plan further down — the
+        # unfiltered delete used to wipe every past session on each weekly run.
+        db.table("planned_sessions").delete().in_("plan_id", previous_plan_ids).gte(
+            "date", today_iso
+        ).execute()
         db.table("training_plans").update({"status": "archived"}).in_(
             "id", previous_plan_ids
         ).execute()
@@ -784,6 +882,14 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     )
     plan_id = cast(DbRows, insert_resp.data)[0]["id"]
 
+    if previous_plan_ids:
+        # Re-parent past sessions to the new plan so the athlete keeps their history:
+        # the app reads planned_sessions through an INNER JOIN on the ACTIVE plan, so
+        # anything left on an archived plan silently disappears from /plan and /stats.
+        db.table("planned_sessions").update({"plan_id": plan_id}).in_(
+            "plan_id", previous_plan_ids
+        ).lt("date", today_iso).execute()
+
     for s in all_sessions:
         s["plan_id"] = plan_id
         s["user_id"] = user_id
@@ -795,4 +901,5 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         "plan_id": plan_id,
         "weeks_count": weeks_count,
         "sessions_count": len(all_sessions),
+        "reused_workouts": reused_workouts,
     }

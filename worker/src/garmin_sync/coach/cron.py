@@ -13,13 +13,20 @@ from datetime import date
 from typing import Any, cast
 
 from garmin_sync.coach.planner import generate_plan
+from garmin_sync.coach.sessions import ensure_sessions
 from garmin_sync.supabase_client import get_admin_client
 
 log = logging.getLogger(__name__)
 
 
 def run_weekly_cron() -> dict[str, Any]:
-    """For each user with an active future race_goal, regenerate the plan."""
+    """For each user with an active future race_goal, regenerate the plan and
+    generate the upcoming workouts.
+
+    La génération de workouts n'était déclenchée que par l'ouverture de /today :
+    un utilisateur qui n'ouvre pas l'app n'avait jamais de séance générée (moitié
+    des séances prod restaient workout=NULL). On la déclenche donc ici aussi.
+    """
     db = get_admin_client()
     today_iso = date.today().isoformat()
     users_resp = (
@@ -39,6 +46,15 @@ def run_weekly_cron() -> dict[str, Any]:
         except Exception as e:
             log.exception("Plan regeneration failed for user=%s", uid)
             results[uid] = {"status": "exception", "type": type(e).__name__}
+            continue
+        try:
+            results[uid]["ensure_sessions"] = ensure_sessions(user_id=uid)
+        except Exception as e:
+            log.exception("Workout generation failed for user=%s", uid)
+            results[uid]["ensure_sessions"] = {
+                "status": "exception",
+                "type": type(e).__name__,
+            }
     return {"total_users": len(user_ids), "results": results}
 
 

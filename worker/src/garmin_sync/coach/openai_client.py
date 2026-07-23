@@ -28,6 +28,7 @@ class LlmUsage:
 class WorkoutResult:
     workout: Workout
     usage: LlmUsage
+    attempts: int = 1
 
 
 class OpenAIError(Exception):
@@ -35,11 +36,24 @@ class OpenAIError(Exception):
 
     ``raw_payload`` porte le JSON du workout rejeté par la validation, pour
     ré-injection en message assistant lors du retry correctif.
+
+    ``usage`` / ``attempts`` portent le coût cumulé des tentatives (y compris
+    ratées) pour que l'appelant l'enregistre en finops même sur échec total —
+    sinon 3 requêtes facturées disparaissent du comptage (cf. écart 622 req /
+    11 lignes llm_usage observé en prod).
     """
 
-    def __init__(self, message: str, raw_payload: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        raw_payload: str | None = None,
+        usage: LlmUsage | None = None,
+        attempts: int = 0,
+    ) -> None:
         super().__init__(message)
         self.raw_payload = raw_payload
+        self.usage = usage
+        self.attempts = attempts
 
 
 _SYSTEM_PROMPT = """Tu es un coach triathlon expert. Tu produis des séances d'entraînement
@@ -162,33 +176,57 @@ def _build_user_prompt(
     return "\n".join(lines)
 
 
-def _call_and_validate(
-    client: Any, model: str, messages: list[dict[str, str]], session: dict[str, Any]
-) -> tuple[Workout, LlmUsage]:
-    """One LLM round-trip + validation. Raises OpenAIError on any failure."""
+def _attempt_workout(
+    client: Any,
+    model: str,
+    messages: list[dict[str, str]],
+    session: dict[str, Any],
+) -> tuple[Workout | OpenAIError, int, int]:
+    """Run one OpenAI call + envelope validation.
+
+    Returns ``(workout_or_error, prompt_tokens, completion_tokens)`` — token
+    counts are zero when the call itself failed (nothing billed).
+    """
     try:
         resp = client.beta.chat.completions.parse(
             model=model, messages=messages, response_format=Workout
         )
-    except Exception as e:
-        raise OpenAIError(f"OpenAI call failed: {e}") from e
-    usage = LlmUsage(
-        model=model,
-        prompt_tokens=resp.usage.prompt_tokens if resp.usage else 0,
-        completion_tokens=resp.usage.completion_tokens if resp.usage else 0,
-    )
+    except Exception as e:  # API/network failure — no tokens billed
+        return OpenAIError(f"OpenAI call failed: {e}"), 0, 0
+
+    prompt_tokens = resp.usage.prompt_tokens if resp.usage else 0
+    completion_tokens = resp.usage.completion_tokens if resp.usage else 0
     parsed = resp.choices[0].message.parsed
     if parsed is None:
-        raise OpenAIError("OpenAI returned no parsed payload")
+        return OpenAIError("OpenAI returned no parsed payload"), prompt_tokens, completion_tokens
+
     payload = parsed.model_dump()
     try:
-        workout = Workout.model_validate(payload)
-        return validate_workout_for_session(workout, session), usage
+        workout = validate_workout_for_session(Workout.model_validate(payload), session)
     except ValueError as e:
-        raise OpenAIError(
+        error = OpenAIError(
             f"OpenAI returned unrealistic workout: {e}",
             raw_payload=json.dumps(payload, ensure_ascii=False),
-        ) from e
+        )
+        return error, prompt_tokens, completion_tokens
+    return workout, prompt_tokens, completion_tokens
+
+
+def _append_corrective_feedback(messages: list[dict[str, str]], error: OpenAIError) -> None:
+    # Feed the failure back for the corrective retry (assistant echo only when
+    # a payload exists; a network failure has none).
+    if error.raw_payload:
+        messages.append({"role": "assistant", "content": error.raw_payload})
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                f"La séance précédente est invalide : {error}. "
+                "Corrige uniquement ce point en respectant les contraintes chiffrées "
+                "déjà fournies, et renvoie le workout complet."
+            ),
+        }
+    )
 
 
 def generate_workout_for_session(
@@ -204,34 +242,40 @@ def generate_workout_for_session(
     session on the first bad draw, re-prompt with the exact validation error so
     the model can self-correct, up to ``openai_max_attempts`` times.
 
-    Only the final, successful attempt's token usage is returned — failed
-    attempts also cost tokens but are not summed here (finops V1 is an
-    estimate, not a to-the-cent reconciliation; see the openai_billing_snapshot
-    ground-truth comparison for the real invoiced amount).
+    Token usage is ACCUMULATED across every attempt (each retry is a separately
+    billed request) and returned on the ``WorkoutResult`` — or attached to the
+    raised ``OpenAIError`` on total failure — so finops counts the true cost, not
+    just the last successful call.
     """
-    client = _get_client()
+    client: Any = _get_client()
     settings = get_settings()
+    model = settings.openai_model
     messages: list[dict[str, str]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": _build_user_prompt(session, athlete, race_context)},
     ]
+    total_prompt = 0
+    total_completion = 0
+    attempts = 0
     last_error: OpenAIError | None = None
+
     for _ in range(settings.openai_max_attempts):
-        try:
-            workout, usage = _call_and_validate(client, settings.openai_model, messages, session)
-            return WorkoutResult(workout=workout, usage=usage)
-        except OpenAIError as e:
-            last_error = e
-            if e.raw_payload:
-                messages.append({"role": "assistant", "content": e.raw_payload})
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        f"La séance précédente est invalide : {e}. "
-                        "Corrige uniquement ce point en respectant les contraintes chiffrées "
-                        "déjà fournies, et renvoie le workout complet."
-                    ),
-                }
+        attempts += 1
+        result, prompt_tokens, completion_tokens = _attempt_workout(
+            client, model, messages, session
+        )
+        total_prompt += prompt_tokens
+        total_completion += completion_tokens
+        if isinstance(result, Workout):
+            return WorkoutResult(
+                workout=result,
+                usage=LlmUsage(model, total_prompt, total_completion),
+                attempts=attempts,
             )
-    raise last_error or OpenAIError("workout generation failed")
+        last_error = result
+        _append_corrective_feedback(messages, result)
+
+    err = last_error or OpenAIError("workout generation failed")
+    err.usage = LlmUsage(model, total_prompt, total_completion)
+    err.attempts = attempts
+    raise err
