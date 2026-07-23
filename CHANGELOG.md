@@ -1,3 +1,9 @@
+## [1.12.2](https://github.com/tellebma/garmin_training_ia/compare/v1.12.1...v1.12.2) (2026-07-23)
+
+### Bug Fixes
+
+* **deps:** bump next 15.5.21 + override postcss >=8.5.12 (vulns high, audit CI) ([#110](https://github.com/tellebma/garmin_training_ia/issues/110)) ([a661e8a](https://github.com/tellebma/garmin_training_ia/commit/a661e8a99ce17b1ac4c1bd601c213783a8921e0d))
+
 ## [1.12.1](https://github.com/tellebma/garmin_training_ia/compare/v1.12.0...v1.12.1) (2026-07-23)
 
 ### Bug Fixes
