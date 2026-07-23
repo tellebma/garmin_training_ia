@@ -1,3 +1,10 @@
+## [1.12.1](https://github.com/tellebma/garmin_training_ia/compare/v1.12.0...v1.12.1) (2026-07-23)
+
+### Bug Fixes
+
+* **changelog:** embarque docs/nouveautes.md dans le bundle serverless Vercel ([#107](https://github.com/tellebma/garmin_training_ia/issues/107)) ([bde4982](https://github.com/tellebma/garmin_training_ia/commit/bde49823ff08c1cdb0263db61a7f928171c05e29))
+* **deps:** force sharp >=0.35.0 pour corriger la vuln high libvips (audit CI) ([#109](https://github.com/tellebma/garmin_training_ia/issues/109)) ([dfcf0fb](https://github.com/tellebma/garmin_training_ia/commit/dfcf0fbf1f4a5eaff3eb56b7b30afede3ea00d6c))
+
 ## [1.12.0](https://github.com/tellebma/garmin_training_ia/compare/v1.11.1...v1.12.0) (2026-07-21)
 
 ### Features
