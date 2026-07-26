@@ -1,5 +1,11 @@
 # Nouveautés
 
+## 1.13.0 — 2026-07-26
+
+- Les cols et sommets gravis loin de chez toi comptent enfin : la détection couvre désormais toutes tes sorties, où qu'elles soient (vacances, stages, déplacements), plus seulement un rayon de 50 km autour de ton domicile.
+- Ton historique complet est re-analysé automatiquement : les cols franchis par le passé en déplacement (ex. le col du Chaussy) apparaissent dans « Mes cols & sommets ».
+- La liste reste lisible : tes cols gravis d'abord, puis ceux à explorer près de chez toi, limitée aux 30 meilleurs par section.
+
 ## 1.12.0 — 2026-07-22
 
 - La liste « Mes cols & sommets » est plus lisible : le bouton pour dérouler les cols suivants
