@@ -299,26 +299,38 @@ prendre ensuite.
   - Frontière : `discipline_level.py` (E13.2) couvre déjà le **niveau observé** (volume,
     régularité, TSS) ; E9.4 apporte la dimension **efficacité**, pas un doublon.
 
-### P1 — fc_max / VMA jamais remontés de Garmin (découvert le 2026-07-26)
-
-- `profile_sync.py` tourne bien (cron quotidien, `garmin_synced_at` récent sur les 2 profils)
-  mais `fc_max_bpm` et `vma_kmh` restent **NULL**, alors que ni l'un ni l'autre ne dépend d'un
-  capteur de puissance. Mapping actuel : `fc_max_bpm` ← `get_user_profile()["userMaxHr"]`,
-  `vma_kmh` ← `get_max_metrics()["vo2MaxValueRunning"] ÷ 3,5`.
-- Suspicion : clé ou endpoint obsolète dans `garminconnect` 0.3.x (même famille de piège que
-  le bug `garth` déjà vécu). À vérifier en inspectant les payloads réels.
-- `ftp_watts` vide est **normal** dans le cas de l'owner (pas de capteur de puissance).
-  `css_per_100m_s` n'est carrément **pas implémenté** dans `_transform_profile`.
-- Repli réaliste si l'API reste muette : déduire la FC max de `max(activities.hr_max)`
-  (51 activités renseignées, max observé 215 bpm — à filtrer des artefacts de capteur).
-- Impact : bloque les zones cardio fiables, le TSS HR-based et tout filtre d'intensité.
-  E9.4 a été conçue pour ne pas en dépendre, donc ce n'est pas bloquant pour elle.
 - **E9.5 P1 — Analyse avancée d'activité** : tours/intervalles, temps en zones,
   puissance normalisée, IF/VI, D+/D-, carte GPS et métriques Garmin spécialisées
   lorsqu'elles sont disponibles.
 - **E9.6 P2 — Préparation objectif** : adéquation de l'entraînement aux exigences
   de la course, évolution de la préparation, stratégie de pacing et priorités de
   la semaine.
+
+#### fc_max / VMA jamais remontés de Garmin — V1 livrée (découvert le 2026-07-26)
+
+Découvert pendant la spec E9.4 : `fc_max_bpm` et `vma_kmh` étaient NULL sur tous les profils
+depuis toujours, alors que le cron `profile_sync` réussissait. **Cause : deux hypothèses fausses
+sur la forme des réponses Garmin**, pas un problème de capteur.
+
+- `/userprofile-service/userprofile/user-settings` **imbrique les champs sous `userData`** —
+  `garminconnect` fait lui-même `settings["userData"].get("measurementSystem")`. Le code lisait
+  `userMaxHr` et `functionalThresholdPower` au niveau racine, donc toujours `None`.
+- `/metrics-service/metrics/maxmet/daily/{start}/{end}` est un endpoint de **plage de dates** :
+  il renvoie une **liste** d'entrées journalières, la VO2max nichée sous `generic`. Le code
+  appelait `.get("vo2MaxValueRunning")` comme sur un dict plat.
+- **Les tests ne pouvaient pas le voir** : ils mockaient un `user_profile` plat et un
+  `max_metrics` dict, encodant la même hypothèse que le code. Leçon à retenir — un test qui
+  mocke la forme supposée du payload ne prouve rien sur l'API réelle.
+- Corrigé : lecture tolérante aux deux niveaux et aux formes inattendues (ce code tourne dans le
+  cron et doit dégrader vers « aucune valeur écrite » plutôt que lever, car `_transform_profile`
+  est appelé hors du `try/except` gardant les appels API), plus un log de la **forme** des
+  payloads (clés uniquement, jamais les valeurs — ces payloads portent des données personnelles).
+- **À vérifier après le prochain passage du cron** : les logs `profile-sync payload shapes`
+  donnent la vérité terrain. Si `fc_max_bpm` reste NULL, le repli est de déduire la FC max de
+  `max(activities.hr_max)` (51 activités renseignées, max observé 215 bpm — à filtrer des
+  artefacts de capteur).
+- `ftp_watts` restera vide pour un athlète sans capteur de puissance : c'est **correct**.
+  `css_per_100m_s` n'est toujours **pas implémenté** dans `_transform_profile` — reste à faire.
 
 Statut incrément 1 :
 
