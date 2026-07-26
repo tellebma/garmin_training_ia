@@ -1,3 +1,9 @@
+## [1.13.4](https://github.com/tellebma/garmin_training_ia/compare/v1.13.3...v1.13.4) (2026-07-26)
+
+### Bug Fixes
+
+* **worker:** optimise les requêtes du worker (audit 2026-07-26) ([#115](https://github.com/tellebma/garmin_training_ia/issues/115)) ([805ec0d](https://github.com/tellebma/garmin_training_ia/commit/805ec0dd47dbb65e553edeff048f8a21ccf861c6))
+
 ## [1.13.3](https://github.com/tellebma/garmin_training_ia/compare/v1.13.2...v1.13.3) (2026-07-26)
 
 ### Bug Fixes
