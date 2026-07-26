@@ -20,6 +20,10 @@ DbRows = list[dict[str, Any]]
 Bbox = tuple[float, float, float, float]  # (south, west, north, east)
 
 _CROSSING_THRESHOLD_M = 150.0
+# Borne par run de cron : un backfill complet (curseur remis à NULL) s'étale sur
+# plusieurs runs au lieu de retraiter tout l'historique (samples + Overpass par
+# zone) d'un coup — le curseur reprend là où le run précédent s'est arrêté.
+_MAX_ACTIVITIES_PER_RUN = 50
 _SAMPLE_PAGE_SIZE = 1000
 _MAX_SAMPLE_PAGES = 20  # 20k samples ceiling — generous even for multi-hour rides
 # Marge ajoutée au bbox d'activité pour la couverture Overpass (~5.5 km) : large
@@ -98,7 +102,10 @@ def _fetch_pending_activities(db: Any, user_id: str, cursor: str | None) -> DbRo
     )
     if cursor:
         query = query.gt("start_time", cursor)
-    return cast(DbRows, query.order("start_time").execute().data or [])
+    return cast(
+        DbRows,
+        query.order("start_time").limit(_MAX_ACTIVITIES_PER_RUN).execute().data or [],
+    )
 
 
 def _fetch_all_samples(db: Any, user_id: str, activity_id: int) -> DbRows:

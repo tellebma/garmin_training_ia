@@ -109,9 +109,8 @@ def test_sync_user_skips_existing_activity_samples(
     fake_garmin_client: MagicMock, fake_admin_client: MagicMock
 ) -> None:
     table = fake_admin_client.table.return_value
-    table.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = [
-        {"garmin_activity_id": 1}
-    ]
+    chain = table.select.return_value.eq.return_value.in_.return_value
+    chain.not_.is_.return_value.execute.return_value.data = [{"garmin_activity_id": 1}]
 
     with patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client):
         sync_user_for_date_range(
@@ -123,6 +122,55 @@ def test_sync_user_skips_existing_activity_samples(
         )
 
     fake_garmin_client.get_activity_details.assert_not_called()
+
+
+def test_sampled_lookup_reads_activities_sentinel_not_samples() -> None:
+    # Régression audit 2026-07-26 : l'ancienne implémentation lisait
+    # activity_samples (~2000 lignes par activité GPS) sans pagination — le cap
+    # serveur PostgREST (~1000 lignes) tronquait silencieusement la réponse, une
+    # activité déjà samplée disparaissait du set et était re-fetchée chez Garmin
+    # à chaque cron. La sentinelle route_polyline (1 ligne par activité, bornée
+    # par la fenêtre de sync) ne peut pas être tronquée.
+    db = MagicMock()
+    chain = db.table.return_value.select.return_value.eq.return_value.in_.return_value
+    chain.not_.is_.return_value.execute.return_value.data = [{"garmin_activity_id": 7}]
+
+    from garmin_sync.sync import _sampled_activity_ids
+
+    result = _sampled_activity_ids(db, "u1", [7, 8])
+
+    assert result == {7}
+    db.table.assert_called_once_with("activities")
+    chain.not_.is_.assert_called_once_with("route_polyline", "null")
+
+
+def test_persist_samples_upserts_in_chunks(fake_admin_client: MagicMock) -> None:
+    # Un upsert unique de ~2000 samples fait des payloads de plusieurs Mo ;
+    # on découpe en pages bornées.
+    from garmin_sync import sync as sync_mod
+
+    client = MagicMock()
+    client.get_activity_details.return_value = {
+        "activityDetailMetrics": [
+            {"metrics": [{"key": "directHeartRate", "value": 140}]},
+            {"metrics": [{"key": "directHeartRate", "value": 141}]},
+            {"metrics": [{"key": "directHeartRate", "value": 142}]},
+        ]
+    }
+    with (
+        patch.object(sync_mod, "_SAMPLE_UPSERT_CHUNK", 2),
+        patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
+    ):
+        sync_mod._persist_samples_and_route(fake_admin_client, "u1", 1, client)
+
+    sample_upserts = [
+        call
+        for call in fake_admin_client.table.return_value.upsert.call_args_list
+        if call.kwargs.get("on_conflict") == "user_id,garmin_activity_id,sample_index"
+    ]
+    assert len(sample_upserts) == 2
+    assert len(sample_upserts[0].args[0]) == 2
+    assert len(sample_upserts[1].args[0]) == 1
 
 
 def test_sync_user_continues_when_one_endpoint_fails(
