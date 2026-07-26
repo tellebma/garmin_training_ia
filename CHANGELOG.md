@@ -1,3 +1,9 @@
+## [1.13.1](https://github.com/tellebma/garmin_training_ia/compare/v1.13.0...v1.13.1) (2026-07-26)
+
+### Bug Fixes
+
+* **strava:** met l'intégration Strava en pause (désactivation par config + garde-fou 404) ([#112](https://github.com/tellebma/garmin_training_ia/issues/112)) ([11cf7be](https://github.com/tellebma/garmin_training_ia/commit/11cf7be12f25124ead94dcc8d226f256f098e9a4))
+
 ## [1.13.0](https://github.com/tellebma/garmin_training_ia/compare/v1.12.3...v1.13.0) (2026-07-26)
 
 ### Features
