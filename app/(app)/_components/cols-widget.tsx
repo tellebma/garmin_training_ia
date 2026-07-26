@@ -27,7 +27,14 @@ function ColsTable({ summaries }: Readonly<{ summaries: ColSummary[] }>) {
       <tbody className="divide-y">
         {summaries.map((summary) => (
           <tr key={summary.id}>
-            <td className="py-2 font-medium">{summary.name}</td>
+            <td className="py-2 font-medium">
+              {summary.name}
+              {summary.type === 'peak' && (
+                <span className="text-muted-foreground bg-muted ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase">
+                  sommet
+                </span>
+              )}
+            </td>
             <td className="text-muted-foreground py-2">
               {summary.elevationM === null ? '—' : `${String(summary.elevationM)} m`}
             </td>
@@ -48,45 +55,10 @@ function ColsTable({ summaries }: Readonly<{ summaries: ColSummary[] }>) {
   )
 }
 
-function ColsSection({ title, summaries }: Readonly<{ title: string; summaries: ColSummary[] }>) {
+export function ColsWidget({ summaries }: Readonly<{ summaries: ColSummary[] }>) {
   const [expanded, setExpanded] = useState(false)
 
   if (summaries.length === 0) {
-    return null
-  }
-
-  const hiddenCount = summaries.length - VISIBLE_COUNT
-  const rows = expanded ? summaries : summaries.slice(0, VISIBLE_COUNT)
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-muted-foreground text-xs font-semibold uppercase">{title}</h3>
-        <span className="text-muted-foreground text-xs tabular-nums">{summaries.length}</span>
-      </div>
-      <ColsTable summaries={rows} />
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            setExpanded((value) => !value)
-          }}
-          aria-expanded={expanded}
-          className="text-muted-foreground hover:text-foreground flex w-full items-center justify-center gap-1.5 border-t pt-2 text-xs font-medium transition-colors"
-        >
-          {expanded ? 'Réduire' : `Afficher les ${String(hiddenCount)} autres`}
-          <ChevronDown
-            className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}
-            aria-hidden
-          />
-        </button>
-      )}
-    </div>
-  )
-}
-
-export function ColsWidget({ cols, peaks }: Readonly<{ cols: ColSummary[]; peaks: ColSummary[] }>) {
-  if (cols.length === 0 && peaks.length === 0) {
     return (
       <ChartCard
         title="Mes cols & sommets"
@@ -101,14 +73,32 @@ export function ColsWidget({ cols, peaks }: Readonly<{ cols: ColSummary[]; peaks
     )
   }
 
+  const hiddenCount = summaries.length - VISIBLE_COUNT
+  const rows = expanded ? summaries : summaries.slice(0, VISIBLE_COUNT)
+
   return (
     <ChartCard
       title="Mes cols & sommets"
-      description="Cols et sommets dans un rayon de 50 km autour de chez toi"
+      description="Tes cols et sommets gravis, et ceux à explorer dans un rayon de 50 km"
     >
-      <div className="space-y-6">
-        <ColsSection title="Cols" summaries={cols} />
-        <ColsSection title="Sommets" summaries={peaks} />
+      <div className="space-y-2">
+        <ColsTable summaries={rows} />
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setExpanded((value) => !value)
+            }}
+            aria-expanded={expanded}
+            className="text-muted-foreground hover:text-foreground flex w-full items-center justify-center gap-1.5 border-t pt-2 text-xs font-medium transition-colors"
+          >
+            {expanded ? 'Réduire' : `Afficher les ${String(hiddenCount)} autres`}
+            <ChevronDown
+              className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}
+              aria-hidden
+            />
+          </button>
+        )}
       </div>
     </ChartCard>
   )

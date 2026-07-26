@@ -405,14 +405,14 @@ async function ColsWidgetLoader({ userId }: { readonly userId: string }) {
   const cols: ColDto[] = colsRes.data ?? []
   const crossings: ColCrossingRowDto[] = crossingsRes.data ?? []
 
-  const { cols: colSummaries, peaks: peakSummaries } = computeColsSummary({
+  const summaries = computeColsSummary({
     homeLat: Number(profile.lat),
     homeLon: Number(profile.lon),
     cols,
     crossings,
   })
 
-  return <ColsWidget cols={colSummaries} peaks={peakSummaries} />
+  return <ColsWidget summaries={summaries} />
 }
 
 export default async function StatsPage({ searchParams }: Props) {

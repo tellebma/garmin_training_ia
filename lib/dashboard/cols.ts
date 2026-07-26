@@ -1,6 +1,6 @@
 const DEFAULT_RADIUS_KM = 50
 const EARTH_RADIUS_KM = 6371
-// Plafond d'affichage par groupe (cols / sommets) : le tri met les gravis en tête,
+// Plafond d'affichage de la liste : le tri met les gravis en tête,
 // donc seuls des cols jamais franchis peuvent être coupés par ce cap.
 const MAX_RESULTS = 30
 
@@ -30,11 +30,6 @@ export interface ColSummary {
   type: ColType
 }
 
-export interface GroupedColsSummary {
-  cols: ColSummary[]
-  peaks: ColSummary[]
-}
-
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180
   const dLat = toRad(lat2 - lat1)
@@ -57,7 +52,7 @@ export function computeColsSummary({
   cols: ColDto[]
   crossings: ColCrossingRowDto[]
   radiusKm?: number
-}): GroupedColsSummary {
+}): ColSummary[] {
   const crossingsByCol = new Map<string, { count: number; lastCrossedAt: string }>()
   for (const crossing of crossings) {
     const existing = crossingsByCol.get(crossing.col_id)
@@ -90,14 +85,12 @@ export function computeColsSummary({
     // déplacement) ; les cols jamais franchis ne sont proposés que dans le rayon.
     .filter((summary) => summary.crossingsCount > 0 || summary._distanceKm <= radiusKm)
 
-  const sorted = summaries
+  // Liste unique cols + sommets confondus (décision owner 2026-07-26) — le
+  // champ `type` reste porté par chaque ligne pour le badge d'affichage.
+  return summaries
     .toSorted((a, b) => b.crossingsCount - a.crossingsCount || a.distanceKm - b.distanceKm)
     .map(({ _distanceKm, ...summary }) => summary)
-
-  return {
-    cols: sorted.filter((summary) => summary.type === 'col').slice(0, MAX_RESULTS),
-    peaks: sorted.filter((summary) => summary.type === 'peak').slice(0, MAX_RESULTS),
-  }
+    .slice(0, MAX_RESULTS)
 }
 
 interface EmbeddedCol {

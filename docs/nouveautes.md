@@ -1,5 +1,9 @@
 # Nouveautés
 
+## 1.14.0 — 2026-07-26
+
+- « Mes cols & sommets » devient une liste unique : cols et sommets/crêtes sont classés ensemble (tes gravis d'abord, puis les plus proches), avec un petit badge « sommet » pour les distinguer.
+
 ## 1.13.1 — 2026-07-26
 
 - La connexion Strava est mise en pause : la carte « Connecter Strava » disparaît du profil.
