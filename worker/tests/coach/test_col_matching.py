@@ -32,10 +32,12 @@ class _FakeQuery:
     def is_(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def limit(self, *_a: Any, **_k: Any) -> _FakeQuery:
+    def gt(self, *_a: Any, **_k: Any) -> _FakeQuery:
         return self
 
-    def gt(self, *_a: Any, **_k: Any) -> _FakeQuery:
+    def limit(self, value: int) -> _FakeQuery:
+        # Reproduit le comportement PostgREST : borne les lignes retournées.
+        self._rows = (self._rows or [])[:value]
         return self
 
     def gte(self, *_a: Any, **_k: Any) -> _FakeQuery:
@@ -416,3 +418,31 @@ def test_overpass_failure_keeps_progress_and_reraises(monkeypatch: Any) -> None:
         mod.recompute_col_crossings("user-1")
 
     assert db.profile_query.updated == {"col_matching_cursor": "2026-07-01T08:00:00Z"}
+
+
+def test_backfill_is_bounded_per_run_and_cursor_resumes(monkeypatch: Any) -> None:
+    # Audit 2026-07-26 : après le reset du curseur (migration), un seul run de
+    # cron retraitait TOUT l'historique (samples + Overpass par zone) d'un coup.
+    # On borne chaque run ; le curseur s'arrête à la dernière activité traitée
+    # et le cron suivant reprend naturellement la suite.
+    monkeypatch.setattr(mod, "_MAX_ACTIVITIES_PER_RUN", 2)
+    db = _FakeDb(
+        cols_rows=[],
+        profile_row={"col_matching_cursor": None},
+        activities_rows=[
+            {"garmin_activity_id": 1, "start_time": "2026-07-01T08:00:00Z"},
+            {"garmin_activity_id": 2, "start_time": "2026-07-02T08:00:00Z"},
+            {"garmin_activity_id": 3, "start_time": "2026-07-03T08:00:00Z"},
+        ],
+        samples_by_activity={
+            1: [{"latitude": 45.0, "longitude": 6.0}],
+            2: [{"latitude": 45.0, "longitude": 6.0}],
+            3: [{"latitude": 45.0, "longitude": 6.0}],
+        },
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    monkeypatch.setattr(mod, "fetch_cols_in_bbox", MagicMock())
+
+    mod.recompute_col_crossings("user-1")
+
+    assert db.profile_query.updated == {"col_matching_cursor": "2026-07-02T08:00:00Z"}

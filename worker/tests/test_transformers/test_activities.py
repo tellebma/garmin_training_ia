@@ -331,3 +331,15 @@ def test_transform_activity_samples_gps_null_when_absent() -> None:
 
     assert rows[0]["latitude"] is None
     assert rows[0]["longitude"] is None
+
+
+def test_sample_rows_do_not_embed_raw_payload() -> None:
+    # Audit 2026-07-26 : embarquer le dict brut de chaque sample multipliait par
+    # ~2-3 le payload d'upsert (plusieurs Mo par activité GPS) et le stockage de
+    # la plus grosse table — les champs utiles sont déjà extraits.
+    raw_details = {
+        "activityDetailMetrics": [{"metrics": [{"key": "directHeartRate", "value": 140}]}]
+    }
+    rows = transform_activity_samples(user_id="u1", garmin_activity_id=1, raw_details=raw_details)
+    assert rows
+    assert all("raw" not in row for row in rows)

@@ -30,12 +30,18 @@ log = logging.getLogger(__name__)
 INITIAL_BACKFILL_DAYS = 90
 
 
-def _run_post_sync_recomputes(user_id: str) -> None:
-    try:
-        recompute_daily_state(user_id, days_back=180)
-    except Exception as exc:
-        log.exception("recompute_daily_state failed for user=%s", user_id)
-        capture(exc, where="recompute_daily_state", user_id=user_id)
+def _run_post_sync_recomputes(user_id: str, *, mode: SyncMode = SYNC_MODE_FULL) -> None:
+    # Le cron sommeil ne change aucune activité : Banister, domicile et matching
+    # cols n'y ont rien à recalculer — seules les baselines de récupération
+    # dépendent des données de sommeil/HRV fraîchement synchronisées.
+    activities_changed = mode in (SYNC_MODE_FULL, SYNC_MODE_ACTIVITIES_ONLY)
+
+    if activities_changed:
+        try:
+            recompute_daily_state(user_id, days_back=180)
+        except Exception as exc:
+            log.exception("recompute_daily_state failed for user=%s", user_id)
+            capture(exc, where="recompute_daily_state", user_id=user_id)
     try:
         from garmin_sync.coach.recovery_baselines import recompute_recovery_baselines
 
@@ -43,6 +49,9 @@ def _run_post_sync_recomputes(user_id: str) -> None:
     except Exception as exc:
         log.exception("recompute_recovery_baselines failed for user=%s", user_id)
         capture(exc, where="recompute_recovery_baselines", user_id=user_id)
+
+    if not activities_changed:
+        return
 
     home: tuple[float, float] | None = None
     try:
@@ -173,7 +182,7 @@ def run_sync_for_user(
 
     # E7 — Materialize Banister state for fast frontend reads.
     # Wrapped in try/except : a failure here MUST NOT abort the sync.
-    _run_post_sync_recomputes(user_id)
+    _run_post_sync_recomputes(user_id, mode=mode)
 
     return {"status": "ok", "days_synced": (today - start).days + 1}
 

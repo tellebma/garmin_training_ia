@@ -58,6 +58,9 @@ def _is_display_name_error(exc: Exception) -> bool:
 
 _USER_DATE_CONFLICT = "user_id,date"
 
+# Une activité GPS fait ~2000 samples ; un upsert unique dépasse le Mo de payload.
+_SAMPLE_UPSERT_CHUNK = 500
+
 
 SYNC_MODE_FULL = "full"
 SYNC_MODE_SLEEP_ONLY = "sleep_only"
@@ -155,9 +158,9 @@ def _persist_samples_and_route(db: Any, user_id: str, activity_id: int, client: 
         garmin_activity_id=activity_id,
         raw_details=raw_details,
     )
-    if samples:
+    for start_idx in range(0, len(samples), _SAMPLE_UPSERT_CHUNK):
         db.table("activity_samples").upsert(
-            samples,
+            samples[start_idx : start_idx + _SAMPLE_UPSERT_CHUNK],
             on_conflict="user_id,garmin_activity_id,sample_index",
         ).execute()
     polyline = build_route_polyline(samples) if samples else None
@@ -169,16 +172,28 @@ def _persist_samples_and_route(db: Any, user_id: str, activity_id: int, client: 
 
 
 def _sampled_activity_ids(db: Any, user_id: str, activity_ids: list[int]) -> set[int]:
+    """Activities whose GPS details were already fetched (route_polyline non-NULL).
+
+    Reads `activities` (1 ligne par activité, bornée par la fenêtre de sync) et
+    PAS `activity_samples` : cette table fait ~2000 lignes par activité GPS et le
+    cap serveur silencieux de PostgREST (~1000 lignes) tronquait la réponse — une
+    activité déjà samplée disparaissait du set et était re-fetchée chez Garmin
+    (risque de rate-limit/ban) puis ré-upsertée à chaque cron. La sentinelle
+    route_polyline (posée par `_persist_samples_and_route`, y compris `[]` pour
+    les activités sans GPS) couvre aussi les activités indoor, qui étaient
+    re-fetchées à chaque run faute de samples.
+    """
     try:
         resp = (
-            db.table("activity_samples")
+            db.table("activities")
             .select("garmin_activity_id")
             .eq("user_id", user_id)
             .in_("garmin_activity_id", activity_ids)
+            .not_.is_("route_polyline", "null")
             .execute()
         )
     except Exception:
-        log.exception("activity samples lookup failed user=%s", user_id)
+        log.exception("sampled activities lookup failed user=%s", user_id)
         return set()
     rows = resp.data if resp else None
     if not isinstance(rows, list):

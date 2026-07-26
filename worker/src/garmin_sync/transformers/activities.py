@@ -165,7 +165,9 @@ def transform_activity_samples(
                 "speed_m_s": _to_float(_first_value(normalized, _SPEED_KEYS)),
                 "latitude": _to_float(_first_value(normalized, _LAT_KEYS)),
                 "longitude": _to_float(_first_value(normalized, _LON_KEYS)),
-                "raw": sample,
+                # Pas de champ "raw" ici (contrairement aux activités) : le dict
+                # brut par sample multipliait par ~2-3 le payload d'upsert et le
+                # stockage de la plus grosse table, sans consommateur.
             }
         )
     return rows

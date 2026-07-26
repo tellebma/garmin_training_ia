@@ -9,6 +9,9 @@ class _FakeQuery:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
         self.updated: dict[str, Any] | None = None
+        self.order_args: tuple[Any, ...] | None = None
+        self.order_kwargs: dict[str, Any] | None = None
+        self.limit_value: int | None = None
 
     @property
     def not_(self) -> _FakeQuery:
@@ -21,6 +24,15 @@ class _FakeQuery:
         return self
 
     def is_(self, *_a: Any, **_k: Any) -> _FakeQuery:
+        return self
+
+    def order(self, *args: Any, **kwargs: Any) -> _FakeQuery:
+        self.order_args = args
+        self.order_kwargs = kwargs
+        return self
+
+    def limit(self, value: int) -> _FakeQuery:
+        self.limit_value = value
         return self
 
     def update(self, values: dict[str, Any]) -> _FakeQuery:
@@ -88,3 +100,18 @@ def test_compute_home_location_returns_none_without_gps_activities(monkeypatch: 
 
     assert result is None
     assert db.profile_query.updated is None
+
+
+def test_compute_home_location_bounds_the_query(monkeypatch: Any) -> None:
+    # Audit 2026-07-26 : le select non borné de route_polyline (colonne JSONB
+    # lourde) tournait à chaque sync et finirait tronqué par le cap PostgREST.
+    # On borne aux N sorties GPS les plus récentes — sémantiquement meilleur si
+    # l'utilisateur déménage.
+    db = _FakeDb([{"route_polyline": [[6.0, 45.0]]}])
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+
+    mod.compute_home_location("user-1")
+
+    assert db.activities_query.order_args == ("start_time",)
+    assert db.activities_query.order_kwargs == {"desc": True}
+    assert db.activities_query.limit_value == mod._RECENT_GPS_ACTIVITIES_LIMIT
