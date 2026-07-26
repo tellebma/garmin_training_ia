@@ -174,11 +174,26 @@ class StravaConnectRequest(BaseModel):
     code: str
 
 
+def _require_strava_enabled() -> None:
+    """404 the whole Strava surface when the integration isn't configured.
+
+    ``POST /strava/webhook`` is unauthenticated by design (Strava signs nothing),
+    so on a deployment without Strava secrets it is a free, internet-reachable
+    way to spawn daemon threads and to delete ``athlete_strava_credentials``
+    rows via a forged ``authorized: false`` event. Refusing every Strava route
+    unless the secrets are present makes the attack surface disappear with the
+    configuration instead of depending on a reverse-proxy allowlist.
+    """
+    if not get_settings().strava_configured:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
+
+
 @router.post("/strava/connect")
 async def strava_connect(
     body: StravaConnectRequest,
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
+    _require_strava_enabled()
     user_id = _require_user_jwt(authorization)
     try:
         from garmin_sync.strava_connect import start_connect_flow
@@ -192,6 +207,7 @@ async def strava_connect(
 async def strava_disconnect(
     authorization: _AuthHeader = None,
 ) -> dict[str, Any]:
+    _require_strava_enabled()
     user_id = _require_user_jwt(authorization)
     try:
         from garmin_sync.strava_connect import disconnect
@@ -207,6 +223,7 @@ async def strava_webhook_verify(
     hub_verify_token: Annotated[str | None, Query(alias="hub.verify_token")] = None,
     hub_challenge: Annotated[str | None, Query(alias="hub.challenge")] = None,
 ) -> dict[str, str]:
+    _require_strava_enabled()
     from garmin_sync.strava_webhook import verify_challenge
 
     challenge = verify_challenge(mode=hub_mode, token=hub_verify_token, challenge=hub_challenge)
@@ -223,6 +240,7 @@ async def strava_webhook_event(payload: dict[str, Any]) -> dict[str, str]:
     we never want a transient DB hiccup to make Strava disable the
     subscription after repeated non-2xx responses.
     """
+    _require_strava_enabled()
     import threading
 
     def _run() -> None:
