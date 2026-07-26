@@ -23,7 +23,7 @@ function mkSummary(overrides: Partial<ColSummary>): ColSummary {
 
 describe('ColsWidget', () => {
   it('renders one row per col with name, altitude, distance and count', () => {
-    render(<ColsWidget cols={[mkSummary({})]} peaks={[]} />)
+    render(<ColsWidget summaries={[mkSummary({})]} />)
     expect(screen.getByText('Col du Truc')).not.toBeNull()
     expect(screen.getByText(/1850/)).not.toBeNull()
     expect(screen.getByText(/12/)).not.toBeNull()
@@ -31,46 +31,42 @@ describe('ColsWidget', () => {
   })
 
   it('shows singular wording for exactly one crossing', () => {
-    render(<ColsWidget cols={[mkSummary({ crossingsCount: 1 })]} peaks={[]} />)
+    render(<ColsWidget summaries={[mkSummary({ crossingsCount: 1 })]} />)
     expect(screen.getByText(/1 fois/)).not.toBeNull()
   })
 
-  it('shows a combined empty state when there are no cols and no peaks', () => {
-    render(<ColsWidget cols={[]} peaks={[]} />)
+  it('shows a combined empty state when the list is empty', () => {
+    render(<ColsWidget summaries={[]} />)
     expect(screen.getByText(/Aucun col ni sommet recensé/)).not.toBeNull()
     expect(
       screen.getByText(/Aucun col ni sommet dans un rayon de 50 km autour de chez toi/)
     ).not.toBeNull()
   })
 
-  it('renders only the peaks section when there are no cols', () => {
+  it('renders cols and peaks in the same single list, with a badge on peaks', () => {
+    // Décision owner 2026-07-26 : plus de sections séparées.
     render(
       <ColsWidget
-        cols={[]}
-        peaks={[mkSummary({ id: 'peak-1', name: 'Crêt du Machin', type: 'peak' })]}
+        summaries={[
+          mkSummary({ id: 'col-1', name: 'Col du Truc' }),
+          mkSummary({ id: 'peak-1', name: 'Crêt du Machin', type: 'peak' }),
+        ]}
       />
     )
-    expect(screen.getByText('Sommets')).not.toBeNull()
     expect(screen.queryByText('Cols')).toBeNull()
+    expect(screen.queryByText('Sommets')).toBeNull()
+    expect(screen.getByText('Col du Truc')).not.toBeNull()
     expect(screen.getByText('Crêt du Machin')).not.toBeNull()
-  })
-
-  it('renders both sections when cols and peaks are present', () => {
-    render(
-      <ColsWidget
-        cols={[mkSummary({ id: 'col-1', name: 'Col du Truc' })]}
-        peaks={[mkSummary({ id: 'peak-1', name: 'Crêt du Machin', type: 'peak' })]}
-      />
-    )
-    expect(screen.getByText('Cols')).not.toBeNull()
-    expect(screen.getByText('Sommets')).not.toBeNull()
+    // Un seul badge « sommet », sur la ligne du crêt.
+    expect(screen.getAllByText('sommet')).toHaveLength(1)
+    expect(screen.getAllByRole('table')).toHaveLength(1)
   })
 
   it('shows all rows unfolded when there are 10 or fewer', () => {
     const summaries = Array.from({ length: 10 }, (_, i) =>
       mkSummary({ id: `col-${String(i)}`, name: `Col ${String(i)}` })
     )
-    render(<ColsWidget cols={summaries} peaks={[]} />)
+    render(<ColsWidget summaries={summaries} />)
     expect(screen.getAllByRole('row')).toHaveLength(11) // 10 data rows + header
     expect(screen.queryByText(/Afficher les/)).toBeNull()
   })
@@ -79,10 +75,10 @@ describe('ColsWidget', () => {
     const summaries = Array.from({ length: 13 }, (_, i) =>
       mkSummary({ id: `col-${String(i)}`, name: `Col ${String(i)}` })
     )
-    render(<ColsWidget cols={summaries} peaks={[]} />)
+    render(<ColsWidget summaries={summaries} />)
     expect(screen.getByText('Col 0')).not.toBeNull()
     expect(screen.getByText('Col 9')).not.toBeNull()
-    // Extra rows are absent from the DOM until the user expands the section.
+    // Extra rows are absent from the DOM until the user expands the list.
     expect(screen.queryByText('Col 12')).toBeNull()
 
     const toggle = screen.getByRole('button', { name: /Afficher les 3 autres/ })

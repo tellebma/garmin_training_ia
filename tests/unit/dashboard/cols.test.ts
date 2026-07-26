@@ -36,7 +36,7 @@ describe('computeColsSummary', () => {
       mkCol({ id: 'far', latitude: 50.0, longitude: 2.0 }),
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings: [] })
-    expect(out.cols.map((c) => c.id)).toEqual(['near'])
+    expect(out.map((c) => c.id)).toEqual(['near'])
   })
 
   it('keeps climbed cols regardless of distance (régression col du Chaussy)', () => {
@@ -51,11 +51,11 @@ describe('computeColsSummary', () => {
       { col_id: 'chaussy', crossed_at: '2026-07-25T08:23:31Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    expect(out.cols.map((c) => c.id)).toEqual(['chaussy', 'near'])
-    expect(out.cols[0]?.crossingsCount).toBe(1)
+    expect(out.map((c) => c.id)).toEqual(['chaussy', 'near'])
+    expect(out[0]?.crossingsCount).toBe(1)
   })
 
-  it('caps each group at 30 results, keeping the best-ranked ones', () => {
+  it('caps the merged list at 30 results, keeping the best-ranked ones', () => {
     const cols: ColDto[] = Array.from({ length: 40 }, (_, i) =>
       mkCol({ id: `col-${String(i)}`, latitude: 45.001 + i * 0.001, longitude: 6.0 })
     )
@@ -64,8 +64,8 @@ describe('computeColsSummary', () => {
       { col_id: 'col-39', crossed_at: '2026-07-01T08:00:00Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    expect(out.cols).toHaveLength(30)
-    expect(out.cols[0]?.id).toBe('col-39')
+    expect(out).toHaveLength(30)
+    expect(out[0]?.id).toBe('col-39')
   })
 
   it('counts crossings per col and keeps 0-count cols', () => {
@@ -78,8 +78,8 @@ describe('computeColsSummary', () => {
       { col_id: 'col-a', crossed_at: '2026-06-15T08:00:00Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    const colA = out.cols.find((c) => c.id === 'col-a')
-    const colB = out.cols.find((c) => c.id === 'col-b')
+    const colA = out.find((c) => c.id === 'col-a')
+    const colB = out.find((c) => c.id === 'col-b')
     expect(colA?.crossingsCount).toBe(2)
     expect(colA?.lastCrossedAt).toBe('2026-06-15T08:00:00Z')
     expect(colB?.crossingsCount).toBe(0)
@@ -96,26 +96,27 @@ describe('computeColsSummary', () => {
       { col_id: 'far-climbed', crossed_at: '2026-06-01T08:00:00Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    expect(out.cols.map((c) => c.id)).toEqual(['far-climbed', 'near-unclimbed', 'far-unclimbed'])
+    expect(out.map((c) => c.id)).toEqual(['far-climbed', 'near-unclimbed', 'far-unclimbed'])
   })
 
-  it('returns empty groups when there are no cols in range', () => {
+  it('returns an empty list when there are no cols in range', () => {
     const out = computeColsSummary({
       homeLat: HOME_LAT,
       homeLon: HOME_LON,
       cols: [],
       crossings: [],
     })
-    expect(out).toEqual({ cols: [], peaks: [] })
+    expect(out).toEqual([])
   })
 
-  it('groups cols and peaks into separate, independently sorted lists', () => {
+  it('merges cols and peaks into a single globally sorted list, keeping the type', () => {
+    // Décision owner 2026-07-26 : une seule liste, plus de sections séparées.
     const cols: ColDto[] = [
-      mkCol({ id: 'col-a', latitude: 45.01, longitude: 6.01, type: 'col' }),
+      mkCol({ id: 'col-a', latitude: 45.02, longitude: 6.02, type: 'col' }),
       mkCol({
         id: 'peak-a',
-        latitude: 45.02,
-        longitude: 6.02,
+        latitude: 45.01,
+        longitude: 6.01,
         type: 'peak',
         name: 'Crêt du Machin',
       }),
@@ -131,8 +132,9 @@ describe('computeColsSummary', () => {
       { col_id: 'peak-b', crossed_at: '2026-06-01T08:00:00Z' },
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
-    expect(out.cols.map((c) => c.id)).toEqual(['col-a'])
-    expect(out.peaks.map((c) => c.id)).toEqual(['peak-b', 'peak-a'])
+    // Gravi d'abord, puis par distance — cols et sommets confondus.
+    expect(out.map((c) => c.id)).toEqual(['peak-b', 'peak-a', 'col-a'])
+    expect(out.map((c) => c.type)).toEqual(['peak', 'peak', 'col'])
   })
 })
 
