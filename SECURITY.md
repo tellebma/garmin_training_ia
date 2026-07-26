@@ -113,6 +113,28 @@ Audit sécurité externe sur `garmin_credentials` + advisors Supabase. Migration
 | `is_email_allowed` / `email_needs_signup` (SECURITY DEFINER) exécutables par `anon` → énumération de l'allowlist d'emails possible via appel REST direct (indépendamment du rate limit applicatif `register` : 3/h/IP, qui protège le flow UI mais pas un appel RPC direct) | LOW (risque accepté MVP) | ⚠️ Non fixé, documenté. Les deux RPC doivent rester `anon`-exécutables (flow register pré-auth). Un vrai rate-limit interne nécessiterait soit d'ajouter un paramètre `p_ip` (implique de changer la signature + les 2 call sites, risque de fenêtre de déploiement désynchronisée migration/frontend vu que les migrations s'auto-appliquent en CI séparément du déploiement Vercel), soit d'extraire l'IP via `current_setting('request.headers')` côté PostgREST (technique documentée Supabase mais fragile en confiance — `x-forwarded-for` reste falsifiable par l'appelant selon la configuration de l'edge). Impact limité en contexte MVP : allowlist restreinte à l'owner + 5-10 amis triathlètes, invite-only, pas encore de signup public. À traiter avant ouverture beta publique (voir Roadmap étape 1 — captcha — et éventuellement Vercel Firewall / rate limit WAF devant l'app). |
 | Rotation des clés Fernet (`FERNET_KEY`) | — | Hors scope de ce ticket, suivi séparément dans l'issue #79. |
 
+### Audit 2026-07-26 — SEC-2 `EXECUTE` implicite à PUBLIC + surface webhook Strava
+
+Revue des advisors Supabase après la livraison de E18 (console admin) et E15.1 (Strava).
+Migration `supabase/migrations/20260726140000_sec_revoke_public_execute.sql` et
+garde-fou worker `_require_strava_enabled()` (PR #112).
+
+**Cause racine commune du volet SQL** : Postgres accorde `EXECUTE` à `PUBLIC` par défaut
+sur toute nouvelle fonction, et `anon`/`authenticated` sont membres de `PUBLIC`. Une
+migration qui écrit seulement `grant execute ... to service_role` **ne restreint donc
+rien** — la fonction reste appelable via `/rest/v1/rpc/<nom>`. Seul
+`try_claim_garmin_sync` faisait les `revoke` explicites (bon patron, à généraliser).
+Vérifié sur la prod avant fix via `has_function_privilege('anon', …, 'EXECUTE')`.
+
+| Finding | Sévérité | Statut |
+|---|---|---|
+| `check_and_log_coach_rate_limit(uuid, text, int, int)` — documentée « service-role only », `grant` limité à `service_role`, mais `EXECUTE` implicite à `PUBLIC` la rendait appelable **sans authentification** avec un `p_user_id` arbitraire. Chaque appel insère une ligne dans `coach_rate_limits` pour ce user → un tiers pouvait brûler le budget coach (1000/jour) de n'importe quel athlète et bloquer sa génération de plan/séances. | HIGH | ✅ Fixé. `revoke execute … from public, anon, authenticated`, `grant` à `service_role` seul. Aucun appelant frontend (seul `worker/src/garmin_sync/coach/rate_limit.py`, clé service-role). |
+| RPC `admin_*` de E18 (`admin_overview`, `admin_list/add/remove_allowed_email`, `admin_list_feature_flags`, `admin_set_feature_flag`) + `is_admin_caller` + `is_feature_flag_active` appelables par `anon`. | LOW (défense en profondeur) | ✅ Fixé. Non exploitable auparavant : chacune commence par `if not public.is_admin_caller() then raise`, et `auth.uid()` est `null` pour `anon`. Mais la garde ne doit pas être la seule ligne de défense → `revoke … from public, anon`, `grant … to authenticated` conservé (un admin est un user authentifié). |
+| `POST /strava/webhook` (worker) non authentifié — Strava ne signe pas ses events — alors que Strava n'a **jamais** été configuré en prod : un event `{authorized: 'false'}` forgé supprimait des lignes de `athlete_strava_credentials`, des events `create`/`update` forgés consommaient le rate-limit Strava app-wide (DoS du backfill/token-refresh), et chaque POST lançait un daemon thread non borné. `handle_event()` ne vérifiait pas `strava_configured` (seuls `verify_challenge` et `strava_client` le faisaient). | HIGH | ✅ Fixé (PR #112). `_require_strava_enabled()` fait répondre `404` aux 4 routes `/strava/*` tant que les secrets `STRAVA_*` sont absents — la surface disparaît avec la configuration. L'action owner « IP allowlisting Nginx » est annulée, **mais redevient obligatoire avant de reposer les secrets** si Strava est réactivé. |
+| `log_auth_event`, `is_email_allowed`, `email_needs_signup` toujours `anon`-exécutables | — | Inchangé — risque déjà arbitré dans l'audit SEC-1 ci-dessus (flows pré-auth). Non couvert par cette migration. |
+| `check_and_log_auth_rate_limit(p_ip, …)` appelable par `anon` avec un `p_ip` arbitraire → possibilité de saturer le compteur d'une IP tierce (lockout login) ou de polluer `auth_rate_limits`. | MEDIUM | ⚠️ Non fixé, documenté. Le `grant` à `anon` est **structurel** : `app/(auth)/_actions/auth.ts` appelle ce RPC avec le client anon avant toute authentification, donc un `revoke` casserait login/register/mot de passe oublié. Fix réel = déplacer le rate-limit côté serveur de confiance (Server Action avec client service-role, ou endpoint worker) plutôt que de le laisser paramétrable par l'appelant. Suivi comme item backlog dédié. |
+| 20 vulnérabilités `pnpm audit` dont 12 HIGH | — | Non applicable en prod : toutes en **devDependencies** (chaîne commitlint / eslint / `js-yaml`). Le gate CI est `pnpm audit --prod --audit-level=high` → 1 seule vuln LOW sur les deps de production. |
+
 ### 6. CSRF / CORS / XSS
 
 | Vecteur | Statut |
