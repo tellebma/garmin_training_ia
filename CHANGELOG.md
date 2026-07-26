@@ -1,3 +1,9 @@
+## [1.13.3](https://github.com/tellebma/garmin_training_ia/compare/v1.13.2...v1.13.3) (2026-07-26)
+
+### Bug Fixes
+
+* **coach:** retry avec backoff sur Overpass 429/504 + cooldown 5s entre zones ([#114](https://github.com/tellebma/garmin_training_ia/issues/114)) ([360c792](https://github.com/tellebma/garmin_training_ia/commit/360c7922f931491b5d824528d8387c0da5a863a3))
+
 ## [1.13.2](https://github.com/tellebma/garmin_training_ia/compare/v1.13.1...v1.13.2) (2026-07-26)
 
 ### Bug Fixes
