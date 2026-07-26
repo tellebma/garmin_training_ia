@@ -1,3 +1,13 @@
+## [1.14.0](https://github.com/tellebma/garmin_training_ia/compare/v1.13.4...v1.14.0) (2026-07-26)
+
+### Features
+
+* **stats:** fusionne cols et sommets en une liste unique avec badge ([#117](https://github.com/tellebma/garmin_training_ia/issues/117)) ([f62fc28](https://github.com/tellebma/garmin_training_ia/commit/f62fc28db3b6c141243470309f16dc963f8ceec5))
+
+### Documentation
+
+* **e9.4:** spec et plan progression par discipline ([#116](https://github.com/tellebma/garmin_training_ia/issues/116)) ([0f2033e](https://github.com/tellebma/garmin_training_ia/commit/0f2033e60df00b359e07b131fe1ab47f3301f995))
+
 ## [1.13.4](https://github.com/tellebma/garmin_training_ia/compare/v1.13.3...v1.13.4) (2026-07-26)
 
 ### Bug Fixes
