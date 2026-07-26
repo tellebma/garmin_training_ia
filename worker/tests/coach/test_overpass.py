@@ -205,6 +205,44 @@ def test_build_query_includes_both_overpass_tags() -> None:
     assert "natural=peak" in query
 
 
+def test_build_bbox_query_includes_both_tags_and_bounds() -> None:
+    query = mod._build_bbox_query(45.28, 6.25, 45.42, 6.37)
+    assert "mountain_pass=yes" in query
+    assert "natural=peak" in query
+    assert "45.28,6.25,45.42,6.37" in query
+
+
+def test_fetch_cols_in_bbox_upserts_matching_nodes(monkeypatch: Any) -> None:
+    db = _FakeDb(None)
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    httpx_mock = MagicMock()
+    httpx_mock.get.return_value.json.return_value = _OVERPASS_RESPONSE
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.fetch_cols_in_bbox(45.0, 6.0, 45.1, 6.1)
+
+    httpx_mock.get.assert_called_once()
+    assert "User-Agent" in httpx_mock.get.call_args.kwargs["headers"]
+    assert db.cols_query.upserted is not None
+    assert len(db.cols_query.upserted) == 2
+    assert {r["osm_id"] for r in db.cols_query.upserted} == {123, 456}
+    # Pas de cache domicile ici : le fetch bbox ne touche pas athlete_profiles.
+    assert db.profile_query.updated is None
+
+
+def test_fetch_cols_in_bbox_propagates_network_errors(monkeypatch: Any) -> None:
+    db = _FakeDb(None)
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    real_connect_error = mod.httpx.ConnectError
+    httpx_mock = MagicMock()
+    httpx_mock.get.side_effect = real_connect_error("connection refused")
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    # Doit se propager — le matching décide quoi faire (ne pas avancer le curseur).
+    with pytest.raises(real_connect_error, match="connection refused"):
+        mod.fetch_cols_in_bbox(45.0, 6.0, 45.1, 6.1)
+
+
 def test_refresh_classifies_peak_and_filters_by_elevation(monkeypatch: Any) -> None:
     db = _FakeDb(
         {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}

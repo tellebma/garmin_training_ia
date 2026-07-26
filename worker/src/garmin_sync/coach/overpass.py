@@ -45,6 +45,13 @@ def _build_query(home_lat: float, home_lon: float) -> str:
     )
 
 
+def _build_bbox_query(south: float, west: float, north: float, east: float) -> str:
+    bbox = f"{south},{west},{north},{east}"
+    return (
+        f"[out:json][timeout:25];(node[mountain_pass=yes]({bbox});node[natural=peak]({bbox}););out;"
+    )
+
+
 def _parse_elevation(raw: Any) -> int | None:
     if raw is None:
         return None
@@ -92,6 +99,33 @@ def _element_to_row(element: dict[str, Any]) -> dict[str, Any] | None:
         "type": col_type,
         "fetched_at": _now().isoformat(),
     }
+
+
+def fetch_cols_in_bbox(south: float, west: float, north: float, east: float) -> None:
+    """Fetch cols/peaks inside a bbox from Overpass and upsert them into `cols`.
+
+    Stateless one-shot fetch used by the per-activity matching pipeline — no home
+    cache involved (that is `refresh_nearby_cols`'s job). Network errors propagate:
+    the caller decides how to react (typically: keep the matching cursor behind the
+    failed activity so it is retried on the next cron run).
+    """
+    db = get_admin_client()
+    response = httpx.get(
+        _OVERPASS_URL,
+        params={"data": _build_bbox_query(south, west, north, east)},
+        headers=_HEADERS,
+        timeout=_TIMEOUT_S,
+    )
+    response.raise_for_status()
+    elements = response.json().get("elements", [])
+
+    rows: list[dict[str, Any]] = []
+    for element in elements:
+        row = _element_to_row(element)
+        if row is not None:
+            rows.append(row)
+    if rows:
+        db.table("cols").upsert(rows, on_conflict="osm_id").execute()
 
 
 def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
