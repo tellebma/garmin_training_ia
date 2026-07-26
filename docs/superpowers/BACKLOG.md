@@ -19,6 +19,16 @@ l'instant. Conséquences :
   (était P0), E14.3 bulles explicatives, carte « dernière activité » de `/today`.
 - Inchangés : E15.1 Strava (P1, plus gros chantier), E18 admin/coût IA (P1).
 
+## Mise à jour 2026-07-26 (pause Strava + resynchronisation)
+
+- **Strava mis en pause** (abonnement API payant non prévu) : voir l'encadré en tête de
+  l'EPIC E15. E15.1 reste livrée mais désactivée par configuration.
+- **Livrés depuis la dernière revue** : E18 console admin (#90, #93, #95, #105),
+  E15.1 Strava (#101), E14.2 livrable C (#100), E16.1 (#99), E19/E20/E21 (#103),
+  sommets `natural=peak` (#102, #106).
+- **Reste P0** : E9.4 progression par discipline (spec + plan prêts, aucun code),
+  « Worker : filtrer le plan actif », « Recommandations sportives sourcées et auditables ».
+
 ## EPICs issus des retours owner (2026-06-21)
 
 Trois EPICs regroupent les retours de l'owner du 21/06/2026. Les items détaillés
@@ -78,12 +88,30 @@ compréhensibles pour un athlète non expert.
 
 ### EPIC E15 — Ingestion multi-source et quasi temps réel
 
-**Priorité : P1 — Statut : à planifier**
+**Priorité : P1 — Statut : E15.3/E15.4 livrées, volet Strava ⏸️ en pause (voir encadré)**
 
 Récupérer les activités plus vite sans seulement augmenter la fréquence du polling.
 
-- **E15.1 P1 — Intégration Strava (compte lié + ingestion temps réel) — V1 livrée** (branche
-  feat/e15.1-strava-integration) : OAuth2 complet avec `athlete_strava_credentials`
+> ## ⏸️ Tout le volet Strava est EN PAUSE (décision owner, 2026-07-26)
+>
+> **Raison** : l'accès à l'API Strava nécessaire pour ce projet suppose un abonnement Strava
+> payant que l'owner ne prévoit pas de prendre. Le code livré (E15.1) **reste dans le repo**
+> mais l'intégration est **désactivée par configuration** : sans les secrets `STRAVA_*`,
+> les 4 endpoints worker répondent `404` (`_require_strava_enabled`, `worker/src/garmin_sync/main.py`)
+> et `/profile` n'affiche plus la carte « Connecter Strava » (sauf pour un athlète déjà
+> connecté). Réactivation = poser les secrets, rien à recoder.
+>
+> **Sont en pause** : E15.1 et toutes ses suites (dédup bidirectionnelle, TSS Strava,
+> banner OAuth, loading state du bouton disconnect), E15.6 (positionnement « Strava suffit »),
+> et le volet « activités Strava » de E15.5. **Ne sont pas en pause** : E15.2, E15.3, E15.4,
+> et le volet Polar/wellness de E15.5.
+>
+> **Sécurité** : l'action owner « IP allowlisting Nginx sur `/strava/webhook` » est **annulée** —
+> le garde-fou `404`-si-non-configuré supprime la surface d'attaque à la source (voir détail
+> dans la suite E15.1 ci-dessous).
+
+- **E15.1 P1 — Intégration Strava (compte lié + ingestion temps réel) — V1 livrée, ⏸️ EN PAUSE**
+  (PR #101, désactivée par la PR « pause Strava ») : OAuth2 complet avec `athlete_strava_credentials`
   (refresh token chiffré Fernet, pattern SEC-1-hardened), profil utilisateur actualisé
   lors du connect. Front : écran « Connecter Strava » sur `/profile` (à côté de Garmin,
   pas en remplacement), avec états connected/not-connected/token-stale et bouton
@@ -108,18 +136,23 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
     le chemin Garmin (et vice-versa pour chaque source future E15.5) pour effacer un Strava/Polar
     existant quand un Garmin arrive. Scope : audit ordre arrivée, test multi-source, logique sync
     par source. Suite post-E15.1, avant multi-sources.
-  - **Sécurisation webhook Strava (déauth + rate-limit DoS + thread exhaustion)** : l'endpoint
-    `POST /strava/webhook` accepte TOUS les events (create/update/delete/deauth) sans HMAC signature
-    ni vérification JWT. Trois vecteurs critiques : (1) POSTer `{authorized: 'false'}` supprime
-    entièrement les credentials Strava de la victime ; (2) des events `create`/`update` forgés
-    consomment la budget app-wide rate-limit (100 req/15 min, 1000/jour) pour TOUS les utilisateurs,
-    causant une DoS silencieuse du backfill/webhook/token-refresh ; (3) chaque POST lance un
-    unbounded daemon thread sans rate-limiting endpoint. **Action owner IMMÉDIATE (merge-coupled,
-    hors repo)** : configurer IP allowlisting strict au reverse-proxy Nginx (Nginx Proxy Manager
-    UNRAID) sur les plages d'IPs webhook Strava publiques. Le worker auto-déploie sur `main` et
-    l'endpoint devient internet-reachable immédiatement — **à faire AT/BEFORE merge E15.1, pas en
-    suite**, sinon les trois vecteurs sont exploitables en prod. Spec technique détaillée en
-    section E15.1 du spec design (webhook trust-model).
+  - **Sécurisation webhook Strava (déauth + rate-limit DoS + thread exhaustion) — neutralisée
+    par la pause (2026-07-26)** : l'endpoint `POST /strava/webhook` accepte TOUS les events
+    (create/update/delete/deauth) sans HMAC signature ni vérification JWT. Trois vecteurs
+    critiques : (1) POSTer `{authorized: 'false'}` supprime entièrement les credentials Strava
+    de la victime ; (2) des events `create`/`update` forgés consomment la budget app-wide
+    rate-limit (100 req/15 min, 1000/jour) pour TOUS les utilisateurs, causant une DoS
+    silencieuse du backfill/webhook/token-refresh ; (3) chaque POST lance un unbounded daemon
+    thread sans rate-limiting endpoint.
+    **Traitement retenu** : `_require_strava_enabled()` fait répondre `404` aux 4 routes Strava
+    tant que les secrets `STRAVA_*` sont absents — sur la prod actuelle (Strava en pause, pas de
+    secrets) les trois vecteurs deviennent inatteignables, sans dépendre d'une allowlist au
+    reverse-proxy. L'action owner « IP allowlisting Nginx » est donc **annulée**.
+    **⚠️ À rouvrir si Strava est réactivé un jour** : dès que les secrets sont posés, les routes
+    redeviennent live et les trois vecteurs reviennent — il faudra alors l'IP allowlisting Nginx
+    (plages d'IPs webhook Strava) et/ou un rate-limit d'endpoint + borne sur les threads, AVANT de
+    créer la souscription webhook. Spec technique détaillée en section E15.1 du spec design
+    (webhook trust-model).
   - **TSS null pour activités Strava** : la transformation supporte HR-based TSS via
     `fc_max_bpm`/`ftp_watts` du profil, mais le call site ne passe pas ces paramètres — TSS reste
     null en V1 (décision scope validée). Conséquence : athlète Strava-seul a charge d'entraînement
@@ -131,7 +164,8 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   - **`StravaDisconnectButton` sans loading/error state** : `disconnectStrava()` s'exécute async
     sans indicateur pending ni feedback d'erreur. À ajouter skeleton/disabled state pendant l'appel.
   
-  Action owner restante (manuelle, hors repo) :
+  Action owner — **⏸️ SANS OBJET tant que Strava est en pause** (aucune action à faire ;
+  liste conservée pour une éventuelle réactivation) :
   
   **SETUP** (avant merge E15.1 pour que la merge ne break pas) :
   - Créer l'application Strava API à https://www.strava.com/settings/api pour obtenir
@@ -146,11 +180,11 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
     `https://www.strava.com/api/v3/push_subscriptions` avec `client_id`, `client_secret`,
     `callback_url=https://garmin-sync.tellebma.fr/strava/webhook`,
     `verify_token=<STRAVA_WEBHOOK_VERIFY_TOKEN>` que vous avez défini.
-  - **🚨 SÉCURITÉ MERGE-COUPLED** : configurer IP allowlisting au reverse-proxy Nginx
-    (Nginx Proxy Manager UNRAID) pour que seules les plages d'IPs webhook Strava publiques
-    puissent POSTer à `/strava/webhook`. Sans cela, les trois vecteurs d'exploitation
-    documentés en « Suite E15.1 » sont exploitables en prod dès le merge. À FAIRE AT/BEFORE
-    MERGE, pas après.
+  - **🚨 SÉCURITÉ (à refaire uniquement si Strava est réactivé)** : configurer IP allowlisting
+    au reverse-proxy Nginx (Nginx Proxy Manager UNRAID) pour que seules les plages d'IPs webhook
+    Strava publiques puissent POSTer à `/strava/webhook`. Aujourd'hui **sans objet** : sans
+    secrets `STRAVA_*`, la route répond `404`. Redevient obligatoire **avant** de poser les
+    secrets et de créer la souscription webhook.
 - **E15.2 P2 — Garmin officiel** : évaluer Garmin Health/Activity API (webhooks push) —
   réservé au programme partenaire, validation B2B. La lib `python-garminconnect`
   actuelle ne fait que du polling non officiel.
@@ -170,8 +204,10 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   blocage de la Server Action) et réutilise `run_sync_for_user`, qui fait un backfill 90j au
   premier connect et un delta court au reconnect. L'échec de sync ne casse pas le connect
   (le cron rattrape) et le statut reste observable via `garmin_credentials.last_sync_status`.
-- **E15.5 P2 — Données montre au-delà de Garmin, quand une API le permet** : Strava
-  (E15.1) couvre les activités de quasi toutes les marques, mais pas le wellness. Pour
+- **E15.5 P2 — Données montre au-delà de Garmin, quand une API le permet** (volet Polar/wellness
+  **non concerné par la pause Strava** ; en revanche « les activités passent par Strava » ne tient
+  plus tant que E15.1 est désactivée — un athlète non-Garmin n'a aujourd'hui aucune source) :
+  Strava (E15.1) couvrait les activités de quasi toutes les marques, mais pas le wellness. Pour
   les athlètes non-Garmin, brancher les APIs officielles qui exposent sommeil/HRV/FC
   repos quand elles existent en self-service :
   - **Polar AccessLink** : OAuth2 officiel, gratuit, en self-service (pas de programme
@@ -194,7 +230,8 @@ Récupérer les activités plus vite sans seulement augmenter la fréquence du p
   - Statut : aucune marque hors Garmin n'a d'implémentation ; à prioriser seulement s'il
     y a une demande beta concrète (aujourd'hui l'owner + tous les amis beta sont sur
     Garmin, cf profil onboarding).
-- **E15.6 P2 — Positionnement produit : Strava suffit, la montre est optionnelle** :
+- **E15.6 P2 — Positionnement produit : Strava suffit, la montre est optionnelle — ⏸️ EN PAUSE**
+  (sans objet tant que Strava est désactivé : le message promettrait une source indisponible) :
   message à faire apparaître dans l'onboarding et sur `/profile` (écrans connexion
   Garmin/Strava) pour ne pas laisser croire qu'une montre compatible est requise pour
   utiliser l'app :
@@ -616,7 +653,10 @@ Spec et critères d'acceptation :
 
 ### EPIC E18 — Console d'administration & ouverture au public
 
-**Priorité : P1 — Statut : à planifier**
+**Priorité : P1 — Statut : V1 livrée** (PR #90 console + flags + allowlist, #93 cron
+`billing_sync` + format réel de l'API OpenAI, #95 lien Admin dans la nav, #105 fix
+`admin_overview()` `jsonb_agg` order-by). E18.1 → E18.5 sont livrés ; seule la « Suite »
+ci-dessous reste ouverte.
 
 Vue `/admin` réservée à l'owner qui regroupe tout ce qui touche l'ouverture de l'app à
 des utilisateurs externes : adoption, **coût IA réel**, **feature flags** (kill switch
@@ -628,26 +668,26 @@ allowlist UI + inscription ouverte, initialement en « Suite »). Spec :
 `docs/superpowers/specs/2026-07-08-e18-console-admin-ouverture-publique-design.md`
 (remplace `docs/superpowers/specs/2026-06-28-e18-admin-console-design.md`).
 
-- **E18.1 P1 — Instrumentation conso LLM** : nouvelle table `llm_usage` (un row par appel
+- **E18.1 P1 — Instrumentation conso LLM — V1 livrée** : nouvelle table `llm_usage` (un row par appel
   OpenAI, RLS deny-all), capture de `resp.usage` dans `openai_client.py`, tarif versionné
   en code (`MODEL_PRICING`) pour calculer `cost_usd`, helper `record_llm_usage` branché sur
   tous les sites d'appel LLM (séances + briefing). Best-effort : ne casse jamais la
   génération. Prérequis de E18.2/E18.3.
-- **E18.1bis P1 — Vérité terrain OpenAI** : table `openai_billing_snapshot`, cron worker
+- **E18.1bis P1 — Vérité terrain OpenAI — V1 livrée** : table `openai_billing_snapshot`, cron worker
   quotidien (`billing_sync.py`) qui pull l'OpenAI Costs API (clé admin dédiée, worker-only)
   et affiche le coût facturé à côté du coût estimé par `llm_usage`.
-- **E18.2 P1 — Agrégats admin** : RPC `admin_overview()` `security definer` (garde via
+- **E18.2 P1 — Agrégats admin — V1 livrée** : RPC `admin_overview()` `security definer` (garde via
   `is_admin_caller()`) renvoyant users (total + actifs 7j), activités (total + 7j), tokens
   + `cost_usd` estimé et facturé 7j, santé sync (succès/échecs derniers crons), série
   coût/jour 7j.
-- **E18.3 P1 — Page `/admin`** : route Next.js gardée par email owner, panneaux finops +
+- **E18.3 P1 — Page `/admin` — V1 livrée** : route Next.js gardée par email owner, panneaux finops +
   feature flags + allowlist, graphe coût IA/jour (réutilise charts E14.1), UI dark
   existante.
-- **E18.4 P1 — Feature flags** : table générique `feature_flags` (expiration optionnelle
+- **E18.4 P1 — Feature flags — V1 livrée** : table générique `feature_flags` (expiration optionnelle
   évaluée à la lecture, pas de cron), flags `llm_generation_enabled` (kill switch),
   `maintenance_mode`, `public_registration_enabled` (bypass temporaire de l'allowlist à
   l'inscription, expiration obligatoire).
-- **E18.5 P1 — Gestion allowlist UI** : RPCs `admin_list/add/remove_allowed_email`,
+- **E18.5 P1 — Gestion allowlist UI — V1 livrée** : RPCs `admin_list/add/remove_allowed_email`,
   panneau d'ajout/liste/retrait. Le retrait bloque uniquement une future inscription, ne
   révoque pas un compte déjà actif (hors scope).
 - **Suite (Todo séparés)** : détail par utilisateur, alerting/budget cap IA, multi-admin
@@ -656,7 +696,7 @@ allowlist UI + inscription ouverte, initialement en « Suite »). Spec :
 
 ### EPIC E19 — Lien cliquable vers l'historique depuis /today
 
-**Priorité : P2 — Statut : à planifier**
+**Priorité : P2 — Statut : V1 livrée** (PR #103)
 
 Sur `/today`, la carte "Dernière activité" n'est pas cliquable alors que le même composant
 (`ActivityRow`) l'est déjà sur `/history`. Fix ciblé : envelopper la carte dans un `Link`
@@ -665,7 +705,7 @@ vers `/history/[id]` (route déjà existante). Spec :
 
 ### EPIC E20 — Cols gravis sur la fiche activité
 
-**Priorité : P2 — Statut : à planifier**
+**Priorité : P2 — Statut : V1 livrée** (PR #103)
 
 `col_crossings` (E9, 2026-07-08) a déjà un `garmin_activity_id`, permettant de lier les cols
 franchis à une activité précise. Nouvelle section "Cols gravis" sur `/history/[id]` (nom +
@@ -676,7 +716,8 @@ owner sur "Mes cols"). Spec :
 
 ### EPIC E21 — Notifications de nouveautés (changelog interne)
 
-**Priorité : P2 — Statut : à planifier**
+**Priorité : P2 — Statut : V1 livrée** (PR #103 ; suite : PR #107 embarque
+`docs/nouveautes.md` dans le bundle serverless Vercel)
 
 Badge "nouveautés" (cloche) dans la nav, alimenté par un nouveau fichier éditorial
 `docs/nouveautes.md` (distinct du `CHANGELOG.md` technique semantic-release) — 1-3 puces FR
@@ -1118,7 +1159,7 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
   liste des cols par l'utilisateur, distinction montée stricte vs simple passage,
   mini-carte visuelle des cols.
 
-### P2 — Sommets (natural=peak) dans le widget cols
+### P2 — Sommets (natural=peak) dans le widget cols — V1 livrée (PR #102, #106)
 
 - Le widget « Mes cols » ne référence que `mountain_pass=yes` (OSM) : les sommets
   hors col routier (ex. Crêt d'Arjoux, natural=peak) sont invisibles quelle que soit
@@ -1131,6 +1172,8 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
   deux sections triées séparément.
 - Spec : `docs/superpowers/specs/2026-07-12-cols-sommets-peaks-design.md`.
 - Plan : `docs/superpowers/plans/2026-07-12-cols-sommets-peaks.md`.
+- Statut V1 : livré tel que spécifié (PR #102) ; PR #106 a déplacé le bouton « voir plus »
+  en pied de chaque section avec compteur.
 
 ### P1 — Détection des cols partout (bbox d'activité) — V1 livrée
 

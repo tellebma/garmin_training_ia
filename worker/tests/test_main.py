@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
@@ -597,3 +598,70 @@ def test_strava_webhook_post_dispatches_event(
     assert received == [
         {"object_type": "activity", "aspect_type": "create", "object_id": 1, "owner_id": 2}
     ]
+
+
+@pytest.fixture
+def _strava_disabled(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Run the app as a deployment with no Strava secrets at all.
+
+    ``get_settings`` is ``lru_cache``d, so the cache has to be dropped on both
+    sides — otherwise the settings another test warmed up leak in here, and the
+    ones built here leak back out.
+    """
+    from garmin_sync.config import get_settings
+
+    monkeypatch.delenv("STRAVA_CLIENT_ID", raising=False)
+    monkeypatch.delenv("STRAVA_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("STRAVA_WEBHOOK_VERIFY_TOKEN", raising=False)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.mark.usefixtures("_strava_disabled")
+def test_strava_routes_404_when_integration_not_configured(client: ASGITestClient) -> None:
+    """Strava paused: with no secrets configured, the whole surface must be gone.
+
+    ``POST /strava/webhook`` is unauthenticated by design, so leaving it live on
+    a deployment without Strava lets anyone spawn daemon threads and delete
+    ``athlete_strava_credentials`` rows with a forged deauthorization event.
+    """
+    assert client.post("/strava/connect", json={"code": "abc"}).status_code == 404
+    assert client.post("/strava/disconnect").status_code == 404
+    assert (
+        client.get(
+            "/strava/webhook",
+            params={"hub.mode": "subscribe", "hub.verify_token": "t", "hub.challenge": "xyz"},
+        ).status_code
+        == 404
+    )
+    assert client.post("/strava/webhook", json={"object_type": "activity"}).status_code == 404
+
+
+@pytest.mark.usefixtures("_strava_disabled")
+def test_strava_webhook_does_not_dispatch_when_disabled(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 404 must happen before the background thread is spawned."""
+    received = []
+    monkeypatch.setattr(
+        "garmin_sync.strava_webhook.handle_event",
+        lambda payload: received.append(payload) or {"status": "stored"},
+    )
+
+    r = client.post(
+        "/strava/webhook",
+        json={"object_type": "athlete", "owner_id": 2, "updates": {"authorized": "false"}},
+    )
+
+    assert r.status_code == 404
+    assert received == []
+
+
+@pytest.mark.usefixtures("_strava_disabled")
+def test_garmin_routes_unaffected_when_strava_disabled(client: ASGITestClient) -> None:
+    """Gating Strava must not take Garmin down with it."""
+    assert client.get("/health").status_code == 200
+    # 401 (not 404): the route still exists, it just needs a JWT.
+    r = client.post("/garmin/connect", json={"email": "a@b.c", "password": "x"})
+    assert r.status_code == 401

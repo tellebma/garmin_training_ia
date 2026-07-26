@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { SignOutButton } from '@/components/auth/sign-out-button'
 import { StravaDisconnectButton } from '@/components/strava/disconnect-button'
 import { Button } from '@/components/ui/button'
+import { getServerEnv } from '@/lib/env'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -126,6 +127,10 @@ export default async function ProfilePage() {
   const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
   const stravaConnected = strava !== null
   const stravaAuthStale = strava !== null && strava.token_refresh_failed_at !== null
+  // Strava is paused: without STRAVA_CLIENT_ID the OAuth route can only redirect
+  // to ?strava=error, so offering "Connecter Strava" would be a dead end. An
+  // athlete who connected while it was configured still sees their card.
+  const showStrava = Boolean(getServerEnv().STRAVA_CLIENT_ID) || stravaConnected
 
   // Build typed initial props for edit forms
   const persoInitial: PersonInput = {
@@ -220,51 +225,53 @@ export default async function ProfilePage() {
       </section>
 
       {/* Strava Connect section */}
-      <section className="space-y-3 rounded-lg border p-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Strava</h2>
-          {stravaConnected && !stravaAuthStale && (
-            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-              Connecté
-            </span>
-          )}
-          {stravaAuthStale && (
-            <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-              Token expiré
-            </span>
-          )}
-        </div>
+      {showStrava && (
+        <section className="space-y-3 rounded-lg border p-6">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Strava</h2>
+            {stravaConnected && !stravaAuthStale && (
+              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                Connecté
+              </span>
+            )}
+            {stravaAuthStale && (
+              <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                Token expiré
+              </span>
+            )}
+          </div>
 
-        {!stravaConnected && (
-          <>
-            <p className="text-muted-foreground text-sm">
-              Connecte ton compte Strava pour synchroniser tes activités en temps réel — utile si ta
-              montre n&apos;est pas Garmin.
-            </p>
-            <Button asChild variant="outline">
-              <Link href="/profile/strava/connect">Connecter Strava</Link>
-            </Button>
-          </>
-        )}
+          {!stravaConnected && (
+            <>
+              <p className="text-muted-foreground text-sm">
+                Connecte ton compte Strava pour synchroniser tes activités en temps réel — utile si
+                ta montre n&apos;est pas Garmin.
+              </p>
+              <Button asChild variant="outline">
+                <Link href="/profile/strava/connect">Connecter Strava</Link>
+              </Button>
+            </>
+          )}
 
-        {stravaConnected && (
-          <>
-            <dl className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <dt>Connecté le</dt>
-              <dd className="text-foreground">{formatDateTime(strava.updated_at)}</dd>
-              <dt>Backfill 90 j</dt>
-              <dd className="text-foreground">
-                {strava.initial_sync_completed_at
-                  ? `terminé le ${formatDateTime(strava.initial_sync_completed_at)}`
-                  : 'en cours'}
-              </dd>
-              <dt>Dernier événement</dt>
-              <dd className="text-foreground">{formatDateTime(strava.last_sync_at)}</dd>
-            </dl>
-            <StravaDisconnectButton />
-          </>
-        )}
-      </section>
+          {stravaConnected && (
+            <>
+              <dl className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <dt>Connecté le</dt>
+                <dd className="text-foreground">{formatDateTime(strava.updated_at)}</dd>
+                <dt>Backfill 90 j</dt>
+                <dd className="text-foreground">
+                  {strava.initial_sync_completed_at
+                    ? `terminé le ${formatDateTime(strava.initial_sync_completed_at)}`
+                    : 'en cours'}
+                </dd>
+                <dt>Dernier événement</dt>
+                <dd className="text-foreground">{formatDateTime(strava.last_sync_at)}</dd>
+              </dl>
+              <StravaDisconnectButton />
+            </>
+          )}
+        </section>
+      )}
 
       {/* Editable sections */}
       <PersoEditForm initial={persoInitial} />
