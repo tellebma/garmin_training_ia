@@ -1091,6 +1091,37 @@ et `ensure_sessions` générera des séances en double.
   - **Affiner l'alerting** : règles email Sentry + dédup/seuils si le volume Discord devient
     bruyant (actuellement 1 message par erreur, OK pour la beta).
 
+### P1 — Rate-limit auth non falsifiable (suite audit SEC-2 du 2026-07-26)
+
+- **Problème** : `check_and_log_auth_rate_limit(p_ip, p_action, p_max_count, p_window_seconds)`
+  est appelable par `anon` via `/rest/v1/rpc/...` avec des paramètres entièrement choisis par
+  l'appelant. Deux conséquences : (1) on peut saturer le compteur d'une **IP tierce** et la
+  verrouiller hors du login ; (2) le plafond n'est pas autoritaire côté serveur (c'est
+  l'appelant qui passe `p_max_count`), donc le RPC ne protège que le flow UI, pas un appel
+  direct.
+- **Pourquoi ce n'est pas un simple `revoke`** : le grant à `anon` est structurel —
+  `app/(auth)/_actions/auth.ts` appelle ce RPC avec le client anon **avant** toute
+  authentification (register / login / mot de passe oublié). Le révoquer casse l'auth.
+- **Pistes** : appeler le rate-limit depuis la Server Action avec un client **service-role**
+  (le secret ne quitte pas le serveur, l'IP vient des headers Next.js et non du client), ou
+  déplacer le compteur derrière un endpoint worker ; dans les deux cas figer `max_count` /
+  `window_seconds` côté serveur au lieu de les passer en paramètres. Recoupe la piste
+  « Vercel Firewall / WAF » de `SECURITY.md` (Roadmap étape 5).
+- **Lien** : `SECURITY.md` § « Audit 2026-07-26 — SEC-2 ». Même famille que le risque
+  d'énumération d'emails déjà arbitré en SEC-1 (`is_email_allowed` / `email_needs_signup`).
+- **Critère** : un appel REST direct au rate-limit ne peut ni verrouiller un tiers ni
+  contourner le plafond.
+
+### P2 — Généraliser le `revoke execute … from public` sur les futures fonctions
+
+- L'audit SEC-2 a montré que la cause racine est systémique : Postgres accorde `EXECUTE` à
+  `PUBLIC` par défaut, donc `grant execute … to service_role` seul ne restreint **rien**.
+  Toute nouvelle fonction `security definer` doit désormais faire son `revoke` explicite
+  (patron correct : `try_claim_garmin_sync`, `20260627000000`).
+- À faire : ajouter la vérification à la checklist du template de PR et/ou un lint dans
+  `.github/workflows/supabase-migrations.yml` (une migration qui crée une fonction
+  `security definer` sans `revoke execute … from public` échoue).
+
 ### P2 — Élargir E2E et Lighthouse aux parcours réels
 
 - Ajouter parcours authentifié seedé ou mocké : onboarding, Garmin mocké, `/today`,
