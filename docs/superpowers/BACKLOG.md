@@ -13,7 +13,7 @@ l'instant. Conséquences :
 
 - **Remontés en P0** : E16.1 (double appel auth, plafond de latence transversal),
   « Worker : filtrer le plan actif » (correctness multi-users), « Observabilité production »
-  (Sentry — voir les erreurs des amis), E9.4 (progression par discipline, spec+plan prêts).
+  (Sentry — voir les erreurs des amis), E9.4 (progression par discipline).
   E13.2 (déjà P0) est **V1 livrée** (PR #75, mergée 2026-07-02).
 - **Rétrogradés en P2** (polish UX différé) : « Identité numérique / `DESIGN.md` »
   (était P0), E14.3 bulles explicatives, carte « dernière activité » de `/today`.
@@ -26,7 +26,7 @@ l'instant. Conséquences :
 - **Livrés depuis la dernière revue** : E18 console admin (#90, #93, #95, #105),
   E15.1 Strava (#101), E14.2 livrable C (#100), E16.1 (#99), E19/E20/E21 (#103),
   sommets `natural=peak` (#102, #106).
-- **Reste P0** : E9.4 progression par discipline (spec + plan prêts, aucun code),
+- **Reste P0** : E9.4 progression par discipline (spec écrite le 2026-07-26, plan à écrire),
   « Worker : filtrer le plan actif », « Recommandations sportives sourcées et auditables ».
 
 ## EPICs issus des retours owner (2026-06-21)
@@ -279,9 +279,40 @@ prendre ensuite.
   inchangé) et le cockpit `/stats` expose un panneau `RecoveryPanel` en langage prudent
   (jamais de diagnostic). Suites notées : `sleep_excellent` encore en seuil absolu,
   gating confiance de la FC repos, affichage « dernière synchro… ».
-- **E9.4 P0 — Progression par discipline** (remontée P0 le 2026-06-28) : efficacité allure/FC en course,
-  puissance/FC et FTP à vélo, performance en montée, métriques natation et
-  détection de progression, stagnation ou charge mal assimilée.
+- **E9.4 P0 — Progression par discipline** (remontée P0 le 2026-06-28) : détection de
+  progression, stagnation, régression ou charge mal assimilée, discipline par discipline.
+  **Spec écrite le 2026-07-26** : `docs/superpowers/specs/2026-07-26-e9.4-progression-discipline-design.md`
+  (le backlog affirmait à tort « spec+plan prêts » : il n'existait qu'une section d'objectifs
+  dans le design E9, ni spec dédiée ni plan). Plan d'implémentation à écrire.
+  Correctifs de périmètre issus de l'inventaire des données réelles :
+  - **La branche puissance vélo est non calculable** — 0 activité sur 29 porte une puissance
+    (pas de capteur). FTP, puissance à FC comparable, NP, IF et VI sortent du périmètre tant
+    qu'aucun capteur n'est ajouté ; ce n'est pas une omission mais une donnée inexistante.
+  - `fc_max_bpm`, `vma_kmh`, `ftp_watts`, `css_per_100m_s` sont **NULL sur les 2 profils** →
+    aucun filtre d'intensité en `% de FC max` n'est possible ; la spec le remplace par une
+    garde sur l'écart de FC médiane entre fenêtres. Voir l'item « fc_max / VMA jamais
+    remontés » ci-dessous.
+  - Approche retenue : facteur d'efficacité (vitesse ajustée à la pente ÷ FC) et tendance sur
+    médianes 28 j contre 62 j, croisée avec le CTL Banister pour distinguer stagnation et
+    charge mal assimilée. L'appariement de parcours répétés (via la bbox de la PR #111) est
+    noté comme suite.
+  - Frontière : `discipline_level.py` (E13.2) couvre déjà le **niveau observé** (volume,
+    régularité, TSS) ; E9.4 apporte la dimension **efficacité**, pas un doublon.
+
+### P1 — fc_max / VMA jamais remontés de Garmin (découvert le 2026-07-26)
+
+- `profile_sync.py` tourne bien (cron quotidien, `garmin_synced_at` récent sur les 2 profils)
+  mais `fc_max_bpm` et `vma_kmh` restent **NULL**, alors que ni l'un ni l'autre ne dépend d'un
+  capteur de puissance. Mapping actuel : `fc_max_bpm` ← `get_user_profile()["userMaxHr"]`,
+  `vma_kmh` ← `get_max_metrics()["vo2MaxValueRunning"] ÷ 3,5`.
+- Suspicion : clé ou endpoint obsolète dans `garminconnect` 0.3.x (même famille de piège que
+  le bug `garth` déjà vécu). À vérifier en inspectant les payloads réels.
+- `ftp_watts` vide est **normal** dans le cas de l'owner (pas de capteur de puissance).
+  `css_per_100m_s` n'est carrément **pas implémenté** dans `_transform_profile`.
+- Repli réaliste si l'API reste muette : déduire la FC max de `max(activities.hr_max)`
+  (51 activités renseignées, max observé 215 bpm — à filtrer des artefacts de capteur).
+- Impact : bloque les zones cardio fiables, le TSS HR-based et tout filtre d'intensité.
+  E9.4 a été conçue pour ne pas en dépendre, donc ce n'est pas bloquant pour elle.
 - **E9.5 P1 — Analyse avancée d'activité** : tours/intervalles, temps en zones,
   puissance normalisée, IF/VI, D+/D-, carte GPS et métriques Garmin spécialisées
   lorsqu'elles sont disponibles.
