@@ -52,6 +52,80 @@ def test_vma_from_vo2max() -> None:
     assert _vma_from_vo2max(0) is None  # falsy → None, garde contre divisions weird
 
 
+# --- Formes réelles des payloads Garmin -------------------------------------------
+#
+# Les tests ci-dessus mockaient un user_profile plat et un max_metrics dict : ils
+# encodaient la même hypothèse fausse que le code, donc ils étaient verts alors que
+# fc_max_bpm et vma_kmh restaient NULL en production.
+#
+# /userprofile-service/userprofile/user-settings imbrique les champs sous "userData"
+# (garminconnect fait lui-même `settings["userData"].get("measurementSystem")`), et
+# /metrics-service/metrics/maxmet/daily/{start}/{end} est un endpoint de plage : il
+# renvoie une LISTE d'entrées journalières, la VO2max nichée sous "generic".
+
+
+def test_transform_profile_reads_nested_user_data() -> None:
+    user_profile = {
+        "id": 123,
+        "userData": {
+            "userMaxHr": 188,
+            "functionalThresholdPower": 245,
+            "measurementSystem": "metric",
+        },
+        "userSleep": {},
+    }
+
+    row = _transform_profile(user_profile, {})
+
+    assert row["fc_max_bpm"] == 188
+    assert row["ftp_watts"] == 245
+
+
+def test_transform_profile_reads_vo2max_from_daily_list() -> None:
+    max_metrics = [
+        {
+            "calendarDate": "2026-07-26",
+            "generic": {"vo2MaxPreciseValue": 57.75, "vo2MaxValue": 58.0},
+            "cycling": None,
+        }
+    ]
+
+    row = _transform_profile({}, max_metrics)
+
+    assert row["vma_kmh"] == 16.5
+
+
+def test_transform_profile_prefers_precise_vo2max() -> None:
+    max_metrics = [{"generic": {"vo2MaxValue": 56.0, "vo2MaxPreciseValue": 57.75}}]
+    assert _transform_profile({}, max_metrics)["vma_kmh"] == 16.5
+
+
+def test_transform_profile_falls_back_to_rounded_vo2max() -> None:
+    max_metrics = [{"generic": {"vo2MaxValue": 56.0}}]
+    assert _transform_profile({}, max_metrics)["vma_kmh"] == 16.0
+
+
+def test_transform_profile_takes_the_most_recent_daily_entry() -> None:
+    max_metrics = [
+        {"calendarDate": "2026-07-20", "generic": {"vo2MaxPreciseValue": 50.0}},
+        {"calendarDate": "2026-07-26", "generic": {"vo2MaxPreciseValue": 57.75}},
+    ]
+    assert _transform_profile({}, max_metrics)["vma_kmh"] == 16.5
+
+
+def test_transform_profile_survives_empty_daily_list() -> None:
+    """La liste vide est le cas observé en prod : aucune clé, donc aucun écrasement."""
+    assert _transform_profile({}, []) == {}
+
+
+def test_transform_profile_survives_unexpected_shapes() -> None:
+    """Une forme inattendue ne doit jamais faire échouer la sync du profil."""
+    assert _transform_profile({"userData": None}, None) == {}
+    assert _transform_profile({"userData": "pas-un-dict"}, "pas-une-liste") == {}
+    assert _transform_profile({}, [None, "bruit"]) == {}
+    assert _transform_profile({}, [{"generic": "pas-un-dict"}]) == {}
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
