@@ -1,3 +1,9 @@
+## [1.13.2](https://github.com/tellebma/garmin_training_ia/compare/v1.13.1...v1.13.2) (2026-07-26)
+
+### Bug Fixes
+
+* **sec:** révoque l'EXECUTE implicite à PUBLIC sur les RPC non publiques ([#113](https://github.com/tellebma/garmin_training_ia/issues/113)) ([69ce629](https://github.com/tellebma/garmin_training_ia/commit/69ce6299dab9c150be585d422b78755f4a3299fb))
+
 ## [1.13.1](https://github.com/tellebma/garmin_training_ia/compare/v1.13.0...v1.13.1) (2026-07-26)
 
 ### Bug Fixes
