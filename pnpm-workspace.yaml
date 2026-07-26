@@ -5,5 +5,6 @@ allowBuilds:
 # next pins sharp@^0.34.3 as an optional dep; this override bumps it past the advisory.
 overrides:
   sharp: ^0.35.0
-  # next pins postcss@8.4.31 exactly; GHSA-6g55-p6wh-862q needs >=8.5.12.
-  postcss: ^8.5.12
+  # next pins postcss@8.4.31 exactly; GHSA-6g55-p6wh-862q needs >=8.5.12,
+  # GHSA-r28c-9q8g-f849 needs >=8.5.18.
+  postcss: ^8.5.18

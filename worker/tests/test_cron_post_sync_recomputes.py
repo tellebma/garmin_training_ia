@@ -23,10 +23,12 @@ def test_post_sync_recomputes_calls_cols_pipeline_when_home_found(monkeypatch: A
 
     home_mock.assert_called_once_with("user-1")
     overpass_mock.assert_called_once_with("user-1", 45.0, 6.0)
-    matching_mock.assert_called_once_with("user-1", 45.0, 6.0)
+    matching_mock.assert_called_once_with("user-1")
 
 
-def test_post_sync_recomputes_skips_cols_pipeline_without_home(monkeypatch: Any) -> None:
+def test_post_sync_recomputes_without_home_skips_overpass_but_still_matches(
+    monkeypatch: Any,
+) -> None:
     monkeypatch.setattr(cron, "recompute_daily_state", MagicMock())
     monkeypatch.setattr(
         "garmin_sync.coach.recovery_baselines.recompute_recovery_baselines", MagicMock()
@@ -42,7 +44,8 @@ def test_post_sync_recomputes_skips_cols_pipeline_without_home(monkeypatch: Any)
     cron._run_post_sync_recomputes("user-1")
 
     overpass_mock.assert_not_called()
-    matching_mock.assert_not_called()
+    # Le matching par bbox d'activité ne dépend plus du domicile.
+    matching_mock.assert_called_once_with("user-1")
 
 
 def test_post_sync_recomputes_swallows_cols_pipeline_errors(monkeypatch: Any) -> None:

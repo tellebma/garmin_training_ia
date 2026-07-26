@@ -1,51 +1,68 @@
-"""Match GPS activities against nearby cols by proximity to the summit point."""
+"""Match GPS activities against cols by proximity to the summit point.
+
+Coverage model: each activity's own bounding box drives both the Overpass fetch
+(so the shared `cols` table gains the cols actually ridden past, wherever they
+are) and the DB query used for matching. The home-centred 50km Overpass refresh
+(`refresh_nearby_cols`) still exists separately to populate not-yet-climbed cols
+for the stats widget — but matching itself no longer depends on home at all.
+"""
 
 from __future__ import annotations
 
+import time
 from typing import Any, cast
 
 from garmin_sync.coach.geo import haversine_m
+from garmin_sync.coach.overpass import fetch_cols_in_bbox
 from garmin_sync.supabase_client import get_admin_client
 
 DbRows = list[dict[str, Any]]
+Bbox = tuple[float, float, float, float]  # (south, west, north, east)
 
-_NEARBY_RADIUS_M = 50_000
 _CROSSING_THRESHOLD_M = 150.0
 _SAMPLE_PAGE_SIZE = 1000
 _MAX_SAMPLE_PAGES = 20  # 20k samples ceiling — generous even for multi-hour rides
+# Marge ajoutée au bbox d'activité pour la couverture Overpass (~5.5 km) : large
+# exprès, pour que les sorties successives dans la même zone réutilisent la
+# couverture déjà fetchée pendant un backfill au lieu de re-frapper Overpass.
+_COVERAGE_PAD_DEG = 0.05
+# Marge ajoutée au bbox d'activité pour charger les cols candidats depuis la DB
+# (~550 m) : doit seulement dépasser le seuil de franchissement de 150 m.
+_MATCH_PAD_DEG = 0.005
+# Pause de politesse entre deux appels Overpass d'un même run (backfill).
+_OVERPASS_COOLDOWN_S = 1.0
 
 
-def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> None:
+def recompute_col_crossings(user_id: str) -> None:
     """Detect col crossings on GPS activities synced since the last run.
 
     Processes activities with `start_time` after `col_matching_cursor` (or the full
-    history on first run), matches each against cols within 50km of home using
-    full-resolution `activity_samples`, and upserts one `col_crossings` row per
-    (col, activity) pair within 150m. Advances the cursor to the latest processed
-    activity's `start_time`.
-
-    Note: `col_matching_cursor` only guards against re-scanning already-processed
-    activities, not against re-matching them when a new col is added to the shared
-    `cols` table later (e.g. a periodic Overpass refresh). A col added after an
-    activity's cursor has passed is never matched against that activity again, so
-    it can show "0 fois" even if the user actually rode past it. Accepted limitation
-    for this gadget feature.
+    history on first run). For each activity: computes the track's bounding box,
+    ensures Overpass coverage for that box (so cols ridden far from home exist in
+    the shared `cols` table), then matches the full-resolution `activity_samples`
+    against the cols inside the box and upserts one `col_crossings` row per
+    (col, activity) pair within 150m. Advances the cursor to the latest
+    successfully processed activity's `start_time`; if an activity fails (e.g.
+    Overpass down), the cursor stops just before it so the next run retries it,
+    and the error propagates to the cron caller.
     """
     db = get_admin_client()
-
-    nearby_cols = _fetch_nearby_cols(db, home_lat, home_lon)
-    if not nearby_cols:
-        return
 
     cursor = _fetch_cursor(db, user_id)
     activities = _fetch_pending_activities(db, user_id, cursor)
     if not activities:
         return
 
+    fetched_bboxes: list[Bbox] = []
     max_start_time: str | None = cursor
+    failure: Exception | None = None
     for activity in activities:
         start_time = activity["start_time"]
-        _process_activity(db, user_id=user_id, activity=activity, cols=nearby_cols)
+        try:
+            _process_activity(db, user_id=user_id, activity=activity, fetched_bboxes=fetched_bboxes)
+        except Exception as exc:
+            failure = exc
+            break
         if max_start_time is None or start_time > max_start_time:
             max_start_time = start_time
 
@@ -54,18 +71,8 @@ def recompute_col_crossings(user_id: str, home_lat: float, home_lon: float) -> N
             "user_id", user_id
         ).execute()
 
-
-def _fetch_nearby_cols(db: Any, home_lat: float, home_lon: float) -> DbRows:
-    all_cols = cast(
-        DbRows,
-        db.table("cols").select("id, latitude, longitude").execute().data or [],
-    )
-    return [
-        col
-        for col in all_cols
-        if haversine_m(home_lat, home_lon, float(col["latitude"]), float(col["longitude"]))
-        <= _NEARBY_RADIUS_M
-    ]
+    if failure is not None:
+        raise failure
 
 
 def _fetch_cursor(db: Any, user_id: str) -> str | None:
@@ -125,7 +132,58 @@ def _fetch_all_samples(db: Any, user_id: str, activity_id: int) -> DbRows:
     return samples
 
 
-def _process_activity(db: Any, *, user_id: str, activity: dict[str, Any], cols: DbRows) -> None:
+def _samples_bbox(samples: DbRows) -> Bbox | None:
+    lats = [float(sample["latitude"]) for sample in samples]
+    lons = [float(sample["longitude"]) for sample in samples]
+    if not lats:
+        return None
+    return (min(lats), min(lons), max(lats), max(lons))
+
+
+def _pad_bbox(bbox: Bbox, pad_deg: float) -> Bbox:
+    south, west, north, east = bbox
+    return (south - pad_deg, west - pad_deg, north + pad_deg, east + pad_deg)
+
+
+def _bbox_contains(outer: Bbox, inner: Bbox) -> bool:
+    return (
+        outer[0] <= inner[0]
+        and outer[1] <= inner[1]
+        and outer[2] >= inner[2]
+        and outer[3] >= inner[3]
+    )
+
+
+def _ensure_overpass_coverage(bbox: Bbox, fetched_bboxes: list[Bbox]) -> None:
+    """Fetch cols from Overpass for the activity's zone, once per zone per run."""
+    if any(_bbox_contains(fetched, bbox) for fetched in fetched_bboxes):
+        return
+    if fetched_bboxes:
+        time.sleep(_OVERPASS_COOLDOWN_S)
+    padded = _pad_bbox(bbox, _COVERAGE_PAD_DEG)
+    fetch_cols_in_bbox(*padded)
+    fetched_bboxes.append(padded)
+
+
+def _fetch_cols_in_bbox(db: Any, bbox: Bbox) -> DbRows:
+    south, west, north, east = _pad_bbox(bbox, _MATCH_PAD_DEG)
+    return cast(
+        DbRows,
+        db.table("cols")
+        .select("id, latitude, longitude")
+        .gte("latitude", south)
+        .lte("latitude", north)
+        .gte("longitude", west)
+        .lte("longitude", east)
+        .execute()
+        .data
+        or [],
+    )
+
+
+def _process_activity(
+    db: Any, *, user_id: str, activity: dict[str, Any], fetched_bboxes: list[Bbox]
+) -> None:
     # One `activity_samples` fetch per activity (N+1) is deliberate here, not an
     # oversight: batching all activities' samples into a single `.in_(...)` query
     # would multiply the row count returned per request, making it *more* likely to
@@ -138,6 +196,13 @@ def _process_activity(db: Any, *, user_id: str, activity: dict[str, Any], cols: 
     activity_id = activity["garmin_activity_id"]
     start_time = activity["start_time"]
     samples = _fetch_all_samples(db, user_id, activity_id)
+    bbox = _samples_bbox(samples)
+    if bbox is None:
+        return
+    _ensure_overpass_coverage(bbox, fetched_bboxes)
+    cols = _fetch_cols_in_bbox(db, bbox)
+    if not cols:
+        return
     crossing_rows = _match_activity(
         user_id=user_id,
         activity_id=activity_id,

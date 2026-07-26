@@ -62,13 +62,16 @@ def _run_post_sync_recomputes(user_id: str) -> None:
         except Exception as exc:
             log.exception("refresh_nearby_cols failed for user=%s", user_id)
             capture(exc, where="refresh_nearby_cols", user_id=user_id)
-        try:
-            from garmin_sync.coach.col_matching import recompute_col_crossings
 
-            recompute_col_crossings(user_id, home_lat, home_lon)
-        except Exception as exc:
-            log.exception("recompute_col_crossings failed for user=%s", user_id)
-            capture(exc, where="recompute_col_crossings", user_id=user_id)
+    # Le matching par bbox d'activité ne dépend pas du domicile — il tourne
+    # même quand compute_home_location n'a pas encore assez de données GPS.
+    try:
+        from garmin_sync.coach.col_matching import recompute_col_crossings
+
+        recompute_col_crossings(user_id)
+    except Exception as exc:
+        log.exception("recompute_col_crossings failed for user=%s", user_id)
+        capture(exc, where="recompute_col_crossings", user_id=user_id)
 
 
 def run_sync_for_user(

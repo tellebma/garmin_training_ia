@@ -90,7 +90,7 @@ export function ColsWidget({ cols, peaks }: Readonly<{ cols: ColSummary[]; peaks
     return (
       <ChartCard
         title="Mes cols & sommets"
-        description="Cols et sommets dans un rayon de 50 km autour de chez toi"
+        description="Tes cols et sommets gravis, et ceux à explorer dans un rayon de 50 km"
       >
         <EmptyState
           icon={Mountain}

@@ -1,5 +1,8 @@
 const DEFAULT_RADIUS_KM = 50
 const EARTH_RADIUS_KM = 6371
+// Plafond d'affichage par groupe (cols / sommets) : le tri met les gravis en tête,
+// donc seuls des cols jamais franchis peuvent être coupés par ce cap.
+const MAX_RESULTS = 30
 
 export type ColType = 'col' | 'peak'
 
@@ -83,15 +86,17 @@ export function computeColsSummary({
         _distanceKm: distanceKm,
       }
     })
-    .filter((summary) => summary._distanceKm <= radiusKm)
+    // Un col gravi reste visible quelle que soit sa distance (ex. col franchi en
+    // déplacement) ; les cols jamais franchis ne sont proposés que dans le rayon.
+    .filter((summary) => summary.crossingsCount > 0 || summary._distanceKm <= radiusKm)
 
   const sorted = summaries
     .toSorted((a, b) => b.crossingsCount - a.crossingsCount || a.distanceKm - b.distanceKm)
     .map(({ _distanceKm, ...summary }) => summary)
 
   return {
-    cols: sorted.filter((summary) => summary.type === 'col'),
-    peaks: sorted.filter((summary) => summary.type === 'peak'),
+    cols: sorted.filter((summary) => summary.type === 'col').slice(0, MAX_RESULTS),
+    peaks: sorted.filter((summary) => summary.type === 'peak').slice(0, MAX_RESULTS),
   }
 }
 

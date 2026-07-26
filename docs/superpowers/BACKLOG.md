@@ -1132,6 +1132,20 @@ Erreurs relevées en production (logs worker + données Supabase) lors d'une rev
 - Spec : `docs/superpowers/specs/2026-07-12-cols-sommets-peaks-design.md`.
 - Plan : `docs/superpowers/plans/2026-07-12-cols-sommets-peaks.md`.
 
+### P1 — Détection des cols partout (bbox d'activité) — V1 livrée
+
+- Bug vécu (2026-07-25) : le col du Chaussy gravi en Maurienne n'apparaissait pas —
+  le référentiel Overpass ET le matching étaient limités à 50 km du domicile, et le
+  curseur `col_matching_cursor` ne rejouait jamais les activités déjà scannées.
+- Refonte livrée : Overpass fetch + matching par bounding box de chaque activité GPS
+  (les cols gravis en déplacement sont détectés où qu'ils soient), couverture dédupliquée
+  par zone pendant un run + cooldown 1s entre appels Overpass, curseur qui s'arrête avant
+  une activité en échec (retry au cron suivant), reset one-shot du curseur en migration
+  pour rejouer tout l'historique. Affichage : cols gravis toujours visibles (peu importe
+  la distance), cols à 0 passage limités au rayon de 50 km, plafond de 30 résultats par
+  section (10 visibles + dépliage).
+- Le refresh Overpass domicile-50 km est conservé : il alimente les cols « à explorer ».
+
 ## Post-MVP technique
 
 - Requête `cols` non bornée spatialement : `ColsWidgetLoader` (`app/(app)/stats/page.tsx`)

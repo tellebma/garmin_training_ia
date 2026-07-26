@@ -30,13 +30,42 @@ describe('haversineKm', () => {
 })
 
 describe('computeColsSummary', () => {
-  it('filters out cols beyond the radius', () => {
+  it('filters out unclimbed cols beyond the radius', () => {
     const cols: ColDto[] = [
       mkCol({ id: 'near', latitude: 45.05, longitude: 6.05 }),
       mkCol({ id: 'far', latitude: 50.0, longitude: 2.0 }),
     ]
     const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings: [] })
     expect(out.cols.map((c) => c.id)).toEqual(['near'])
+  })
+
+  it('keeps climbed cols regardless of distance (régression col du Chaussy)', () => {
+    // Un col gravi pendant un déplacement (bien au-delà des 50 km du domicile)
+    // doit apparaître dans les stats ; un col lointain jamais gravi reste exclu.
+    const cols: ColDto[] = [
+      mkCol({ id: 'chaussy', name: 'Col du Chaussy', latitude: 50.0, longitude: 2.0 }),
+      mkCol({ id: 'far-unclimbed', latitude: 50.1, longitude: 2.1 }),
+      mkCol({ id: 'near', latitude: 45.05, longitude: 6.05 }),
+    ]
+    const crossings: ColCrossingRowDto[] = [
+      { col_id: 'chaussy', crossed_at: '2026-07-25T08:23:31Z' },
+    ]
+    const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
+    expect(out.cols.map((c) => c.id)).toEqual(['chaussy', 'near'])
+    expect(out.cols[0]?.crossingsCount).toBe(1)
+  })
+
+  it('caps each group at 30 results, keeping the best-ranked ones', () => {
+    const cols: ColDto[] = Array.from({ length: 40 }, (_, i) =>
+      mkCol({ id: `col-${String(i)}`, latitude: 45.001 + i * 0.001, longitude: 6.0 })
+    )
+    const crossings: ColCrossingRowDto[] = [
+      // Le col le plus lointain du lot est gravi : il doit rester malgré le cap.
+      { col_id: 'col-39', crossed_at: '2026-07-01T08:00:00Z' },
+    ]
+    const out = computeColsSummary({ homeLat: HOME_LAT, homeLon: HOME_LON, cols, crossings })
+    expect(out.cols).toHaveLength(30)
+    expect(out.cols[0]?.id).toBe('col-39')
   })
 
   it('counts crossings per col and keeps 0-count cols', () => {
