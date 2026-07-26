@@ -77,6 +77,20 @@ def _user_field(user_profile: Any, key: str) -> Any:
     return user_profile.get(key)
 
 
+_VO2MAX_KEYS = ("vo2MaxPreciseValue", "vo2MaxValue", "vo2MaxValueRunning")
+
+
+def _vo2max_in(source: Any) -> float | None:
+    """First usable VO2max value in a single object, `vo2MaxPreciseValue` preferred."""
+    if not isinstance(source, dict):
+        return None
+    for key in _VO2MAX_KEYS:
+        value = _as_float(source.get(key))
+        if value:
+            return value
+    return None
+
+
 def _vo2max_running(max_metrics: Any) -> float | None:
     """Extract running VO2max from the maxmet payload.
 
@@ -84,7 +98,7 @@ def _vo2max_running(max_metrics: Any) -> float | None:
     answers a list of daily entries, each nesting the running values under "generic"
     (and cycling ones under "cycling"). The previous version called
     `.get("vo2MaxValueRunning")` on the payload as if it were a flat dict, which never
-    matched. `vo2MaxPreciseValue` is preferred over the rounded `vo2MaxValue`.
+    matched.
     """
     entries: list[Any]
     if isinstance(max_metrics, list):
@@ -97,13 +111,9 @@ def _vo2max_running(max_metrics: Any) -> float | None:
     for entry in reversed(entries):  # most recent day last in Garmin's ordering
         if not isinstance(entry, dict):
             continue
-        generic = entry.get("generic")
-        sources = [generic, entry] if isinstance(generic, dict) else [entry]
-        for source in sources:
-            for key in ("vo2MaxPreciseValue", "vo2MaxValue", "vo2MaxValueRunning"):
-                value = _as_float(source.get(key))
-                if value:
-                    return value
+        value = _vo2max_in(entry.get("generic")) or _vo2max_in(entry)
+        if value:
+            return value
     return None
 
 
