@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -20,6 +21,28 @@ _MIN_PEAK_ELEVATION_M = 500
 # Overpass rejects requests without an identifying User-Agent (406 Not Acceptable),
 # per its usage policy: https://operations.osmfoundation.org/policies/overpass/
 _HEADERS = {"User-Agent": "garmin-training-coach/1.0 (github.com/tellebma/garmin_training_ia)"}
+# Overpass renvoie 429 quand ses slots par IP sont occupés (vécu en prod 2026-07-26
+# pendant le backfill multi-zones) et 504 quand il est surchargé — les deux valent
+# un retry patient plutôt qu'un échec du run.
+_RETRYABLE_STATUSES = frozenset({429, 504})
+_RETRY_DELAYS_S: tuple[float, ...] = (15.0, 45.0, 90.0)
+
+
+def _overpass_get(query: str) -> Any:
+    """GET Overpass avec backoff sur 429/504 ; propage les autres erreurs HTTP."""
+    for delay in (*_RETRY_DELAYS_S, None):
+        response = httpx.get(
+            _OVERPASS_URL,
+            params={"data": query},
+            headers=_HEADERS,
+            timeout=_TIMEOUT_S,
+        )
+        if response.status_code in _RETRYABLE_STATUSES and delay is not None:
+            time.sleep(delay)
+            continue
+        response.raise_for_status()
+        return response
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _classify(tags: dict[str, Any]) -> str | None:
@@ -110,13 +133,7 @@ def fetch_cols_in_bbox(south: float, west: float, north: float, east: float) -> 
     failed activity so it is retried on the next cron run).
     """
     db = get_admin_client()
-    response = httpx.get(
-        _OVERPASS_URL,
-        params={"data": _build_bbox_query(south, west, north, east)},
-        headers=_HEADERS,
-        timeout=_TIMEOUT_S,
-    )
-    response.raise_for_status()
+    response = _overpass_get(_build_bbox_query(south, west, north, east))
     elements = response.json().get("elements", [])
 
     rows: list[dict[str, Any]] = []
@@ -142,13 +159,7 @@ def refresh_nearby_cols(user_id: str, home_lat: float, home_lon: float) -> None:
     if profile is not None and not _should_refresh(profile, home_lat, home_lon):
         return
 
-    response = httpx.get(
-        _OVERPASS_URL,
-        params={"data": _build_query(home_lat, home_lon)},
-        headers=_HEADERS,
-        timeout=_TIMEOUT_S,
-    )
-    response.raise_for_status()
+    response = _overpass_get(_build_query(home_lat, home_lon))
     elements = response.json().get("elements", [])
 
     rows: list[dict[str, Any]] = []

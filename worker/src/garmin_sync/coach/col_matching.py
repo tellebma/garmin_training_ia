@@ -30,7 +30,9 @@ _COVERAGE_PAD_DEG = 0.05
 # (~550 m) : doit seulement dépasser le seuil de franchissement de 150 m.
 _MATCH_PAD_DEG = 0.005
 # Pause de politesse entre deux appels Overpass d'un même run (backfill).
-_OVERPASS_COOLDOWN_S = 1.0
+# 1 s s'est avéré trop court en prod (429 dès la 2e zone) — Overpass n'accorde
+# que quelques slots par IP et pénalise les rafales.
+_OVERPASS_COOLDOWN_S = 5.0
 
 
 def recompute_col_crossings(user_id: str) -> None:
