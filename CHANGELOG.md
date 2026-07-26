@@ -1,3 +1,9 @@
+## [1.14.1](https://github.com/tellebma/garmin_training_ia/compare/v1.14.0...v1.14.1) (2026-07-26)
+
+### Bug Fixes
+
+* **profile-sync:** lit fc_max et VO2max aux bons niveaux du payload Garmin ([#118](https://github.com/tellebma/garmin_training_ia/issues/118)) ([64e3126](https://github.com/tellebma/garmin_training_ia/commit/64e3126959ea99f229978d149e0f6e54fa743331)), closes [#116](https://github.com/tellebma/garmin_training_ia/issues/116)
+
 ## [1.14.0](https://github.com/tellebma/garmin_training_ia/compare/v1.13.4...v1.14.0) (2026-07-26)
 
 ### Features
