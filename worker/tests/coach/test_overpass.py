@@ -230,6 +230,78 @@ def test_fetch_cols_in_bbox_upserts_matching_nodes(monkeypatch: Any) -> None:
     assert db.profile_query.updated is None
 
 
+def _make_response(status_code: int, elements: list[dict[str, Any]] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    if status_code >= 400:
+        response.raise_for_status.side_effect = mod.httpx.HTTPStatusError(
+            f"{status_code}", request=MagicMock(), response=response
+        )
+    else:
+        response.json.return_value = {"elements": elements or []}
+    return response
+
+
+def test_fetch_cols_in_bbox_retries_on_429_then_succeeds(monkeypatch: Any) -> None:
+    # Vécu en prod (2026-07-26) : Overpass renvoie 429 quand ses slots par IP sont
+    # occupés pendant un backfill multi-zones. Un backoff doit absorber ça au lieu
+    # de faire échouer tout le run du cron.
+    db = _FakeDb(None)
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    monkeypatch.setattr(mod, "_RETRY_DELAYS_S", (0.0, 0.0))
+    real_error = mod.httpx.HTTPStatusError
+    httpx_mock = MagicMock()
+    httpx_mock.HTTPStatusError = real_error
+    httpx_mock.get.side_effect = [
+        _make_response(429),
+        _make_response(200, _OVERPASS_RESPONSE["elements"]),
+    ]
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.fetch_cols_in_bbox(45.0, 6.0, 45.1, 6.1)
+
+    assert httpx_mock.get.call_count == 2
+    assert db.cols_query.upserted is not None
+    assert len(db.cols_query.upserted) == 2
+
+
+def test_fetch_cols_in_bbox_raises_after_exhausted_retries(monkeypatch: Any) -> None:
+    db = _FakeDb(None)
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    monkeypatch.setattr(mod, "_RETRY_DELAYS_S", (0.0, 0.0))
+    real_error = mod.httpx.HTTPStatusError
+    httpx_mock = MagicMock()
+    httpx_mock.HTTPStatusError = real_error
+    httpx_mock.get.side_effect = [_make_response(429), _make_response(429), _make_response(429)]
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    with pytest.raises(real_error):
+        mod.fetch_cols_in_bbox(45.0, 6.0, 45.1, 6.1)
+
+    assert httpx_mock.get.call_count == 3
+    assert db.cols_query.upserted is None
+
+
+def test_refresh_nearby_cols_also_retries_on_429(monkeypatch: Any) -> None:
+    db = _FakeDb(
+        {"cols_cache_updated_at": None, "cols_cache_home_lat": None, "cols_cache_home_lon": None}
+    )
+    monkeypatch.setattr(mod, "get_admin_client", lambda: db)
+    monkeypatch.setattr(mod, "_RETRY_DELAYS_S", (0.0,))
+    httpx_mock = MagicMock()
+    httpx_mock.HTTPStatusError = mod.httpx.HTTPStatusError
+    httpx_mock.get.side_effect = [
+        _make_response(429),
+        _make_response(200, _OVERPASS_RESPONSE["elements"]),
+    ]
+    monkeypatch.setattr(mod, "httpx", httpx_mock)
+
+    mod.refresh_nearby_cols("user-1", 45.0, 6.0)
+
+    assert httpx_mock.get.call_count == 2
+    assert db.cols_query.upserted is not None
+
+
 def test_fetch_cols_in_bbox_propagates_network_errors(monkeypatch: Any) -> None:
     db = _FakeDb(None)
     monkeypatch.setattr(mod, "get_admin_client", lambda: db)
