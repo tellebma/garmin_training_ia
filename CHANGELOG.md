@@ -1,3 +1,9 @@
+## [1.13.0](https://github.com/tellebma/garmin_training_ia/compare/v1.12.3...v1.13.0) (2026-07-26)
+
+### Features
+
+* détection des cols partout (bbox d'activité) + affichage gravis/50 km cap 10/30 ([#111](https://github.com/tellebma/garmin_training_ia/issues/111)) ([f9b91e0](https://github.com/tellebma/garmin_training_ia/commit/f9b91e02e516a279de0c16bf55607a4545c9c777))
+
 ## [1.12.3](https://github.com/tellebma/garmin_training_ia/compare/v1.12.2...v1.12.3) (2026-07-23)
 
 ### Bug Fixes
