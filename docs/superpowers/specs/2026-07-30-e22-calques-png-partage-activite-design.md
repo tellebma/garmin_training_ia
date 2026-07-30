@@ -53,32 +53,52 @@ reste réaliste.
 L'UI d'une story (avatar en haut, barre de réponse en bas) recouvre les bords. La mise en page
 réserve 260 px en haut et 300 px en bas sur le format 1080×1920.
 
+## Parti pris visuel : un **sticker**, pas une affiche
+
+Référence validée par l'owner (2026-07-30) : les calques de partage transparents de Strava —
+composition **centrée**, compacte, flottante, sans cadre ni aplat. Le contenu ne remplit
+volontairement pas toute la hauteur : un sticker compact se déplace et se redimensionne bien
+dans l'éditeur de story. Aucune marque tierce n'est reprise ; la signature « Garmin Training
+Coach » est désactivable.
+
+Concrètement, la mise en page est une **pile de blocs** centrée horizontalement et
+verticalement dans la zone sûre. Si la pile déborde (format carré, 4 métriques…), un
+**facteur d'échelle unique** est appliqué aux hauteurs *et* aux tailles de police — le sticker
+rétrécit sans jamais se réorganiser ni déborder.
+
 ## Gabarits (« vues »)
 
-| Vue | Contenu | Disponible si |
+| Vue | Pile de blocs | Disponible si |
 |---|---|---|
-| `trace` | Tracé GPS + grille de métriques | ≥ 2 points GPS |
-| `profil` | Profil altimétrique (silhouette + altitude max) + métriques | ≥ 2 points d'altitude |
-| `stats` | Métriques seules en très gros | toujours (natation, home-trainer) |
-| `minimal` | Tracé seul, sans aucun texte — calque à composer librement | ≥ 2 points GPS |
+| `trace` | grand tracé GPS, puis une ligne de 3 métriques | ≥ 2 points GPS |
+| `stats-trace` | métriques empilées en très gros, puis un tracé plus petit | ≥ 2 points GPS |
+| `profil` | profil altimétrique (silhouette + altitude max), puis une ligne de 3 métriques | ≥ 2 points d'altitude |
+| `stats` | métriques empilées seules | toujours (natation, home-trainer) |
+| `minimal` | tracé seul, sans aucun texte — calque à composer librement | ≥ 2 points GPS |
 
 Les vues indisponibles ne sont pas proposées : une séance piscine n'affiche que `stats`.
+
+Chaque gabarit porte un nombre différent de métriques (`metricsCapForView`) : 3 sur une ligne,
+4 sur une pile de valeurs géantes. Changer de vue ramène la sélection sous le plafond, pour
+qu'une puce active corresponde toujours à une métrique réellement dessinée.
 
 ## Options d'export
 
 - **Format** : story 9:16 (1080×1920) ou carré 1:1 (1080×1080).
 - **Fond** : transparent (défaut), dégradé (lisibilité sur photo claire) ou sombre opaque.
 - **Couleur d'accent** : cyan (couleur de l'app), blanc, orange, violet, vert.
-- **Métriques** : 6 maximum, sélectionnables ; sélection par défaut = les 6 premières
-  disponibles, dans l'ordre distance → durée → dénivelé → allure/vitesse → FC → puissance →
-  charge → calories.
+- **Métriques** : sélectionnables dans la limite du gabarit (3 ou 4) ; sélection par défaut =
+  les premières disponibles, dans l'ordre distance → durée → dénivelé → allure/vitesse → FC →
+  puissance → charge → calories.
+- **Habillage** : la ligne « sport · date » et la signature se désactivent indépendamment,
+  pour un sticker entièrement nu si besoin.
 
 ## Lisibilité sur photo inconnue
 
 Le calque est posé sur une image quelconque : chaque texte porte une ombre portée, le tracé
 et le profil sont doublés d'un halo sombre sous le trait d'accent, et la taille des valeurs
 est réduite automatiquement (`measureText`) jusqu'à tenir dans sa colonne — une taille commune
-à toute la grille pour éviter un rendu bancal.
+à toute la pile pour éviter un rendu bancal.
 
 ## Partage
 
@@ -99,3 +119,5 @@ arrondit les coordonnées à 5 décimales (~1 m).
 - Coloration du tracé par métrique (FC / vitesse), déjà disponible sur la carte MapLibre.
 - Fond photo importé par l'utilisateur dans l'app (l'éditeur de story fait déjà mieux).
 - Bouton de partage depuis la liste `/history` (la fiche activité est le point d'entrée).
+- Icône de sport dessinée sur le sticker : nécessiterait des tracés `Path2D` embarqués ; la
+  ligne « sport · date » joue ce rôle et reste désactivable.

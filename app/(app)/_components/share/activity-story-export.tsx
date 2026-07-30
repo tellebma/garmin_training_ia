@@ -8,7 +8,7 @@ import { availableStoryViews, renderActivityStory } from '@/lib/share/render-act
 import {
   buildStoryMetrics,
   defaultMetricKeys,
-  MAX_STORY_METRICS,
+  metricsCapForView,
   STORY_ACCENTS,
   STORY_BACKGROUND_LABELS,
   STORY_FORMAT_LABELS,
@@ -110,21 +110,36 @@ export function ActivityStoryExport({
   const views = useMemo(() => availableStoryViews(route, elevation), [route, elevation])
   const allMetrics = useMemo(() => buildStoryMetrics(activity, sport), [activity, sport])
 
-  const [view, setView] = useState<StoryView>(views[0] ?? 'stats')
+  const initialView: StoryView = views[0] ?? 'stats'
+  const [view, setView] = useState<StoryView>(initialView)
   const [format, setFormat] = useState<StoryFormat>('story')
   const [background, setBackground] = useState<StoryBackground>('transparent')
   const [accent, setAccent] = useState<string>(STORY_ACCENTS[0]?.color ?? '#22d3ee')
-  const [metricKeys, setMetricKeys] = useState<string[]>(() => defaultMetricKeys(allMetrics))
+  const [metricKeys, setMetricKeys] = useState<string[]>(() =>
+    defaultMetricKeys(allMetrics, metricsCapForView(initialView))
+  )
+  const [showTitle, setShowTitle] = useState(true)
+  const [showBrand, setShowBrand] = useState(true)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
 
   // Capacité navigateur (Web Share niveau 2) : lue après hydratation, `false` côté serveur.
   const shareable = useSyncExternalStore(subscribeNever, canSharePng, serverFalse)
 
+  const metricsCap = metricsCapForView(view)
   const metrics = useMemo(
     () => allMetrics.filter((metric) => metricKeys.includes(metric.key)),
     [allMetrics, metricKeys]
   )
+
+  // Chaque gabarit porte un nombre différent de métriques : on ramène la sélection
+  // sous le plafond au changement de vue, pour qu'une puce active soit toujours
+  // une puce réellement dessinée.
+  const selectView = useCallback((next: StoryView) => {
+    setView(next)
+    const cap = metricsCapForView(next)
+    setMetricKeys((current) => (current.length > cap ? current.slice(0, cap) : current))
+  }, [])
 
   const subtitle = useMemo(
     () =>
@@ -156,16 +171,33 @@ export function ActivityStoryExport({
       route,
       elevation,
       brand: BRAND,
+      showTitle,
+      showBrand,
     })
-  }, [view, format, background, accent, sportLabel, subtitle, metrics, route, elevation])
+  }, [
+    view,
+    format,
+    background,
+    accent,
+    sportLabel,
+    subtitle,
+    metrics,
+    route,
+    elevation,
+    showTitle,
+    showBrand,
+  ])
 
-  const toggleMetric = useCallback((key: string) => {
-    setMetricKeys((current) => {
-      if (current.includes(key)) return current.filter((item) => item !== key)
-      if (current.length >= MAX_STORY_METRICS) return current
-      return [...current, key]
-    })
-  }, [])
+  const toggleMetric = useCallback(
+    (key: string) => {
+      setMetricKeys((current) => {
+        if (current.includes(key)) return current.filter((item) => item !== key)
+        if (current.length >= metricsCap) return current
+        return [...current, key]
+      })
+    },
+    [metricsCap]
+  )
 
   const exportBlob = useCallback(async () => {
     const canvas = canvasRef.current
@@ -218,8 +250,8 @@ export function ActivityStoryExport({
       <header className="mb-4">
         <h2 className="text-foreground text-base font-semibold">Partager en story</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Un calque PNG (fond transparent) avec ta trace et tes métriques, à superposer sur ta photo
-          dans Instagram, WhatsApp ou Strava.
+          Un sticker PNG à fond transparent avec ta trace et tes métriques, à superposer sur ta
+          photo dans Instagram, WhatsApp ou Snapchat.
         </p>
       </header>
 
@@ -244,7 +276,7 @@ export function ActivityStoryExport({
                 key={item}
                 active={item === view}
                 onClick={() => {
-                  setView(item)
+                  selectView(item)
                 }}
               >
                 {STORY_VIEW_LABELS[item]}
@@ -295,8 +327,8 @@ export function ActivityStoryExport({
             ))}
           </OptionRow>
 
-          {view !== 'minimal' && allMetrics.length > 0 && (
-            <OptionRow label={`Métriques (${String(metrics.length)}/${String(MAX_STORY_METRICS)})`}>
+          {metricsCap > 0 && allMetrics.length > 0 && (
+            <OptionRow label={`Métriques (${String(metrics.length)}/${String(metricsCap)})`}>
               {allMetrics.map((metric) => (
                 <OptionChip
                   key={metric.key}
@@ -308,6 +340,27 @@ export function ActivityStoryExport({
                   {metric.label}
                 </OptionChip>
               ))}
+            </OptionRow>
+          )}
+
+          {view !== 'minimal' && (
+            <OptionRow label="Habillage">
+              <OptionChip
+                active={showTitle}
+                onClick={() => {
+                  setShowTitle((current) => !current)
+                }}
+              >
+                Sport et date
+              </OptionChip>
+              <OptionChip
+                active={showBrand}
+                onClick={() => {
+                  setShowBrand((current) => !current)
+                }}
+              >
+                Signature
+              </OptionChip>
             </OptionRow>
           )}
 

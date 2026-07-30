@@ -78,7 +78,13 @@ describe('ActivityStoryExport', () => {
   it('propose les gabarits disponibles et rend un aperçu', async () => {
     setup()
     expect(screen.getByRole('heading', { name: 'Partager en story' })).toBeTruthy()
-    for (const label of ['Tracé + métriques', 'Profil + métriques', 'Métriques seules']) {
+    for (const label of [
+      'Tracé + métriques',
+      'Métriques + tracé',
+      'Profil + métriques',
+      'Métriques seules',
+      'Tracé seul',
+    ]) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
     await waitFor(() => {
@@ -110,12 +116,12 @@ describe('ActivityStoryExport', () => {
     })
   })
 
-  it('sélectionne au plus six métriques', async () => {
+  it('plafonne la sélection au nombre de métriques que le gabarit peut porter', async () => {
     const user = userEvent.setup()
     setup()
+    // Vue « Tracé + métriques » : une ligne de 3 métriques, déjà pleine.
+    expect(screen.getByText('Métriques (3/3)')).toBeTruthy()
     const calories = screen.getByRole('button', { name: 'Calories' })
-    expect(calories.getAttribute('aria-pressed')).toBe('false')
-    // La sélection est pleine : le clic ne doit rien ajouter.
     await user.click(calories)
     expect(calories.getAttribute('aria-pressed')).toBe('false')
 
@@ -126,11 +132,42 @@ describe('ActivityStoryExport', () => {
     expect(calories.getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('masque la sélection de métriques en vue « Tracé seul »', async () => {
+  it('élargit le plafond en vue « Métriques + tracé » puis re-coupe au retour', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Métriques + tracé' }))
+    expect(screen.getByText('Métriques (3/4)')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Calories' }))
+    expect(screen.getByText('Métriques (4/4)')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Tracé + métriques' }))
+    expect(screen.getByText('Métriques (3/3)')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Calories' }).getAttribute('aria-pressed')).toBe(
+      'false'
+    )
+  })
+
+  it('bascule le titre et la signature', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Sport et date' }))
+    await user.click(screen.getByRole('button', { name: 'Signature' }))
+    await waitFor(() => {
+      const spec = renderActivityStory.mock.calls.at(-1)?.[1] as {
+        showTitle: boolean
+        showBrand: boolean
+      }
+      expect(spec.showTitle).toBe(false)
+      expect(spec.showBrand).toBe(false)
+    })
+  })
+
+  it('masque métriques et habillage en vue « Tracé seul »', async () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByRole('button', { name: 'Tracé seul' }))
     expect(screen.queryByRole('button', { name: 'Distance' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Signature' })).toBeNull()
   })
 
   it('télécharge le PNG', async () => {

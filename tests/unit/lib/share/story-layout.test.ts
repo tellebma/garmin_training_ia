@@ -5,7 +5,8 @@ import {
   compactSamplesForStory,
   computeStoryLayout,
   defaultMetricKeys,
-  MAX_STORY_METRICS,
+  findStoryBlock,
+  metricsCapForView,
   projectRoute,
   STORY_SIZES,
   storyFileName,
@@ -83,10 +84,14 @@ describe('buildStoryMetrics', () => {
 })
 
 describe('defaultMetricKeys', () => {
-  it('retient au plus MAX_STORY_METRICS clés', () => {
-    const keys = defaultMetricKeys(buildStoryMetrics(BIKE, 'bike'))
-    expect(keys).toHaveLength(MAX_STORY_METRICS)
-    expect(keys[0]).toBe('distance')
+  it('retient au plus le plafond du gabarit, dans l’ordre d’importance', () => {
+    const metrics = buildStoryMetrics(BIKE, 'bike')
+    expect(defaultMetricKeys(metrics, 3)).toEqual(['distance', 'duration', 'elevation'])
+    expect(defaultMetricKeys(metrics, 4)).toEqual(['distance', 'duration', 'elevation', 'pace'])
+  })
+
+  it('ne renvoie rien quand le gabarit n’affiche aucune métrique', () => {
+    expect(defaultMetricKeys(buildStoryMetrics(BIKE, 'bike'), 0)).toEqual([])
   })
 })
 
@@ -109,67 +114,107 @@ describe('storyFileName', () => {
 })
 
 describe('computeStoryLayout', () => {
-  it('réserve tout le cadre au visuel en vue minimal', () => {
+  const kinds = (view: Parameters<typeof computeStoryLayout>[0], count = 3) =>
+    computeStoryLayout(view, 'story', count).blocks.map((block) => block.kind)
+
+  it('réserve tout le cadre au tracé en vue minimal', () => {
     const layout = computeStoryLayout('minimal', 'story', 6)
-    expect(layout.header).toBeNull()
-    expect(layout.metrics).toBeNull()
-    expect(layout.brand).toBeNull()
-    expect(layout.visual).not.toBeNull()
-    expect(layout.visual?.height).toBeGreaterThan(1000)
+    expect(layout.blocks.map((b) => b.kind)).toEqual(['route'])
+    expect(findStoryBlock(layout, 'route')?.height).toBeGreaterThan(1000)
+    expect(layout.scale).toBe(1)
   })
 
-  it('supprime le visuel en vue stats et centre la grille', () => {
-    const layout = computeStoryLayout('stats', 'story', 6)
-    expect(layout.visual).toBeNull()
-    expect(layout.metrics).not.toBeNull()
-    expect(layout.large).toBe(true)
-    expect(layout.metrics?.y).toBeGreaterThan(
-      (layout.header?.y ?? 0) + (layout.header?.height ?? 0)
-    )
+  it('empile tracé puis ligne de métriques en vue trace', () => {
+    expect(kinds('trace')).toEqual(['title', 'route', 'metricsRow', 'brand'])
   })
 
-  it('garde un visuel exploitable au format carré', () => {
-    const layout = computeStoryLayout('trace', 'square', 6)
-    expect(layout.visual?.height).toBeGreaterThan(200)
-    expect(layout.columns).toBe(3)
+  it('empile métriques puis tracé en vue stats-trace', () => {
+    expect(kinds('stats-trace')).toEqual(['title', 'metricsStack', 'route', 'brand'])
   })
 
-  it('choisit un nombre de colonnes qui remplit la dernière ligne', () => {
-    expect(computeStoryLayout('trace', 'square', 4).columns).toBe(2)
-    expect(computeStoryLayout('trace', 'square', 5).columns).toBe(3)
-    expect(computeStoryLayout('trace', 'story', 6).columns).toBe(2)
-    expect(computeStoryLayout('trace', 'story', 1).columns).toBe(1)
+  it('utilise le profil comme visuel en vue profil', () => {
+    expect(kinds('profil')).toEqual(['title', 'elevation', 'metricsRow', 'brand'])
   })
 
-  it('n’émet pas de grille quand il n’y a aucune métrique', () => {
-    const layout = computeStoryLayout('trace', 'story', 0)
-    expect(layout.metrics).toBeNull()
-    expect(layout.visual).not.toBeNull()
+  it('n’a aucun visuel en vue stats', () => {
+    expect(kinds('stats')).toEqual(['title', 'metricsStack', 'brand'])
   })
 
-  it('n’émet pas de grille en vue stats sans métrique', () => {
-    const layout = computeStoryLayout('stats', 'story', 0)
-    expect(layout.metrics).toBeNull()
-    expect(layout.visual).toBeNull()
-    expect(layout.brand).not.toBeNull()
+  it('retire titre et signature à la demande', () => {
+    const layout = computeStoryLayout('trace', 'story', 3, { showTitle: false, showBrand: false })
+    expect(layout.blocks.map((b) => b.kind)).toEqual(['route', 'metricsRow'])
   })
 
-  it('garde tous les blocs dans la zone sûre du canvas', () => {
-    const layout = computeStoryLayout('trace', 'story', 6)
-    const size = STORY_SIZES.story
-    for (const box of [layout.header, layout.visual, layout.metrics, layout.brand]) {
-      expect(box).not.toBeNull()
-      if (!box) continue
-      expect(box.x).toBeGreaterThanOrEqual(0)
-      expect(box.y).toBeGreaterThanOrEqual(0)
-      expect(box.x + box.width).toBeLessThanOrEqual(size.width)
-      expect(box.y + box.height).toBeLessThanOrEqual(size.height)
+  it('retire le bloc de métriques quand il n’y en a aucune', () => {
+    expect(kinds('trace', 0)).toEqual(['title', 'route', 'brand'])
+    expect(kinds('stats', 0)).toEqual(['title', 'brand'])
+  })
+
+  it('centre la pile verticalement dans la zone sûre', () => {
+    const layout = computeStoryLayout('trace', 'story', 3)
+    const first = layout.blocks[0]
+    const last = layout.blocks.at(-1)
+    expect(first).toBeDefined()
+    expect(last).toBeDefined()
+    if (!first || !last) return
+    const marginTop = first.box.y - 260
+    const marginBottom = STORY_SIZES.story.height - 300 - (last.box.y + last.box.height)
+    expect(marginTop).toBeGreaterThan(0)
+    expect(Math.abs(marginTop - marginBottom)).toBeLessThan(1)
+  })
+
+  it('empile les blocs sans chevauchement, dans la zone sûre', () => {
+    const layout = computeStoryLayout('stats-trace', 'story', 4)
+    let previousBottom = 260
+    for (const { box } of layout.blocks) {
+      expect(box.y).toBeGreaterThanOrEqual(previousBottom)
+      expect(box.x).toBe(88)
+      expect(box.width).toBe(STORY_SIZES.story.width - 176)
+      previousBottom = box.y + box.height
     }
+    expect(previousBottom).toBeLessThanOrEqual(STORY_SIZES.story.height - 300 + 0.001)
   })
 
-  it('supprime le visuel quand les métriques ne laissent pas la place', () => {
-    // 12 métriques au format carré : la grille mange tout l'espace disponible.
-    expect(computeStoryLayout('trace', 'square', 12).visual).toBeNull()
+  it('réduit toute la pile quand elle déborde (format carré)', () => {
+    const layout = computeStoryLayout('trace', 'square', 3)
+    expect(layout.scale).toBeLessThan(1)
+    const last = layout.blocks.at(-1)
+    expect(last).toBeDefined()
+    if (!last) return
+    expect(last.box.y + last.box.height).toBeLessThanOrEqual(STORY_SIZES.square.height - 88)
+  })
+
+  it('ne réduit pas une pile qui tient déjà', () => {
+    expect(computeStoryLayout('trace', 'story', 3).scale).toBe(1)
+  })
+
+  it('renvoie une pile vide quand tout est masqué en vue stats sans métrique', () => {
+    const layout = computeStoryLayout('stats', 'story', 0, { showTitle: false, showBrand: false })
+    expect(layout.blocks).toEqual([])
+    expect(layout.scale).toBe(1)
+  })
+})
+
+describe('metricsCapForView', () => {
+  it('limite la ligne à 3 métriques et la pile à 4', () => {
+    expect(metricsCapForView('trace')).toBe(3)
+    expect(metricsCapForView('profil')).toBe(3)
+    expect(metricsCapForView('stats')).toBe(4)
+    expect(metricsCapForView('stats-trace')).toBe(4)
+    expect(metricsCapForView('minimal')).toBe(0)
+  })
+
+  it('n’affiche jamais plus de métriques que le plafond du gabarit', () => {
+    const layout = computeStoryLayout('trace', 'story', 9)
+    const row = findStoryBlock(layout, 'metricsRow')
+    const forThree = findStoryBlock(computeStoryLayout('trace', 'story', 3), 'metricsRow')
+    expect(row?.height).toBe(forThree?.height)
+  })
+})
+
+describe('findStoryBlock', () => {
+  it('renvoie null pour un bloc absent', () => {
+    expect(findStoryBlock(computeStoryLayout('stats', 'story', 3), 'route')).toBeNull()
   })
 })
 

@@ -3,10 +3,11 @@
 ## 1.15.0 — 2026-07-30
 
 - Partage tes sorties en story : sur la fiche d'une activité, la section « Partager en story »
-  génère un calque PNG à fond transparent avec ta trace et tes métriques, à poser sur ta photo
-  dans Instagram, WhatsApp ou Strava.
-- Quatre rendus au choix (tracé + métriques, profil de dénivelé, métriques seules, tracé seul),
-  en format story 9:16 ou carré, avec la couleur et les métriques que tu veux mettre en avant.
+  génère un sticker PNG à fond transparent avec ta trace et tes métriques, à poser sur ta photo
+  dans Instagram, WhatsApp ou Snapchat.
+- Cinq rendus au choix (tracé + métriques, métriques + tracé, profil de dénivelé, métriques
+  seules, tracé seul), en format story 9:16 ou carré, avec la couleur et les métriques que tu
+  veux mettre en avant — et la possibilité de retirer le titre et la signature.
 - Sur mobile, le bouton « Partager » ouvre directement le partage de ton téléphone ; sur
   ordinateur, le PNG se télécharge.
 

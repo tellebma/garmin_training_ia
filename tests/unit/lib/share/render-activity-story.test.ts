@@ -119,7 +119,7 @@ describe('fitFontSize', () => {
 
   it('ne descend pas sous la taille plancher', () => {
     const { ctx } = fakeContext(1000)
-    expect(fitFontSize(ctx, 'texte impossible', '700', 92, 10)).toBe(26)
+    expect(fitFontSize(ctx, 'texte impossible', '700', 92, 10)).toBe(22)
   })
 
   it('renvoie la taille demandée sans measureText exploitable', () => {
@@ -133,10 +133,9 @@ describe('renderActivityStory', () => {
     const fake = fakeContext(2)
     renderActivityStory(fake.ctx, SPEC)
     const texts = fake.texts()
-    expect(texts).toContain('Vélo')
-    expect(texts).toContain('MARDI 28 JUILLET 2026')
+    expect(texts).toContain('VÉLO · MARDI 28 JUILLET 2026')
     expect(texts).toContain('42 km')
-    expect(texts).toContain('DISTANCE')
+    expect(texts).toContain('Distance')
     expect(texts).toContain('Garmin Training Coach')
     expect(fake.calls.some((c) => c.op === 'lineTo')).toBe(true)
   })
@@ -186,11 +185,39 @@ describe('renderActivityStory', () => {
     expect(fake.calls.some((c) => c.op === 'lineTo')).toBe(false)
   })
 
+  it('dessine les métriques puis le tracé en vue stats-trace', () => {
+    const fake = fakeContext(2)
+    renderActivityStory(fake.ctx, { ...SPEC, view: 'stats-trace' })
+    expect(fake.texts()).toContain('42 km')
+    expect(fake.calls.some((c) => c.op === 'lineTo')).toBe(true)
+  })
+
+  it('retire titre et signature à la demande', () => {
+    const fake = fakeContext(2)
+    renderActivityStory(fake.ctx, { ...SPEC, showTitle: false, showBrand: false })
+    const texts = fake.texts()
+    expect(texts).not.toContain('VÉLO · MARDI 28 JUILLET 2026')
+    expect(texts).not.toContain('Garmin Training Coach')
+    expect(texts).toContain('42 km')
+  })
+
+  it('n’affiche que les métriques que le gabarit peut porter', () => {
+    const fake = fakeContext(2)
+    const many = [
+      ...SPEC.metrics,
+      { key: 'elevation', label: 'Dénivelé', value: '780 m' },
+      { key: 'hr_avg', label: 'FC moyenne', value: '148 bpm' },
+    ]
+    renderActivityStory(fake.ctx, { ...SPEC, metrics: many })
+    expect(fake.texts()).toContain('780 m')
+    expect(fake.texts()).not.toContain('148 bpm')
+  })
+
   it('reste silencieux quand le tracé est inexploitable', () => {
     const fake = fakeContext(2)
     renderActivityStory(fake.ctx, { ...SPEC, route: [] })
     expect(fake.calls.some((c) => c.op === 'lineTo')).toBe(false)
-    expect(fake.texts()).toContain('Vélo')
+    expect(fake.texts()).toContain('VÉLO · MARDI 28 JUILLET 2026')
   })
 
   it('reste silencieux quand le profil est inexploitable', () => {
@@ -202,7 +229,7 @@ describe('renderActivityStory', () => {
   it('rend une story sans métrique', () => {
     const fake = fakeContext(2)
     renderActivityStory(fake.ctx, { ...SPEC, metrics: [] })
-    expect(fake.texts()).toContain('Vélo')
+    expect(fake.texts()).toContain('VÉLO · MARDI 28 JUILLET 2026')
   })
 
   it('rend le format carré', () => {
@@ -215,8 +242,14 @@ describe('renderActivityStory', () => {
 })
 
 describe('availableStoryViews', () => {
-  it('propose tracé, profil, stats et minimal quand tout est disponible', () => {
-    expect(availableStoryViews(ROUTE, ELEVATION)).toEqual(['trace', 'profil', 'stats', 'minimal'])
+  it('propose tous les gabarits quand tout est disponible', () => {
+    expect(availableStoryViews(ROUTE, ELEVATION)).toEqual([
+      'trace',
+      'stats-trace',
+      'profil',
+      'stats',
+      'minimal',
+    ])
   })
 
   it('ne propose que les stats sans GPS ni altitude', () => {

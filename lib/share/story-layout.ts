@@ -11,12 +11,13 @@ export type StoryFormat = 'story' | 'square'
 
 /**
  * Gabarit du calque :
- * - `trace`   : tracé GPS + bandeau de métriques
- * - `profil`  : profil altimétrique + bandeau de métriques
- * - `stats`   : métriques seules en gros (activités sans GPS : home-trainer, piscine…)
- * - `minimal` : tracé seul, sans texte (calque à superposer librement)
+ * - `trace`       : grand tracé GPS puis une ligne de métriques
+ * - `stats-trace` : métriques empilées en très gros puis un tracé plus petit
+ * - `profil`      : profil altimétrique puis une ligne de métriques
+ * - `stats`       : métriques seules (activités sans GPS : home-trainer, piscine…)
+ * - `minimal`     : tracé seul, sans texte (calque à superposer librement)
  */
-export type StoryView = 'trace' | 'profil' | 'stats' | 'minimal'
+export type StoryView = 'trace' | 'stats-trace' | 'profil' | 'stats' | 'minimal'
 
 /** Fond du PNG : transparent (vrai calque), sombre opaque, ou dégradé bas de vignette. */
 export type StoryBackground = 'transparent' | 'dark' | 'gradient'
@@ -70,6 +71,7 @@ export const STORY_SIZES: Record<StoryFormat, StorySize> = {
 
 export const STORY_VIEW_LABELS: Record<StoryView, string> = {
   trace: 'Tracé + métriques',
+  'stats-trace': 'Métriques + tracé',
   profil: 'Profil + métriques',
   stats: 'Métriques seules',
   minimal: 'Tracé seul',
@@ -98,52 +100,14 @@ export const STORY_ACCENTS: readonly {
   { key: 'lime', label: 'Vert', color: '#a3e635' },
 ]
 
-/** Nombre maximum de métriques affichées sur un calque (grille 2 colonnes). */
-export const MAX_STORY_METRICS = 6
-
 /** Points max envoyés au canvas : au-delà le rendu ne gagne plus rien en netteté. */
 const MAX_RENDERED_POINTS = 900
 
-interface FormatStyle {
-  /** Zone sûre : la UI Instagram (avatar en haut, barre de réponse en bas) mange les bords. */
-  readonly top: number
-  readonly bottom: number
-  readonly side: number
-  readonly headerHeight: number
-  readonly brandHeight: number
-  readonly gap: number
-  readonly rowHeight: number
-  readonly rowHeightLarge: number
-  readonly maxColumns: number
+// Zone sûre : la UI Instagram (avatar en haut, barre de réponse en bas) mange les bords.
+const SAFE_INSETS: Record<StoryFormat, { top: number; bottom: number; side: number }> = {
+  story: { top: 260, bottom: 300, side: 88 },
+  square: { top: 80, bottom: 88, side: 72 },
 }
-
-const FORMAT_STYLES: Record<StoryFormat, FormatStyle> = {
-  story: {
-    top: 260,
-    bottom: 300,
-    side: 88,
-    headerHeight: 150,
-    brandHeight: 56,
-    gap: 56,
-    rowHeight: 156,
-    rowHeightLarge: 214,
-    maxColumns: 2,
-  },
-  square: {
-    top: 80,
-    bottom: 88,
-    side: 72,
-    headerHeight: 124,
-    brandHeight: 50,
-    gap: 36,
-    rowHeight: 146,
-    rowHeightLarge: 168,
-    maxColumns: 3,
-  },
-}
-
-/** Hauteur minimale sous laquelle un visuel (tracé, profil) n'est plus lisible. */
-const MIN_VISUAL_HEIGHT = 200
 
 function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -210,10 +174,12 @@ export function buildStoryMetrics(activity: StoryActivity, sport: Sport): StoryM
   return candidates.filter((metric): metric is StoryMetric => metric !== null)
 }
 
-/** Sélection par défaut : les `MAX_STORY_METRICS` premières métriques disponibles. */
-export function defaultMetricKeys(metrics: StoryMetric[]): string[] {
-  return metrics.slice(0, MAX_STORY_METRICS).map((metric) => metric.key)
+/** Sélection par défaut : les premières métriques disponibles, dans la limite du gabarit. */
+export function defaultMetricKeys(metrics: StoryMetric[], cap: number): string[] {
+  return metrics.slice(0, cap).map((metric) => metric.key)
 }
+
+/** Nom de fichier : le gabarit sert de suffixe, déjà en kebab-case. */
 
 /** Nom de fichier stable et lisible pour le PNG exporté. */
 export function storyFileName(activity: StoryActivity, view: StoryView): string {
@@ -223,103 +189,135 @@ export function storyFileName(activity: StoryActivity, view: StoryView): string 
   return `garmin-coach-${day}-${sport}-${view}.png`
 }
 
+/** Élément empilé dans le sticker, du haut vers le bas. */
+export type StoryBlockKind =
+  | 'title'
+  | 'route'
+  | 'elevation'
+  | 'metricsRow'
+  | 'metricsStack'
+  | 'brand'
+
+export interface StoryBlock {
+  readonly kind: StoryBlockKind
+  readonly box: Box
+}
+
 export interface StoryLayout {
   readonly size: StorySize
-  readonly header: Box | null
-  readonly visual: Box | null
-  readonly metrics: Box | null
-  readonly brand: Box | null
-  readonly columns: number
-  readonly large: boolean
+  /** Facteur appliqué aux hauteurs ET aux tailles de police quand la pile déborde. */
+  readonly scale: number
+  readonly blocks: readonly StoryBlock[]
 }
 
-function metricRows(count: number, columns: number): number {
-  return count === 0 ? 0 : Math.ceil(count / columns)
+export function findStoryBlock(layout: StoryLayout, kind: StoryBlockKind): Box | null {
+  return layout.blocks.find((block) => block.kind === kind)?.box ?? null
 }
 
 /**
- * Colonnes de la grille : la plus large division exacte du nombre de métriques,
- * pour éviter une dernière ligne dépareillée (4 métriques → 2×2, pas 3+1).
+ * Métriques affichables selon le gabarit : une ligne n'en tient que 3 côte à côte,
+ * une pile de valeurs géantes en supporte 4 avant de déborder.
  */
-function metricColumns(count: number, maxColumns: number): number {
-  if (count <= 1) return 1
-  if (count <= maxColumns) return count
-  for (let columns = maxColumns; columns >= 2; columns--) {
-    if (count % columns === 0) return columns
+export function metricsCapForView(view: StoryView): number {
+  if (view === 'minimal') return 0
+  return view === 'stats' || view === 'stats-trace' ? 4 : 3
+}
+
+// Hauteurs de référence, en pixels d'un calque 1080 de large. La pile est ensuite
+// réduite d'un facteur unique si elle ne rentre pas (format carré, 4 métriques…).
+const BLOCK_GAP = 72
+const TITLE_HEIGHT = 48
+const BRAND_HEIGHT = 44
+const ROUTE_HEIGHT_LARGE = 780
+const ROUTE_HEIGHT_SMALL = 340
+const ELEVATION_HEIGHT_LARGE = 440
+const METRICS_ROW_HEIGHT = 150
+const METRIC_LINE_HEIGHT = 142
+const METRIC_LINE_GAP = 52
+
+function metricsStackHeight(count: number): number {
+  return count * METRIC_LINE_HEIGHT + (count - 1) * METRIC_LINE_GAP
+}
+
+interface StackItem {
+  readonly kind: StoryBlockKind
+  readonly height: number
+}
+
+function stackItems(view: StoryView, metricCount: number): StackItem[] {
+  if (view === 'stats-trace') {
+    return [
+      { kind: 'metricsStack', height: metricsStackHeight(metricCount) },
+      { kind: 'route', height: ROUTE_HEIGHT_SMALL },
+    ]
   }
-  return maxColumns
+  if (view === 'stats') {
+    return [{ kind: 'metricsStack', height: metricsStackHeight(metricCount) }]
+  }
+  const visual: StackItem =
+    view === 'profil'
+      ? { kind: 'elevation', height: ELEVATION_HEIGHT_LARGE }
+      : { kind: 'route', height: ROUTE_HEIGHT_LARGE }
+  return [visual, { kind: 'metricsRow', height: METRICS_ROW_HEIGHT }]
+}
+
+interface StoryLayoutOptions {
+  readonly showTitle?: boolean
+  readonly showBrand?: boolean
 }
 
 /**
- * Découpe verticale du calque : en-tête, visuel (tracé ou profil), grille de
- * métriques, signature. Le visuel absorbe tout l'espace restant.
+ * Compose le sticker : une pile de blocs centrée horizontalement et verticalement
+ * dans la zone sûre, à la manière des calques de partage d'activité.
+ *
+ * Le contenu ne remplit volontairement pas toute la hauteur — un sticker compact se
+ * déplace et se redimensionne bien dans l'éditeur de story.
  */
 export function computeStoryLayout(
   view: StoryView,
   format: StoryFormat,
-  metricCount: number
+  metricCount: number,
+  options: StoryLayoutOptions = {}
 ): StoryLayout {
   const size = STORY_SIZES[format]
-  const style = FORMAT_STYLES[format]
-  const left = style.side
-  const width = size.width - style.side * 2
-  const top = style.top
-  const bottom = size.height - style.bottom
+  const insets = SAFE_INSETS[format]
+  const left = insets.side
+  const width = size.width - insets.side * 2
+  const top = insets.top
+  const available = size.height - insets.bottom - top
 
   if (view === 'minimal') {
     return {
       size,
-      header: null,
-      visual: { x: left, y: top, width, height: bottom - top },
-      metrics: null,
-      brand: null,
-      columns: 0,
-      large: false,
+      scale: 1,
+      blocks: [{ kind: 'route', box: { x: left, y: top, width, height: available } }],
     }
   }
 
-  const large = view === 'stats'
-  // En vue « métriques seules » les valeurs sont énormes : au-delà de 2 colonnes
-  // l'ajustement automatique les rapetisserait plus que les libellés.
-  const columns = metricColumns(
-    metricCount,
-    large ? Math.min(2, style.maxColumns) : style.maxColumns
-  )
-  const rows = metricRows(metricCount, columns)
-  const rowHeight = large ? style.rowHeightLarge : style.rowHeight
-  const metricsHeight = rows * rowHeight
+  const shownMetrics = Math.min(metricCount, metricsCapForView(view))
+  const items: StackItem[] = [
+    ...(options.showTitle === false ? [] : [{ kind: 'title' as const, height: TITLE_HEIGHT }]),
+    ...stackItems(view, shownMetrics).filter(
+      (item) => shownMetrics > 0 || (item.kind !== 'metricsRow' && item.kind !== 'metricsStack')
+    ),
+    ...(options.showBrand === false ? [] : [{ kind: 'brand' as const, height: BRAND_HEIGHT }]),
+  ]
+  if (items.length === 0) return { size, scale: 1, blocks: [] }
 
-  const brand: Box = { x: left, y: bottom - style.brandHeight, width, height: style.brandHeight }
-  const header: Box = { x: left, y: top, width, height: style.headerHeight }
+  const naturalHeight =
+    items.reduce((total, item) => total + item.height, 0) + BLOCK_GAP * (items.length - 1)
+  const scale = Math.min(1, available / naturalHeight)
+  const gap = BLOCK_GAP * scale
 
-  const metricsBottom = brand.y - style.gap
-  const metrics: Box | null =
-    rows === 0 ? null : { x: left, y: metricsBottom - metricsHeight, width, height: metricsHeight }
-
-  if (large) {
-    // Pas de visuel : la grille est centrée entre l'en-tête et la signature.
-    if (!metrics) return { size, header, visual: null, metrics: null, brand, columns, large }
-    const availableTop = header.y + header.height + style.gap
-    const centered = availableTop + (metricsBottom - availableTop - metricsHeight) / 2
-    return {
-      size,
-      header,
-      visual: null,
-      metrics: { ...metrics, y: Math.max(availableTop, centered) },
-      brand,
-      columns,
-      large,
-    }
+  let y = top + (available - naturalHeight * scale) / 2
+  const blocks: StoryBlock[] = []
+  for (const item of items) {
+    const height = item.height * scale
+    blocks.push({ kind: item.kind, box: { x: left, y, width, height } })
+    y += height + gap
   }
 
-  const visualTop = header.y + header.height + style.gap
-  const visualBottom = (metrics?.y ?? metricsBottom) - style.gap
-  const visual: Box | null =
-    visualBottom - visualTop >= MIN_VISUAL_HEIGHT
-      ? { x: left, y: visualTop, width, height: visualBottom - visualTop }
-      : null
-
-  return { size, header, visual, metrics, brand, columns, large }
+  return { size, scale, blocks }
 }
 
 export interface ProjectedRoute {

@@ -772,12 +772,15 @@ de mise à jour ajouté à `CLAUDE.md`. Spec :
 
 **Priorité : P2 — Statut : V1 livrée**
 
-Sur `/history/[id]`, section « Partager en story » qui génère un **calque PNG** (fond
+Sur `/history/[id]`, section « Partager en story » qui génère un **sticker PNG** (fond
 transparent par défaut) avec la trace GPS et les métriques principales, à superposer sur sa
-photo dans Instagram / WhatsApp / Strava. Quatre gabarits (tracé + métriques, profil
-altimétrique + métriques, métriques seules, tracé seul), deux formats (story 9:16, carré 1:1),
-trois fonds (transparent / dégradé / sombre), cinq couleurs d'accent, jusqu'à 6 métriques
-sélectionnables. Export par téléchargement, ou feuille de partage native
+photo dans Instagram / WhatsApp / Snapchat. Style validé par l'owner sur référence des calques
+de partage Strava : composition **centrée et compacte**, sans marque tierce.
+
+Cinq gabarits (tracé + métriques, métriques + tracé, profil + métriques, métriques seules,
+tracé seul), deux formats (story 9:16, carré 1:1), trois fonds (transparent / dégradé /
+sombre), cinq couleurs d'accent, 3 à 4 métriques sélectionnables selon le gabarit, titre et
+signature désactivables. Export par téléchargement, ou feuille de partage native
 (`navigator.share({ files })`) quand le navigateur le supporte.
 
 Rendu 100 % Canvas côté client, sans nouvelle dépendance et sans fond de carte (les tuiles
@@ -785,8 +788,8 @@ externes « taint » le canvas et empêchent `toBlob()`). Spec :
 `docs/superpowers/specs/2026-07-30-e22-calques-png-partage-activite-design.md`.
 
 **Suite possible (Todo)** : coloration du tracé par métrique (FC / vitesse) comme sur la carte
-MapLibre ; bouton de partage direct depuis la liste `/history` ; comparaison « vs sortie
-similaire » sur le calque.
+MapLibre ; icône de sport dessinée sur le sticker (`Path2D`) ; bouton de partage direct depuis
+la liste `/history` ; comparaison « vs sortie similaire » sur le calque.
 
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 

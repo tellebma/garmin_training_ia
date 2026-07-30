@@ -1,6 +1,7 @@
 import {
   buildElevationProfile,
   computeStoryLayout,
+  metricsCapForView,
   projectRoute,
   STORY_SIZES,
   type Box,
@@ -9,6 +10,7 @@ import {
   type StoryBackground,
   type StoryFormat,
   type StoryElevationPoint,
+  type StoryLayout,
   type StoryMetric,
   type StoryPoint,
   type StoryView,
@@ -27,17 +29,22 @@ export interface StorySpec {
   readonly route: readonly StoryPoint[]
   readonly elevation: readonly StoryElevationPoint[]
   readonly brand: string
+  /** Ligne « sport · date » au-dessus du sticker (défaut : affichée). */
+  readonly showTitle?: boolean
+  /** Signature en bas du sticker (défaut : affichée). */
+  readonly showBrand?: boolean
 }
 
 const FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 const WHITE = '#ffffff'
-const MUTED = 'rgba(255,255,255,0.72)'
-const FAINT = 'rgba(255,255,255,0.7)'
-const DARK_HALO = 'rgba(2,6,23,0.6)'
+const MUTED = 'rgba(255,255,255,0.82)'
+const FAINT = 'rgba(255,255,255,0.62)'
+const DARK_HALO = 'rgba(2,6,23,0.55)'
 const DARK_BG = '#080d1a'
 
-const TEXT_SHADOW_BLUR = 24
+const TEXT_SHADOW_BLUR = 26
 const TEXT_SHADOW_OFFSET = 3
+const MIN_FONT_SIZE = 22
 
 function hexChannels(color: string): string[] | null {
   const long = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color)
@@ -55,19 +62,9 @@ export function withAlpha(color: string, alpha: number): string {
   return `rgba(${String(r)},${String(g)},${String(b)},${String(alpha)})`
 }
 
-interface TextOptions {
-  readonly font: string
-  readonly color: string
-  readonly align?: CanvasTextAlign
-  readonly baseline?: CanvasTextBaseline
-  readonly shadow?: boolean
-}
-
-const MIN_FONT_SIZE = 26
-
 /**
  * Réduit la taille de police jusqu'à ce que le texte tienne dans `maxWidth`.
- * Sans cela « 26.2 km/h » déborde sur la colonne voisine dans la vue « métriques seules ».
+ * Sans cela « 2:03 /100m » déborde de sa colonne dans la ligne de métriques.
  */
 export function fitFontSize(
   ctx: CanvasRenderingContext2D,
@@ -87,6 +84,11 @@ export function fitFontSize(
   return size
 }
 
+interface TextOptions {
+  readonly font: string
+  readonly color: string
+}
+
 function drawText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -97,14 +99,12 @@ function drawText(
   ctx.save()
   ctx.font = `${options.font} ${FONT_STACK}`
   ctx.fillStyle = options.color
-  ctx.textAlign = options.align ?? 'left'
-  ctx.textBaseline = options.baseline ?? 'top'
-  if (options.shadow !== false) {
-    // Le calque est posé sur une photo inconnue : l'ombre garantit la lisibilité.
-    ctx.shadowColor = 'rgba(0,0,0,0.55)'
-    ctx.shadowBlur = TEXT_SHADOW_BLUR
-    ctx.shadowOffsetY = TEXT_SHADOW_OFFSET
-  }
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  // Le calque est posé sur une photo inconnue : l'ombre garantit la lisibilité.
+  ctx.shadowColor = 'rgba(0,0,0,0.55)'
+  ctx.shadowBlur = TEXT_SHADOW_BLUR
+  ctx.shadowOffsetY = TEXT_SHADOW_OFFSET
   ctx.fillText(text, x, y)
   ctx.restore()
 }
@@ -128,60 +128,70 @@ function drawBackground(ctx: CanvasRenderingContext2D, spec: StorySpec): void {
   ctx.restore()
 }
 
-function drawHeader(ctx: CanvasRenderingContext2D, box: Box, spec: StorySpec): void {
-  ctx.save()
-  ctx.fillStyle = spec.accent
-  ctx.fillRect(box.x, box.y, 104, 10)
-  ctx.restore()
-
-  drawText(ctx, spec.subtitle.toUpperCase(), box.x, box.y + 34, {
-    font: '600 32px',
-    color: MUTED,
-  })
-  const titleSize = fitFontSize(ctx, spec.title, '700', 76, box.width)
-  drawText(ctx, spec.title, box.x, box.y + 80, {
-    font: `700 ${String(titleSize)}px`,
-    color: WHITE,
-  })
+function centerX(box: Box): number {
+  return box.x + box.width / 2
 }
 
-function drawBrand(ctx: CanvasRenderingContext2D, box: Box, spec: StorySpec): void {
-  ctx.save()
-  ctx.fillStyle = spec.accent
-  ctx.beginPath()
-  ctx.arc(box.x + 9, box.y + 22, 9, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.restore()
-  drawText(ctx, spec.brand, box.x + 34, box.y + 6, { font: '500 30px', color: FAINT })
+function drawTitle(ctx: CanvasRenderingContext2D, box: Box, spec: StorySpec, scale: number): void {
+  const text = `${spec.title} · ${spec.subtitle}`.toUpperCase()
+  const size = fitFontSize(ctx, text, '600', 36 * scale, box.width)
+  drawText(ctx, text, centerX(box), box.y, { font: `600 ${String(size)}px`, color: MUTED })
 }
 
-function drawMetricGrid(
+function drawBrand(ctx: CanvasRenderingContext2D, box: Box, spec: StorySpec, scale: number): void {
+  const size = fitFontSize(ctx, spec.brand, '500', 32 * scale, box.width)
+  drawText(ctx, spec.brand, centerX(box), box.y, { font: `500 ${String(size)}px`, color: FAINT })
+}
+
+/** Police commune à toutes les valeurs : des tailles différentes rendraient la pile bancale. */
+function commonValueSize(
+  ctx: CanvasRenderingContext2D,
+  metrics: readonly StoryMetric[],
+  base: number,
+  maxWidth: number
+): number {
+  return metrics.reduce(
+    (smallest, metric) => Math.min(smallest, fitFontSize(ctx, metric.value, '700', base, maxWidth)),
+    base
+  )
+}
+
+function drawMetricsRow(
   ctx: CanvasRenderingContext2D,
   box: Box,
-  columns: number,
-  large: boolean,
-  spec: StorySpec
+  metrics: readonly StoryMetric[],
+  scale: number
 ): void {
-  const cellWidth = box.width / columns
-  const rowHeight = box.height / Math.max(1, Math.ceil(spec.metrics.length / columns))
-  const gutter = large ? 72 : 44
-  const baseSize = large ? 92 : 64
-  // Une taille commune à toute la grille : des valeurs de tailles différentes
-  // côte à côte donneraient une grille bancale.
-  const size = spec.metrics.reduce(
-    (smallest, metric) =>
-      Math.min(smallest, fitFontSize(ctx, metric.value, '700', baseSize, cellWidth - gutter)),
-    baseSize
-  )
-  spec.metrics.forEach((metric, index) => {
-    const x = box.x + (index % columns) * cellWidth
-    const y = box.y + Math.floor(index / columns) * rowHeight
-    ctx.save()
-    ctx.fillStyle = spec.accent
-    ctx.fillRect(x, y, 44, 6)
-    ctx.restore()
-    drawText(ctx, metric.label.toUpperCase(), x, y + 24, { font: '600 28px', color: MUTED })
-    drawText(ctx, metric.value, x, y + 62, { font: `700 ${String(size)}px`, color: WHITE })
+  const cellWidth = box.width / metrics.length
+  const labelSize = 34 * scale
+  const valueSize = commonValueSize(ctx, metrics, 84 * scale, cellWidth - 40 * scale)
+  metrics.forEach((metric, index) => {
+    const x = box.x + cellWidth * (index + 0.5)
+    drawText(ctx, metric.label, x, box.y, { font: `600 ${String(labelSize)}px`, color: MUTED })
+    drawText(ctx, metric.value, x, box.y + labelSize + 18 * scale, {
+      font: `700 ${String(valueSize)}px`,
+      color: WHITE,
+    })
+  })
+}
+
+function drawMetricsStack(
+  ctx: CanvasRenderingContext2D,
+  box: Box,
+  metrics: readonly StoryMetric[],
+  scale: number
+): void {
+  const lineHeight = box.height / metrics.length
+  const labelSize = 36 * scale
+  const valueSize = commonValueSize(ctx, metrics, 96 * scale, box.width)
+  const x = centerX(box)
+  metrics.forEach((metric, index) => {
+    const y = box.y + lineHeight * index
+    drawText(ctx, metric.label, x, y, { font: `600 ${String(labelSize)}px`, color: MUTED })
+    drawText(ctx, metric.value, x, y + labelSize + 10 * scale, {
+      font: `700 ${String(valueSize)}px`,
+      color: WHITE,
+    })
   })
 }
 
@@ -193,51 +203,33 @@ function tracePath(ctx: CanvasRenderingContext2D, points: ProjectedRoute['points
   })
 }
 
-function drawMarker(
+/** Trait d'accent doublé d'un halo sombre : lisible aussi bien sur ciel que sur bitume. */
+function strokeWithHalo(
   ctx: CanvasRenderingContext2D,
-  point: readonly [number, number],
-  radius: number,
-  fill: string,
-  ring: string
+  points: ProjectedRoute['points'],
+  accent: string,
+  lineWidth: number
 ): void {
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(point[0], point[1], radius, 0, Math.PI * 2)
-  ctx.fillStyle = fill
-  ctx.fill()
-  ctx.lineWidth = 6
-  ctx.strokeStyle = ring
-  ctx.stroke()
-  ctx.restore()
-}
-
-function drawRoute(ctx: CanvasRenderingContext2D, route: ProjectedRoute, spec: StorySpec): void {
-  const { points } = route
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-  // Halo sombre sous le tracé : le calque reste lisible sur une photo claire.
   ctx.strokeStyle = DARK_HALO
-  ctx.lineWidth = 28
+  ctx.lineWidth = lineWidth * 2
   tracePath(ctx, points)
   ctx.stroke()
-  ctx.strokeStyle = spec.accent
-  ctx.lineWidth = 14
+  ctx.strokeStyle = accent
+  ctx.lineWidth = lineWidth
   tracePath(ctx, points)
   ctx.stroke()
   ctx.restore()
-
-  const start = points[0]
-  const end = points.at(-1)
-  if (start) drawMarker(ctx, start, 16, WHITE, DARK_HALO)
-  if (end) drawMarker(ctx, end, 18, spec.accent, WHITE)
 }
 
 function drawElevation(
   ctx: CanvasRenderingContext2D,
   profile: ElevationProfile,
   box: Box,
-  spec: StorySpec
+  spec: StorySpec,
+  scale: number
 ): void {
   const { points, baselineY } = profile
   const first = points[0]
@@ -246,8 +238,8 @@ function drawElevation(
 
   ctx.save()
   const gradient = ctx.createLinearGradient(0, box.y, 0, baselineY)
-  gradient.addColorStop(0, withAlpha(spec.accent, 0.65))
-  gradient.addColorStop(1, withAlpha(spec.accent, 0.05))
+  gradient.addColorStop(0, withAlpha(spec.accent, 0.6))
+  gradient.addColorStop(1, withAlpha(spec.accent, 0.04))
   ctx.beginPath()
   ctx.moveTo(first[0], baselineY)
   for (const [x, y] of points) ctx.lineTo(x, y)
@@ -257,36 +249,43 @@ function drawElevation(
   ctx.fill()
   ctx.restore()
 
-  ctx.save()
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  ctx.strokeStyle = DARK_HALO
-  ctx.lineWidth = 18
-  tracePath(ctx, points)
-  ctx.stroke()
-  ctx.strokeStyle = spec.accent
-  ctx.lineWidth = 9
-  tracePath(ctx, points)
-  ctx.stroke()
-  ctx.restore()
+  strokeWithHalo(ctx, points, spec.accent, 10 * scale)
 
   drawText(
     ctx,
     `${String(Math.round(profile.maxElevation))} m`,
     profile.peak[0],
-    profile.peak[1] - 44,
-    { font: '600 30px', color: WHITE, align: 'center' }
+    profile.peak[1] - 52 * scale,
+    { font: `600 ${String(32 * scale)}px`, color: WHITE }
   )
 }
 
-function drawVisual(ctx: CanvasRenderingContext2D, box: Box, spec: StorySpec): void {
-  if (spec.view === 'profil') {
+function drawBlock(
+  ctx: CanvasRenderingContext2D,
+  kind: string,
+  box: Box,
+  spec: StorySpec,
+  scale: number,
+  metrics: readonly StoryMetric[]
+): void {
+  if (kind === 'title') drawTitle(ctx, box, spec, scale)
+  else if (kind === 'brand') drawBrand(ctx, box, spec, scale)
+  else if (kind === 'metricsRow' && metrics.length > 0) drawMetricsRow(ctx, box, metrics, scale)
+  else if (kind === 'metricsStack' && metrics.length > 0) drawMetricsStack(ctx, box, metrics, scale)
+  else if (kind === 'route') {
+    const route = projectRoute(spec.route, box)
+    if (route) strokeWithHalo(ctx, route.points, spec.accent, 16 * scale)
+  } else if (kind === 'elevation') {
     const profile = buildElevationProfile(spec.elevation, box)
-    if (profile) drawElevation(ctx, profile, box, spec)
-    return
+    if (profile) drawElevation(ctx, profile, box, spec, scale)
   }
-  const route = projectRoute(spec.route, box)
-  if (route) drawRoute(ctx, route, spec)
+}
+
+function drawBlocks(ctx: CanvasRenderingContext2D, layout: StoryLayout, spec: StorySpec): void {
+  const metrics = spec.metrics.slice(0, metricsCapForView(spec.view))
+  for (const { kind, box } of layout.blocks) {
+    drawBlock(ctx, kind, box, spec, layout.scale, metrics)
+  }
 }
 
 /**
@@ -295,14 +294,13 @@ function drawVisual(ctx: CanvasRenderingContext2D, box: Box, spec: StorySpec): v
  * « tainted » et `toBlob()` reste utilisable pour l'export PNG.
  */
 export function renderActivityStory(ctx: CanvasRenderingContext2D, spec: StorySpec): void {
-  const layout = computeStoryLayout(spec.view, spec.format, spec.metrics.length)
+  const layout = computeStoryLayout(spec.view, spec.format, spec.metrics.length, {
+    // `exactOptionalPropertyTypes` : ne transmettre les options que si elles sont définies.
+    ...(spec.showTitle === undefined ? {} : { showTitle: spec.showTitle }),
+    ...(spec.showBrand === undefined ? {} : { showBrand: spec.showBrand }),
+  })
   drawBackground(ctx, spec)
-  if (layout.header) drawHeader(ctx, layout.header, spec)
-  if (layout.visual) drawVisual(ctx, layout.visual, spec)
-  if (layout.metrics && layout.columns > 0) {
-    drawMetricGrid(ctx, layout.metrics, layout.columns, layout.large, spec)
-  }
-  if (layout.brand) drawBrand(ctx, layout.brand, spec)
+  drawBlocks(ctx, layout, spec)
 }
 
 /** Gabarits proposables selon les données réellement disponibles pour l'activité. */
@@ -310,11 +308,11 @@ export function availableStoryViews(
   route: readonly StoryPoint[],
   elevation: readonly StoryElevationPoint[]
 ): StoryView[] {
+  const probe: Box = { x: 0, y: 0, width: 100, height: 100 }
+  const hasRoute = projectRoute(route, probe) !== null
+  const hasElevation = buildElevationProfile(elevation, probe) !== null
   const views: StoryView[] = []
-  const hasRoute = projectRoute(route, { x: 0, y: 0, width: 100, height: 100 }) !== null
-  const hasElevation =
-    buildElevationProfile(elevation, { x: 0, y: 0, width: 100, height: 100 }) !== null
-  if (hasRoute) views.push('trace')
+  if (hasRoute) views.push('trace', 'stats-trace')
   if (hasElevation) views.push('profil')
   views.push('stats')
   if (hasRoute) views.push('minimal')
