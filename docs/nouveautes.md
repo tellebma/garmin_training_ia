@@ -1,5 +1,15 @@
 # Nouveautés
 
+## 1.15.0 — 2026-07-30
+
+- Partage tes sorties en story : sur la fiche d'une activité, la section « Partager en story »
+  génère un calque PNG à fond transparent avec ta trace et tes métriques, à poser sur ta photo
+  dans Instagram, WhatsApp ou Strava.
+- Quatre rendus au choix (tracé + métriques, profil de dénivelé, métriques seules, tracé seul),
+  en format story 9:16 ou carré, avec la couleur et les métriques que tu veux mettre en avant.
+- Sur mobile, le bouton « Partager » ouvre directement le partage de ton téléphone ; sur
+  ordinateur, le PNG se télécharge.
+
 ## 1.14.0 — 2026-07-26
 
 - « Mes cols & sommets » devient une liste unique : cols et sommets/crêtes sont classés ensemble (tes gravis d'abord, puis les plus proches), avec un petit badge « sommet » pour les distinguer.
