@@ -178,6 +178,26 @@ describe('renderActivityStory', () => {
     expect(fake.texts()).toContain('320 m')
   })
 
+  it.each([
+    ['montée pure (sommet au dernier point)', [100, 400, 900]],
+    ['descente pure (sommet au premier point)', [900, 400, 100]],
+  ])('garde l’annotation d’altitude dans la zone sûre — %s', (_case, elevations) => {
+    // 20 px par caractère : « 900 m » mesure 100 px, largement de quoi déborder d'un bord.
+    const fake = fakeContext(20)
+    const elevation = elevations.map((elevation_m, index) => ({
+      distance_m: index * 500,
+      elevation_m,
+    }))
+    renderActivityStory(fake.ctx, { ...SPEC, view: 'profil', elevation })
+
+    const call = fake.calls.find((c) => c.op === 'fillText' && c.args[0] === '900 m')
+    expect(call).toBeDefined()
+    const x = Number(call?.args[1])
+    // Texte centré : ses deux extrémités doivent rester dans la zone sûre (88 px de marge).
+    expect(x - 50).toBeGreaterThanOrEqual(88)
+    expect(x + 50).toBeLessThanOrEqual(1080 - 88)
+  })
+
   it('n’affiche pas de visuel en vue stats', () => {
     const fake = fakeContext(2)
     renderActivityStory(fake.ctx, { ...SPEC, view: 'stats' })

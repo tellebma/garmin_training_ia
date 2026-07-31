@@ -27,11 +27,12 @@ describe('canvasToPngBlob', () => {
 
 describe('downloadBlob', () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it('crée un lien, le clique et libère l’URL', () => {
+  function stubUrl() {
     const createObjectURL = vi.fn(() => 'blob:fake')
     const revokeObjectURL = vi.fn()
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
@@ -39,14 +40,32 @@ describe('downloadBlob', () => {
     const anchor = document.createElement('a')
     anchor.click = click
     vi.spyOn(document, 'createElement').mockReturnValue(anchor)
+    return { createObjectURL, revokeObjectURL, click, anchor }
+  }
+
+  it('crée un lien, le clique et libère l’URL', () => {
+    vi.useFakeTimers()
+    const { createObjectURL, revokeObjectURL, click, anchor } = stubUrl()
 
     downloadBlob(new Blob(['x']), 'calque.png')
 
     expect(createObjectURL).toHaveBeenCalledOnce()
     expect(anchor.download).toBe('calque.png')
     expect(click).toHaveBeenCalledOnce()
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake')
     expect(document.body.contains(anchor)).toBe(false)
+
+    vi.runAllTimers()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake')
+  })
+
+  it('ne libère pas l’URL avant que le téléchargement ait pu démarrer', () => {
+    vi.useFakeTimers()
+    const { revokeObjectURL } = stubUrl()
+
+    downloadBlob(new Blob(['x']), 'calque.png')
+
+    // Safari annule un téléchargement dont l'URL objet est révoquée dans la foulée du clic.
+    expect(revokeObjectURL).not.toHaveBeenCalled()
   })
 })
 

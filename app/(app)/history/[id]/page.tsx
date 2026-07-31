@@ -9,7 +9,7 @@ import { ActivityComparisonChart } from '../../_components/charts/activity-compa
 import { ActivityMapChartSync } from '../../_components/charts/activity-map-chart-sync'
 import { ChartCard } from '../../_components/chart-card'
 import { MetricTile } from '../../_components/metric-tile'
-import { ActivityStoryExport } from '../../_components/share/activity-story-export'
+import { ActivityStoryExportLazy } from '../../_components/share/activity-story-export-lazy'
 import { compactSamplesForStory } from '@/lib/share/story-layout'
 import { SPORT_LABEL } from '../../_components/sport-icon'
 import {
@@ -298,7 +298,7 @@ async function ActivityDetailBody({
         <ActivityMapChartSync samples={samples} sport={sport} showMap={gpsSampleCount >= 2} />
       )}
 
-      <ActivityStoryExport
+      <ActivityStoryExportLazy
         activity={activity}
         sport={sport}
         sportLabel={knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport}

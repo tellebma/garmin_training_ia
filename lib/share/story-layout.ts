@@ -103,6 +103,16 @@ export const STORY_ACCENTS: readonly {
 /** Points max envoyés au canvas : au-delà le rendu ne gagne plus rien en netteté. */
 const MAX_RENDERED_POINTS = 900
 
+/**
+ * Points max sérialisés du serveur vers le composant client.
+ *
+ * Bien plus bas que `MAX_RENDERED_POINTS` : le calque ne dépasse pas 1080 px de large,
+ * 300 points laissent déjà moins de 4 px entre deux sommets du tracé. Ce budget compte
+ * double, car la page transmet déjà l'intégralité des samples à la carte MapLibre —
+ * ces points-ci sont une seconde copie dans le payload RSC.
+ */
+export const STORY_TRANSFERRED_POINTS = 300
+
 // Zone sûre : la UI Instagram (avatar en haut, barre de réponse en bas) mange les bords.
 const SAFE_INSETS: Record<StoryFormat, { top: number; bottom: number; side: number }> = {
   story: { top: 260, bottom: 300, side: 88 },
@@ -179,12 +189,20 @@ export function defaultMetricKeys(metrics: StoryMetric[], cap: number): string[]
   return metrics.slice(0, cap).map((metric) => metric.key)
 }
 
-/** Nom de fichier : le gabarit sert de suffixe, déjà en kebab-case. */
+/**
+ * Jour civil **local**, pas UTC : une sortie de fin de soirée serait datée de la veille
+ * par `toISOString()`, en contradiction avec la date affichée sur le calque.
+ */
+function localDay(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${String(date.getFullYear())}-${month}-${day}`
+}
 
 /** Nom de fichier stable et lisible pour le PNG exporté. */
 export function storyFileName(activity: StoryActivity, view: StoryView): string {
   const date = new Date(activity.start_time)
-  const day = Number.isNaN(date.getTime()) ? 'activite' : date.toISOString().slice(0, 10)
+  const day = Number.isNaN(date.getTime()) ? 'activite' : localDay(date)
   const sport = activity.sport.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
   return `garmin-coach-${day}-${sport}-${view}.png`
 }
@@ -403,14 +421,16 @@ export interface StorySampleSets {
 const COORD_PRECISION = 100_000
 
 /**
- * Réduit les samples d'une activité au strict nécessaire pour le calque, côté
- * serveur : le composant client est sérialisé dans le payload RSC, inutile d'y
- * pousser plusieurs milliers de points que le rendu n'exploite pas.
+ * Réduit les samples d'une activité au strict nécessaire pour le calque, côté serveur.
+ *
+ * Le budget est volontairement serré (`STORY_TRANSFERRED_POINTS`) : ces points partent
+ * dans le payload RSC en plus des samples complets déjà transmis à la carte, et 300
+ * suffisent à un tracé de 1080 px de large.
  */
 export function compactSamplesForStory(samples: readonly StorySampleInput[]): StorySampleSets {
   const route = sampleEvenly(
     samples.filter((s) => isFiniteNumber(s.latitude) && isFiniteNumber(s.longitude)),
-    MAX_RENDERED_POINTS
+    STORY_TRANSFERRED_POINTS
   ).map((s) => ({
     latitude: Math.round((s.latitude ?? 0) * COORD_PRECISION) / COORD_PRECISION,
     longitude: Math.round((s.longitude ?? 0) * COORD_PRECISION) / COORD_PRECISION,
@@ -418,7 +438,7 @@ export function compactSamplesForStory(samples: readonly StorySampleInput[]): St
 
   const elevation = sampleEvenly(
     samples.filter((s) => isFiniteNumber(s.elevation_m)),
-    MAX_RENDERED_POINTS
+    STORY_TRANSFERRED_POINTS
   ).map((s) => ({
     distance_m: isFiniteNumber(s.distance_m) ? Math.round(s.distance_m) : null,
     elevation_m: Math.round(s.elevation_m ?? 0),

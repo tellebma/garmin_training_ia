@@ -132,17 +132,32 @@ describe('ActivityStoryExport', () => {
     expect(calories.getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('élargit le plafond en vue « Métriques + tracé » puis re-coupe au retour', async () => {
+  it('complète la sélection quand le gabarit accepte une métrique de plus', async () => {
     const user = userEvent.setup()
     setup()
+    // Sélection pleine (3/3) : le gabarit à 4 emplacements prend la métrique suivante.
     await user.click(screen.getByRole('button', { name: 'Métriques + tracé' }))
-    expect(screen.getByText('Métriques (3/4)')).toBeTruthy()
-    await user.click(screen.getByRole('button', { name: 'Calories' }))
     expect(screen.getByText('Métriques (4/4)')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Vitesse' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    )
 
     await user.click(screen.getByRole('button', { name: 'Tracé + métriques' }))
     expect(screen.getByText('Métriques (3/3)')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Calories' }).getAttribute('aria-pressed')).toBe(
+    expect(screen.getByRole('button', { name: 'Vitesse' }).getAttribute('aria-pressed')).toBe(
+      'false'
+    )
+  })
+
+  it('ne réintroduit pas une métrique que l’utilisateur a retirée', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Dénivelé' }))
+    expect(screen.getByText('Métriques (2/3)')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Métriques + tracé' }))
+    expect(screen.getByText('Métriques (2/4)')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Dénivelé' }).getAttribute('aria-pressed')).toBe(
       'false'
     )
   })
@@ -174,10 +189,11 @@ describe('ActivityStoryExport', () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByRole('button', { name: /Télécharger le PNG/ }))
+    const day = new Date(ACTIVITY.start_time).toLocaleDateString('en-CA')
     await waitFor(() => {
       expect(downloadBlob).toHaveBeenCalledWith(
         expect.any(Blob),
-        'garmin-coach-2026-07-28-bike-trace.png'
+        `garmin-coach-${day}-bike-trace.png`
       )
     })
     expect(screen.getByText('PNG téléchargé.')).toBeTruthy()
@@ -229,6 +245,43 @@ describe('ActivityStoryExport', () => {
     })
     expect(downloadBlob).not.toHaveBeenCalled()
     expect(screen.queryByText(/PNG téléchargé/)).toBeNull()
+  })
+
+  it('partage le PNG déjà encodé, sans ré-encoder après le clic', async () => {
+    // Safari iOS révoque l'activation utilisateur au premier `await` : le partage doit
+    // partir du blob préparé par l'effet de rendu, pas d'un encodage déclenché au clic.
+    canSharePng.mockReturnValue(true)
+    const user = userEvent.setup()
+    setup()
+    await waitFor(() => {
+      expect(canvasToPngBlob).toHaveBeenCalledOnce()
+    })
+
+    await user.click(screen.getByRole('button', { name: /Partager/ }))
+
+    await waitFor(() => {
+      expect(sharePng).toHaveBeenCalledOnce()
+    })
+    expect(canvasToPngBlob).toHaveBeenCalledOnce()
+  })
+
+  it('encode à la volée si le PNG n’était pas encore prêt', async () => {
+    canSharePng.mockReturnValue(true)
+    canvasToPngBlob
+      .mockResolvedValueOnce(null) // encodage anticipé raté
+      .mockResolvedValueOnce(new Blob(['x'], { type: 'image/png' }))
+    const user = userEvent.setup()
+    setup()
+    await waitFor(() => {
+      expect(canvasToPngBlob).toHaveBeenCalledOnce()
+    })
+
+    await user.click(screen.getByRole('button', { name: /Partager/ }))
+
+    await waitFor(() => {
+      expect(sharePng).toHaveBeenCalledOnce()
+    })
+    expect(canvasToPngBlob).toHaveBeenCalledTimes(2)
   })
 
   it('n’affiche pas le bouton Partager sur un navigateur sans Web Share', () => {

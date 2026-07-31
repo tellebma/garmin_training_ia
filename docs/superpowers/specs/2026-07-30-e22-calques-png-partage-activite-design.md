@@ -80,7 +80,9 @@ Les vues indisponibles ne sont pas proposées : une séance piscine n'affiche qu
 
 Chaque gabarit porte un nombre différent de métriques (`metricsCapForView`) : 3 sur une ligne,
 4 sur une pile de valeurs géantes. Changer de vue ramène la sélection sous le plafond, pour
-qu'une puce active corresponde toujours à une métrique réellement dessinée.
+qu'une puce active corresponde toujours à une métrique réellement dessinée. Dans l'autre sens,
+un gabarit plus large complète la sélection — mais seulement si elle était pleine, pour ne pas
+réintroduire une métrique que l'utilisateur venait de retirer.
 
 ## Options d'export
 
@@ -107,11 +109,29 @@ le chemin mobile qui ouvre directement Instagram. Sinon le bouton n'apparaît pa
 téléchargement reste disponible ; si le partage échoue à l'exécution, on retombe sur le
 téléchargement.
 
+**Contrainte d'activation utilisateur** : Safari iOS invalide l'activation dès le premier
+`await` du gestionnaire de clic et rejette alors `navigator.share()` avec `NotAllowedError` —
+soit exactement la plateforme visée. Le PNG du rendu courant est donc **encodé d'avance**, dans
+l'effet qui dessine le canvas, et le clic attaque `sharePng` sans aucun `await` intermédiaire.
+L'encodage à la volée ne sert plus que de filet (clic pendant un re-rendu).
+
+Le téléchargement libère l'URL objet **après un délai** : `revokeObjectURL()` appelé dans la
+foulée du `click()` annule le téléchargement sur les navigateurs qui ne l'ont pas encore
+démarré.
+
 ## Poids du payload
 
 Le composant est client : les samples transitent par le payload RSC. `compactSamplesForStory`
-(serveur) réduit les samples aux seuls champs utiles, plafonne à 900 points par série et
-arrondit les coordonnées à 5 décimales (~1 m).
+(serveur) réduit les samples aux seuls champs utiles, plafonne à `STORY_TRANSFERRED_POINTS`
+(300) points par série et arrondit les coordonnées à 5 décimales (~1 m).
+
+Ce budget est délibérément bas : la même page transmet déjà **l'intégralité** des samples au
+composant client de la carte MapLibre, donc ces points sont une seconde copie dans le payload.
+300 points laissent moins de 4 px entre deux sommets sur un calque large de 1080 px — le tracé
+et le profil sont visuellement identiques à la version non réduite.
+
+Le composant lui-même est chargé en `dynamic(… { ssr: false })` (`ActivityStoryExportLazy`),
+comme la carte : son code de rendu ne pèse pas sur le premier chargement de la fiche.
 
 ## Hors périmètre V1
 

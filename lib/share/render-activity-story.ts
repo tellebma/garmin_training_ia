@@ -8,6 +8,7 @@ import {
   type ElevationProfile,
   type ProjectedRoute,
   type StoryBackground,
+  type StoryBlockKind,
   type StoryFormat,
   type StoryElevationPoint,
   type StoryLayout,
@@ -82,6 +83,26 @@ export function fitFontSize(
     size -= 2
   }
   return size
+}
+
+/** Largeur moyenne d'un caractère, quand `measureText` n'est pas exploitable. */
+const FALLBACK_CHAR_RATIO = 0.6
+
+function measureTextWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  weight: string,
+  sizePx: number
+): number {
+  if (typeof ctx.measureText !== 'function') return text.length * sizePx * FALLBACK_CHAR_RATIO
+  ctx.font = `${weight} ${String(sizePx)}px ${FONT_STACK}`
+  const width = ctx.measureText(text).width
+  return Number.isFinite(width) ? width : text.length * sizePx * FALLBACK_CHAR_RATIO
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (min > max) return (min + max) / 2
+  return Math.min(max, Math.max(min, value))
 }
 
 interface TextOptions {
@@ -251,33 +272,53 @@ function drawElevation(
 
   strokeWithHalo(ctx, points, spec.accent, 10 * scale)
 
-  drawText(
-    ctx,
-    `${String(Math.round(profile.maxElevation))} m`,
-    profile.peak[0],
-    profile.peak[1] - 52 * scale,
-    { font: `600 ${String(32 * scale)}px`, color: WHITE }
-  )
+  // Le sommet peut tomber sur le tout premier ou le tout dernier point (montée ou
+  // descente pure) : sans recentrage, l'annotation déborde de la zone sûre du calque.
+  const label = `${String(Math.round(profile.maxElevation))} m`
+  const size = 32 * scale
+  const half = Math.min(measureTextWidth(ctx, label, '600', size), box.width) / 2
+  const x = clamp(profile.peak[0], box.x + half, box.x + box.width - half)
+  drawText(ctx, label, x, Math.max(0, profile.peak[1] - 52 * scale), {
+    font: `600 ${String(size)}px`,
+    color: WHITE,
+  })
 }
 
+/**
+ * `kind` est typé `StoryBlockKind` (et non `string`) pour que l'ajout d'un futur bloc
+ * casse la compilation ici plutôt que de ne rien dessiner en silence.
+ */
 function drawBlock(
   ctx: CanvasRenderingContext2D,
-  kind: string,
+  kind: StoryBlockKind,
   box: Box,
   spec: StorySpec,
   scale: number,
   metrics: readonly StoryMetric[]
 ): void {
-  if (kind === 'title') drawTitle(ctx, box, spec, scale)
-  else if (kind === 'brand') drawBrand(ctx, box, spec, scale)
-  else if (kind === 'metricsRow' && metrics.length > 0) drawMetricsRow(ctx, box, metrics, scale)
-  else if (kind === 'metricsStack' && metrics.length > 0) drawMetricsStack(ctx, box, metrics, scale)
-  else if (kind === 'route') {
-    const route = projectRoute(spec.route, box)
-    if (route) strokeWithHalo(ctx, route.points, spec.accent, 16 * scale)
-  } else if (kind === 'elevation') {
-    const profile = buildElevationProfile(spec.elevation, box)
-    if (profile) drawElevation(ctx, profile, box, spec, scale)
+  switch (kind) {
+    case 'title':
+      drawTitle(ctx, box, spec, scale)
+      return
+    case 'brand':
+      drawBrand(ctx, box, spec, scale)
+      return
+    case 'metricsRow':
+      if (metrics.length > 0) drawMetricsRow(ctx, box, metrics, scale)
+      return
+    case 'metricsStack':
+      if (metrics.length > 0) drawMetricsStack(ctx, box, metrics, scale)
+      return
+    case 'route': {
+      const route = projectRoute(spec.route, box)
+      if (route) strokeWithHalo(ctx, route.points, spec.accent, 16 * scale)
+      return
+    }
+    case 'elevation': {
+      const profile = buildElevationProfile(spec.elevation, box)
+      if (profile) drawElevation(ctx, profile, box, spec, scale)
+      return
+    }
   }
 }
 

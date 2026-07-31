@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Download, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { canSharePng, canvasToPngBlob, downloadBlob, sharePng } from '@/lib/share/export-png'
+import {
+  canSharePng,
+  canvasToPngBlob,
+  downloadBlob,
+  sharePng,
+  type ShareResult,
+} from '@/lib/share/export-png'
 import { availableStoryViews, renderActivityStory } from '@/lib/share/render-activity-story'
 import {
   buildStoryMetrics,
@@ -34,7 +40,7 @@ const CHECKERBOARD =
 const FORMATS: readonly StoryFormat[] = ['story', 'square']
 const BACKGROUNDS: readonly StoryBackground[] = ['transparent', 'gradient', 'dark']
 
-interface ActivityStoryExportProps {
+export interface ActivityStoryExportProps {
   readonly activity: StoryActivity
   readonly sport: Sport
   readonly sportLabel: string
@@ -107,6 +113,9 @@ export function ActivityStoryExport({
   elevation,
 }: ActivityStoryExportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // PNG du rendu courant, encodé d'avance : le partage natif doit pouvoir partir sans
+  // aucun `await` après le clic (cf. `sharePng`).
+  const readyBlobRef = useRef<Blob | null>(null)
   const views = useMemo(() => availableStoryViews(route, elevation), [route, elevation])
   const allMetrics = useMemo(() => buildStoryMetrics(activity, sport), [activity, sport])
 
@@ -124,7 +133,13 @@ export function ActivityStoryExport({
   const [feedback, setFeedback] = useState<Feedback>(null)
 
   // Capacité navigateur (Web Share niveau 2) : lue après hydratation, `false` côté serveur.
-  const shareable = useSyncExternalStore(subscribeNever, canSharePng, serverFalse)
+  // `getSnapshot` est appelé à chaque rendu : on mémoïse pour ne pas re-sonder l'API
+  // (et re-créer un `File`) sans raison — la capacité ne change pas en cours de page.
+  const readShareable = useMemo(() => {
+    let cached: boolean | null = null
+    return () => (cached ??= canSharePng())
+  }, [])
+  const shareable = useSyncExternalStore(subscribeNever, readShareable, serverFalse)
 
   const metricsCap = metricsCapForView(view)
   const metrics = useMemo(
@@ -134,12 +149,26 @@ export function ActivityStoryExport({
 
   // Chaque gabarit porte un nombre différent de métriques : on ramène la sélection
   // sous le plafond au changement de vue, pour qu'une puce active soit toujours
-  // une puce réellement dessinée.
-  const selectView = useCallback((next: StoryView) => {
-    setView(next)
-    const cap = metricsCapForView(next)
-    setMetricKeys((current) => (current.length > cap ? current.slice(0, cap) : current))
-  }, [])
+  // une puce réellement dessinée. À l'inverse, un gabarit plus large complète la
+  // sélection — mais seulement si elle était pleine, pour ne pas réintroduire une
+  // métrique que l'utilisateur venait de retirer.
+  const selectView = useCallback(
+    (next: StoryView) => {
+      const previousCap = metricsCapForView(view)
+      const cap = metricsCapForView(next)
+      setView(next)
+      setMetricKeys((current) => {
+        if (current.length > cap) return current.slice(0, cap)
+        if (current.length < previousCap || current.length >= cap) return current
+        const missing = allMetrics
+          .map((metric) => metric.key)
+          .filter((key) => !current.includes(key))
+          .slice(0, cap - current.length)
+        return missing.length > 0 ? [...current, ...missing] : current
+      })
+    },
+    [allMetrics, view]
+  )
 
   const subtitle = useMemo(
     () =>
@@ -160,6 +189,7 @@ export function ActivityStoryExport({
     canvas.height = size.height
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    readyBlobRef.current = null
     renderActivityStory(ctx, {
       view,
       format,
@@ -174,6 +204,14 @@ export function ActivityStoryExport({
       showTitle,
       showBrand,
     })
+
+    let stale = false
+    void canvasToPngBlob(canvas).then((blob) => {
+      if (!stale) readyBlobRef.current = blob
+    })
+    return () => {
+      stale = true
+    }
   }, [
     view,
     format,
@@ -209,7 +247,7 @@ export function ActivityStoryExport({
     setBusy(true)
     setFeedback(null)
     try {
-      const blob = await exportBlob()
+      const blob = readyBlobRef.current ?? (await exportBlob())
       if (!blob) {
         setFeedback({ tone: 'muted', text: "L'image n'a pas pu être générée." })
         return
@@ -221,27 +259,50 @@ export function ActivityStoryExport({
     }
   }, [activity, exportBlob, view])
 
-  const onShare = useCallback(async () => {
+  const applyShareResult = useCallback((result: ShareResult, blob: Blob, fileName: string) => {
+    if (result === 'shared') setFeedback({ tone: 'ok', text: 'Image envoyée au partage.' })
+    else if (result === 'cancelled') setFeedback(null)
+    else {
+      downloadBlob(blob, fileName)
+      setFeedback({ tone: 'muted', text: 'Partage indisponible : PNG téléchargé à la place.' })
+    }
+  }, [])
+
+  /**
+   * Le PNG du rendu courant est déjà encodé la plupart du temps : on attaque alors
+   * `sharePng` sans `await` préalable, sous peine de perdre l'activation utilisateur
+   * sur Safari iOS. L'encodage à la volée ne sert que de filet (clic pendant le rendu).
+   */
+  const onShare = useCallback(() => {
+    const fileName = storyFileName(activity, view)
+    const title = `${sportLabel} — ${subtitle}`
+    const ready = readyBlobRef.current
     setBusy(true)
     setFeedback(null)
-    try {
-      const blob = await exportBlob()
-      if (!blob) {
-        setFeedback({ tone: 'muted', text: "L'image n'a pas pu être générée." })
-        return
-      }
-      const fileName = storyFileName(activity, view)
-      const result = await sharePng(blob, fileName, `${sportLabel} — ${subtitle}`)
-      if (result === 'shared') setFeedback({ tone: 'ok', text: 'Image envoyée au partage.' })
-      else if (result === 'cancelled') setFeedback(null)
-      else {
-        downloadBlob(blob, fileName)
-        setFeedback({ tone: 'muted', text: 'Partage indisponible : PNG téléchargé à la place.' })
-      }
-    } finally {
-      setBusy(false)
+
+    if (ready) {
+      void sharePng(ready, fileName, title)
+        .then((result) => {
+          applyShareResult(result, ready, fileName)
+        })
+        .finally(() => {
+          setBusy(false)
+        })
+      return
     }
-  }, [activity, exportBlob, sportLabel, subtitle, view])
+
+    void exportBlob()
+      .then(async (blob) => {
+        if (!blob) {
+          setFeedback({ tone: 'muted', text: "L'image n'a pas pu être générée." })
+          return
+        }
+        applyShareResult(await sharePng(blob, fileName, title), blob, fileName)
+      })
+      .finally(() => {
+        setBusy(false)
+      })
+  }, [activity, applyShareResult, exportBlob, sportLabel, subtitle, view])
 
   const previewClass = format === 'story' ? 'w-[220px]' : 'w-[260px]'
 
@@ -377,15 +438,7 @@ export function ActivityStoryExport({
               Télécharger le PNG
             </Button>
             {shareable && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  void onShare()
-                }}
-              >
+              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onShare}>
                 <Share2 size={14} />
                 Partager
               </Button>

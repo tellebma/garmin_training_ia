@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   buildElevationProfile,
   buildStoryMetrics,
@@ -9,6 +9,7 @@ import {
   metricsCapForView,
   projectRoute,
   STORY_SIZES,
+  STORY_TRANSFERRED_POINTS,
   storyFileName,
   type Box,
   type StoryActivity,
@@ -96,8 +97,27 @@ describe('defaultMetricKeys', () => {
 })
 
 describe('storyFileName', () => {
+  // Le nom de fichier suit le jour **local** : on fige le fuseau pour que le test soit
+  // stable, et on garde un oracle indépendant (`en-CA` ⇒ AAAA-MM-JJ local) au cas où la
+  // plateforme ignore la variable.
+  const localDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA')
+
+  beforeAll(() => {
+    process.env.TZ = 'Europe/Paris'
+  })
+
   it('construit un nom lisible depuis la date et le sport', () => {
-    expect(storyFileName(BIKE, 'trace')).toBe('garmin-coach-2026-07-28-bike-trace.png')
+    expect(storyFileName(BIKE, 'trace')).toBe(
+      `garmin-coach-${localDay(BIKE.start_time)}-bike-trace.png`
+    )
+  })
+
+  it('date le fichier sur le jour local et non sur UTC', () => {
+    // 23 h 30 UTC le 28 = déjà le 29 à Paris : `toISOString()` daterait le fichier de la veille.
+    const lateNight: StoryActivity = { ...BIKE, start_time: '2026-07-28T23:30:00.000Z' }
+    expect(storyFileName(lateNight, 'trace')).toBe(
+      `garmin-coach-${localDay(lateNight.start_time)}-bike-trace.png`
+    )
   })
 
   it('retombe sur un nom générique si la date est invalide', () => {
@@ -108,7 +128,7 @@ describe('storyFileName', () => {
 
   it('assainit les sports exotiques', () => {
     expect(storyFileName({ ...BIKE, sport: 'Trail Running' }, 'minimal')).toBe(
-      'garmin-coach-2026-07-28-trail-running-minimal.png'
+      `garmin-coach-${localDay(BIKE.start_time)}-trail-running-minimal.png`
     )
   })
 })
@@ -339,7 +359,9 @@ describe('compactSamplesForStory', () => {
       elevation_m: 100 + i,
     }))
     const sets = compactSamplesForStory(many)
-    expect(sets.route.length).toBeLessThanOrEqual(900)
-    expect(sets.elevation.length).toBeLessThanOrEqual(900)
+    // Budget serré : ces points doublent ceux déjà transmis à la carte dans le payload RSC.
+    expect(sets.route).toHaveLength(STORY_TRANSFERRED_POINTS)
+    expect(sets.elevation).toHaveLength(STORY_TRANSFERRED_POINTS)
+    expect(STORY_TRANSFERRED_POINTS).toBeLessThanOrEqual(300)
   })
 })
