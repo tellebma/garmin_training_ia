@@ -29,6 +29,44 @@ l'instant. Conséquences :
 - **Reste P0** : E9.4 progression par discipline (spec écrite le 2026-07-26, plan à écrire),
   « Worker : filtrer le plan actif », « Recommandations sportives sourcées et auditables ».
 
+## Audit du coach 2026-08-01 — 16 constats, 5 lots livrés
+
+Audit complet du moteur de coaching (code + données de prod). Trois défauts structurels
+rendaient le plan inopérant sans qu'aucune erreur ne remonte :
+
+1. **Le TSS n'était jamais calculé** — 100 % des activités valaient `durée × 50` (`fc_max_bpm`
+   NULL + `CYCLING_SPORTS` omettant `"bike"`). CTL/ATL/TSB ne mesuraient que du volume horaire.
+2. **Plan sans intensité ni séance longue** — `max_level = min(niveaux)` verrouillait tous les
+   sports sur la discipline la plus faible ; le type `long` n'était attribuable qu'au dimanche,
+   jamais retenu par le sélecteur de jours. Sur 82 séances en prod : 0 threshold, 0 pma, 0 long.
+3. **Périodisation réinitialisée chaque semaine** — les phases étaient recalculées depuis
+   `today` à chaque régénération : phase « base » à J-21 de la course A, jamais de `peak`.
+
+Constat produit le plus parlant : sur 20 jours consécutifs, **aucune séance planifiée n'a été
+suivie**, et le briefing pénalisait l'athlète (-3 readiness) à chaque substitution de discipline.
+
+**V1 livrée** — issues #120 à #135, toutes fermées :
+
+| Lot | Périmètre | Issues | PR |
+|---|---|---|---|
+| A | TSS / Banister / sports | #120, #133, #134 | #139 |
+| B | planner (intensité, longue, périodisation, volume, D+, sports) | #121-#123, #127, #128-#131, #135 | #141 |
+| C | génération LLM (modèle, échecs, zones chiffrées, natation) | #124, #125 | #140 |
+| D | briefing (jour de repos, readiness) | #132, ½ #127 | #136 |
+| E | fraîcheur des données + alerte | #126 | #138 |
+
+Correctif d'exploitation associé : #143 (ordre des migrations Supabase).
+
+**Suites — items *Todo* distincts** : #145 (2ᵉ verrou d'intensité dans le prompt LLM),
+#146 (`load_spike`/`elevation_spike` permanents), #147 (briefing sur données périmées),
+#148 (rendu front course multisport + écart budget), #149 (`resolve_fc_max_bpm` dans
+`sync.py`), #144 (lint d'antériorité des migrations).
+
+**Actions d'exploitation restant à l'owner** : re-puller `tellebma/garmin-sync:latest` sur
+UNRAID (sans quoi rien de tout ceci ne tourne), lancer le backfill TSS
+(`python -m garmin_sync.coach.backfill_tss --recompute-all`) **avant** toute régénération de
+plan, et reconnecter le compte Garmin dont le token a expiré.
+
 ## EPICs issus des retours owner (2026-06-21)
 
 Trois EPICs regroupent les retours de l'owner du 21/06/2026. Les items détaillés
