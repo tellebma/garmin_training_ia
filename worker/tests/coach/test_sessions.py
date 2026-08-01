@@ -484,6 +484,44 @@ def test_regenerate_session_updates_existing(
     )
 
 
+@patch("garmin_sync.coach.sessions.is_flag_active", return_value=True)
+@patch("garmin_sync.coach.sessions.record_llm_usage")
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_regenerate_session_success_resets_failure_counter(
+    mock_db,
+    mock_gen,
+    mock_record,  # noqa: ARG001
+    _mock_flag,  # noqa: PT019
+):
+    """La relance manuelle est LA porte de sortie d'une séance abandonnée
+    (failures >= 3) : un succès doit remettre le compteur à zéro, sinon la
+    séance reste marquée abandonnée côté UI et cron."""
+    db = MagicMock()
+    mock_db.return_value = db
+    session_lookup = db.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value  # noqa: E501
+    session_lookup.data = {
+        "id": "s1",
+        "user_id": "u1",
+        "sport": "bike",
+        "session_type": "long",
+        "target_duration_s": 9000,
+        "target_tss": 150,
+        "phase": "build",
+        "date": "2026-05-25",
+    }
+    _profile_chain(db).data = {"sports_strengths": {"swim": 3, "bike": 3, "run": 3}}
+    _race_chain(db).data = None
+    mock_gen.return_value = _workout_result()
+
+    regenerate_session(user_id="u1", session_id="s1")
+
+    update_payloads = [c.args[0] for c in db.table.return_value.update.call_args_list]
+    success = next(p for p in update_payloads if "workout" in p)
+    assert success["workout_generation_failures"] == 0
+    assert success["workout_generation_failed_at"] is None
+
+
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
 @patch("garmin_sync.coach.sessions.get_admin_client")
 def test_regenerate_session_skips_rest_day(mock_db, mock_gen):

@@ -366,6 +366,9 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
             "workout": result.workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
             "workout_generation_failed_at": None,
+            # La relance manuelle est la porte de sortie d'une séance abandonnée :
+            # remettre le compteur, sinon elle reste marquée abandonnée (UI + cron).
+            "workout_generation_failures": 0,
         }
     ).eq("id", session_id).execute()
     record_llm_usage(
