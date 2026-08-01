@@ -222,6 +222,15 @@ def sync_garmin_profile(user_id: str) -> dict[str, Any]:
         # Mais c'est aussi la signature d'un changement de forme de payload, et ce cas
         # est resté invisible des mois. On le rend explicite dans les logs.
         log.info("profile-sync: no perf field resolved for user=%s (see shape log)", user_id)
+    if "fc_max_bpm" not in row:
+        # fc_max_bpm est le pivot du calcul hrTSS (issue #120) : sans lui, le tier 2
+        # est mort et le coach retombe sur le max de FC observé sur 90 j. Un WARNING
+        # nommé rend le cas visible en prod au lieu d'un NULL silencieux.
+        log.warning(
+            "profile-sync: fc_max_bpm unresolved for user=%s — userMaxHr absent from "
+            "Garmin payload (see shape log); hrTSS will rely on the observed-HR fallback",
+            user_id,
+        )
 
     db.table("athlete_profiles").update(
         {**row, "garmin_synced_at": datetime.now(UTC).isoformat()}

@@ -6,9 +6,12 @@ from datetime import date, timedelta
 
 from garmin_sync.coach.banister import (
     ATL_TAU,
+    COLD_START_MIN_ACTIVITY_DAYS,
     CTL_TAU,
+    cold_start_state,
     compute_banister_history,
     estimate_initial_ctl_from_profile,
+    is_cold_start,
 )
 
 
@@ -68,3 +71,30 @@ def test_estimate_initial_ctl_from_profile_realistic() -> None:
 def test_estimate_initial_ctl_from_profile_zero_or_none() -> None:
     assert estimate_initial_ctl_from_profile(None) == 0.0
     assert estimate_initial_ctl_from_profile(0) == 0.0
+
+
+def test_is_cold_start_threshold() -> None:
+    """#134: cold start = strictly fewer than 14 distinct activity days."""
+    start = date(2026, 1, 1)
+    thirteen = {start + timedelta(days=i): 50.0 for i in range(13)}
+    fourteen = {start + timedelta(days=i): 50.0 for i in range(14)}
+    assert COLD_START_MIN_ACTIVITY_DAYS == 14
+    assert is_cold_start(thirteen) is True
+    assert is_cold_start(fourteen) is False
+    assert is_cold_start({}) is True
+
+
+def test_cold_start_state_describes_current_form() -> None:
+    """#134: the profile estimate is TODAY's state (ctl=atl=estimate, tsb=0),
+    not a seed decaying from 180 days ago."""
+    state = cold_start_state(4)
+    assert state.ctl == round(4 * 50 / 7, 2)
+    assert state.atl == state.ctl
+    assert state.tsb == 0.0
+
+
+def test_cold_start_state_without_profile_hours() -> None:
+    state = cold_start_state(None)
+    assert state.ctl == 0.0
+    assert state.atl == 0.0
+    assert state.tsb == 0.0
