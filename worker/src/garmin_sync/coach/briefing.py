@@ -27,7 +27,7 @@ type _RowT = dict[str, Any] | None
 READY_MIN = 70
 CAUTION_MIN = 40
 BASELINE_SCORE = 80
-BRIEFING_CACHE_VERSION = "daily-briefing:v4"
+BRIEFING_CACHE_VERSION = "daily-briefing:v5"
 
 # Post-session feedback only stays relevant for a couple of days. The latest *synced*
 # activity can lag (sync runs once a day), so without this cap an old session — e.g. a
@@ -365,6 +365,45 @@ def suggest_adjustment(
     )
 
 
+def _rest_day_recommendation(
+    *,
+    risk_insights: list[Any],
+    session_feedback: SessionFeedback | None,
+) -> CoachRecommendation:
+    """Coach decision for a day whose planned session is `rest`.
+
+    There is no session to "execute" on a rest day, whatever the readiness signals say —
+    see issue #132. Recovery/activity risk signals only change the framing (protect the
+    rest more firmly), never the fact that today's plan is rest.
+    """
+    has_risk = bool(risk_insights) or (
+        session_feedback is not None and session_feedback.severity == "risk"
+    )
+    if has_risk:
+        rationale = (
+            risk_insights[0].message
+            if risk_insights
+            else cast(SessionFeedback, session_feedback).message
+        )
+        return CoachRecommendation(
+            action="rest",
+            title="Repos à respecter",
+            rationale=rationale,
+            instruction=(
+                "Ne t'entraîne pas aujourd'hui : ta charge récente justifie de bien "
+                "respecter ce repos."
+            ),
+        )
+    return CoachRecommendation(
+        action="rest",
+        title="Jour de repos",
+        rationale="Aucune séance n'est prévue aujourd'hui.",
+        instruction=(
+            "Profite de ce repos : pas d'entraînement structuré, laisse le corps récupérer."
+        ),
+    )
+
+
 def build_coach_recommendation(
     *,
     status: Status,
@@ -376,6 +415,11 @@ def build_coach_recommendation(
     """Translate signals into a clear coach decision for the athlete."""
     planned_type = str((planned_session or {}).get("session_type") or "séance")
     risk_insights = [i for i in activity_review.insights if i.severity == "risk"]
+
+    if planned_type == "rest":
+        return _rest_day_recommendation(
+            risk_insights=risk_insights, session_feedback=session_feedback
+        )
 
     if status == "rest_advised":
         return CoachRecommendation(
@@ -598,6 +642,19 @@ def build_next_session_adjustment(
     ):
         if adjustment:
             return adjustment
+
+    if planned_type == "rest":
+        # No adjustment above matched (e.g. no risk-severity session feedback): still a
+        # rest day, so the fallback must not read as "follow the planned session" — see
+        # issue #132, there is no session to follow.
+        return NextSessionAdjustment(
+            status="none",
+            action="maintain",
+            title="Repos maintenu",
+            rationale="Aucun signal ne justifie de s'entraîner aujourd'hui.",
+            instruction="Profite de ce jour de repos comme prévu.",
+            target_session=planned_session,
+        )
 
     return NextSessionAdjustment(
         status="none",

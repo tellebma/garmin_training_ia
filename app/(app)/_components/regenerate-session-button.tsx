@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { regenerateSession } from '@/app/actions/sessions'
 
@@ -11,12 +12,18 @@ interface Props {
 export function RegenerateSessionButton({ sessionId }: Readonly<Props>) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
   function handleClick(): void {
     setError(null)
     startTransition(async () => {
       const r = await regenerateSession(sessionId)
-      if (!r.success) setError(r.error)
+      if (!r.success) {
+        setError(r.error)
+        return
+      }
+      // Recharge les server components pour afficher le workout régénéré.
+      router.refresh()
     })
   }
 

@@ -120,6 +120,9 @@ def _rest_day_feedback(
 def _sport_mismatch_feedback(
     *, activity_date: date, sport: str, planned_sport: str, planned_type: str
 ) -> SessionFeedback:
+    # Swapping the day's sport is a planning divergence, not a physiological fatigue
+    # signal — it must not move readiness_score (issue #127). Kept as observance info
+    # (verdict + message), displayed separately from the recovery factors.
     return _feedback(
         activity_date=activity_date,
         sport=sport,
@@ -128,7 +131,7 @@ def _sport_mismatch_feedback(
         verdict="sport_mismatch",
         severity="watch",
         message=f"Activité {sport} réalisée au lieu de {planned_sport} : ajuste sans rattraper.",
-        readiness_impact=-3,
+        readiness_impact=0,
     )
 
 
