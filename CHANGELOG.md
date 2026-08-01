@@ -1,3 +1,9 @@
+## [1.15.3](https://github.com/tellebma/garmin_training_ia/compare/v1.15.2...v1.15.3) (2026-08-01)
+
+### Bug Fixes
+
+* **coach:** briefing repos + readiness sport_mismatch (audit lot D) ([#136](https://github.com/tellebma/garmin_training_ia/issues/136)) ([7328b9e](https://github.com/tellebma/garmin_training_ia/commit/7328b9e702be0d746f3acb0493bd4fb89f21510e)), closes [#132](https://github.com/tellebma/garmin_training_ia/issues/132) [#127](https://github.com/tellebma/garmin_training_ia/issues/127) [#127](https://github.com/tellebma/garmin_training_ia/issues/127) [#132](https://github.com/tellebma/garmin_training_ia/issues/132) [#127](https://github.com/tellebma/garmin_training_ia/issues/127)
+
 ## [1.15.2](https://github.com/tellebma/garmin_training_ia/compare/v1.15.1...v1.15.2) (2026-08-01)
 
 ### Bug Fixes
