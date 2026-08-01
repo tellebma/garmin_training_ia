@@ -1,3 +1,9 @@
+## [1.15.2](https://github.com/tellebma/garmin_training_ia/compare/v1.15.1...v1.15.2) (2026-08-01)
+
+### Bug Fixes
+
+* **coach:** LOT C — génération LLM fiable, séances chiffrées, natation exploitable ([#140](https://github.com/tellebma/garmin_training_ia/issues/140)) ([800820f](https://github.com/tellebma/garmin_training_ia/commit/800820ffbe0a6a2defaf4cfa879dab3d463a3c86)), closes [#124](https://github.com/tellebma/garmin_training_ia/issues/124) [#124](https://github.com/tellebma/garmin_training_ia/issues/124) [#125](https://github.com/tellebma/garmin_training_ia/issues/125) [#125](https://github.com/tellebma/garmin_training_ia/issues/125)
+
 ## [1.15.1](https://github.com/tellebma/garmin_training_ia/compare/v1.15.0...v1.15.1) (2026-08-01)
 
 ### Bug Fixes
