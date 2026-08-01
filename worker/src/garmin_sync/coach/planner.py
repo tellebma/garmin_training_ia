@@ -19,9 +19,11 @@ from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.training_days import (
+    allocate_sport_sessions,
     assign_sports,
     athlete_level,
     long_session_day,
+    run_cap,
     select_training_days,
     training_days_count,
 )
@@ -370,6 +372,35 @@ def compute_first_week_tss_multiplier(activity_review: ActivityReview) -> float:
     return 1.0
 
 
+# Vitesses de croisière amateur (km/h) pour estimer le poids temporel de chaque
+# segment de course, plus une pénalité de grimpe (~20 min par 1000 m de D+).
+_RACE_SPEED_KMH: dict[str, float] = {"swim": 3.2, "bike": 25.0, "run": 10.0, "brick": 12.0}
+_RACE_SPEED_DEFAULT_KMH = 12.0
+_CLIMB_HOURS_PER_1000M = 0.33
+
+
+def estimate_race_time_shares(legs: list[dict[str, Any]]) -> dict[str, float]:
+    """Part du temps de course estimé par discipline (somme = 1).
+
+    C'est l'ENJEU de l'épreuve — pas l'ordre chronologique des legs — qui doit
+    piloter la répartition des séances (#130). Les segments d'une même
+    discipline s'additionnent (duathlon run-bike-run). Sans legs exploitables,
+    parts égales.
+    """
+    hours: dict[str, float] = {}
+    for leg in legs:
+        disc = str(leg.get("discipline") or "unknown")
+        dist = float(leg.get("distance_km") or 0)
+        dplus = float(leg.get("elevation_gain_m") or 0)
+        h = dist / _RACE_SPEED_KMH.get(disc, _RACE_SPEED_DEFAULT_KMH)
+        h += dplus / 1000 * _CLIMB_HOURS_PER_1000M
+        hours[disc] = hours.get(disc, 0.0) + h
+    total = sum(hours.values())
+    if total <= 0:
+        return {s: 1.0 / len(hours) for s in hours} if hours else {}
+    return {s: h / total for s, h in hours.items()}
+
+
 def compute_elevation_per_sport(legs: list[dict[str, Any]]) -> dict[str, int]:
     """Sum the race's total D+ per sport from its legs.
 
@@ -547,15 +578,18 @@ def _build_week_sessions(
     race_sport: str,
     weekly_elevation_by_sport: dict[str, int] | None = None,
     progress: float = 1.0,
+    race_time_shares: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions.
 
     ``available_days`` is treated as a MASK of possible windows: the effective
     number of training days is capped by volume/level/rest-floor
     (``training_days_count``), the chosen days are spread out
-    (``select_training_days``), a sport is assigned per day (``assign_sports``:
-    run cap, no back-to-back run), and the resulting day plan drives both the
-    weight tallies and the emitted sessions in a single pass.
+    (``select_training_days``), the per-sport session counts follow the race's
+    time shares (``allocate_sport_sessions``, #130), sports are placed on days
+    (``assign_sports``: run cap, no back-to-back run, dominant sport on the
+    long day), and the resulting day plan drives both the weight tallies and
+    the emitted sessions in a single pass.
     """
     weekly_elevation_by_sport = weekly_elevation_by_sport or {}
     sessions: list[dict[str, Any]] = []
@@ -578,8 +612,19 @@ def _build_week_sessions(
         n_available=len(available_idx), hours=hours_per_week, level=level, phase=phase_for_rest
     )
     training_idx = select_training_days(available_idx=available_idx, count=count)
+    long_day_idx = long_session_day(training_idx)
+    # Répartition des séances par l'enjeu de course (#130), pas par l'ordre des
+    # legs. Sans parts fournies (anciens appels), parts égales.
+    equal = {s: 1.0 / len(sports_in_race) for s in sports_in_race} if sports_in_race else {}
+    shares = race_time_shares or equal
+    sport_counts = allocate_sport_sessions(
+        count=count,
+        time_shares=shares,
+        strengths=sports_strengths,
+        run_cap_value=run_cap(level) if "run" in sports_in_race else None,
+    )
     sport_by_day = assign_sports(
-        training_idx=sorted(training_idx), sports_in_race=sports_in_race, level=level
+        training_idx=sorted(training_idx), sport_counts=sport_counts, long_day_idx=long_day_idx
     )
 
     # Single-pass day plan so weight tallies and emitted sessions never diverge.
@@ -590,7 +635,7 @@ def _build_week_sessions(
         types_by_sport=types_by_sport,
         is_last_week=is_last_week,
         race_date=race_date,
-        long_day_idx=long_session_day(training_idx),
+        long_day_idx=long_day_idx,
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
     sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
@@ -708,6 +753,7 @@ def _build_all_week_sessions(
     race_sport: str,
     race_dplus_by_sport: dict[str, int],
     current_offset: int = 0,
+    race_time_shares: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Build planned sessions for all weeks of the plan.
 
@@ -761,6 +807,7 @@ def _build_all_week_sessions(
             race_sport=race_sport,
             weekly_elevation_by_sport=weekly_elevation_by_sport,
             progress=progress,
+            race_time_shares=race_time_shares,
         )
         all_sessions.extend(sessions)
     return all_sessions
@@ -911,7 +958,11 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     anchor = _ensure_prep_anchor(db, race, today=today, race_date=race_date)
     phases = compute_phases(anchor, race_date)
     weeks_count = len(phases)
-    sports_in_race = [leg["discipline"] for leg in race["legs"]]
+    # Dédupliqué en préservant l'ordre : un duathlon run-bike-run ne doit pas
+    # peser la course deux fois dans la rotation (les parts de temps s'en
+    # chargent via estimate_race_time_shares).
+    sports_in_race = list(dict.fromkeys(leg["discipline"] for leg in race["legs"]))
+    race_time_shares = estimate_race_time_shares(race["legs"])
     race_sport = race["legs"][0]["discipline"] if race["legs"] else "run"
     sports_strengths = profile.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
     effective_strengths = load_effective_strengths(
@@ -947,6 +998,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         race_date=race_date,
         race_sport=race_sport,
         race_dplus_by_sport=race_dplus_by_sport,
+        race_time_shares=race_time_shares,
     )
 
     # Drop any session dated before today: when the week grid starts a few days in

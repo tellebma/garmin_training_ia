@@ -72,14 +72,63 @@ def test_run_cap_by_level():
 def test_assign_sports_no_back_to_back_run():
     days = [0, 1, 2, 3, 4]
     assignment = assign_sports(
-        training_idx=days, sports_in_race=["swim", "bike", "run"], level="intermediate"
+        training_idx=days, sport_counts={"swim": 1, "bike": 2, "run": 2}
     )
     ordered = [assignment[d] for d in days]
     for a, b in pairwise(ordered):
         assert not (a == "run" and b == "run")
 
 
-def test_assign_sports_respects_run_cap():
-    days = [0, 1, 2, 3, 4, 5]
-    assignment = assign_sports(training_idx=days, sports_in_race=["run"], level="beginner")
-    assert sum(1 for s in assignment.values() if s == "run") <= run_cap("beginner")
+def test_assign_sports_puts_dominant_sport_on_long_day():
+    assignment = assign_sports(
+        training_idx=[0, 2, 4, 5], sport_counts={"swim": 1, "bike": 2, "run": 1}, long_day_idx=5
+    )
+    assert assignment[5] == "bike"
+
+
+def test_assign_sports_empty_counts_falls_back_to_run():
+    assert assign_sports(training_idx=[0, 2], sport_counts={}) == {0: "run", 2: "run"}
+
+
+def test_allocate_sessions_bike_heavy_race_gets_more_bike_than_swim():
+    """Régression #130 : une course dont le vélo pèse ~60 % du temps doit produire
+    au moins autant de vélo que de natation (prod : 2 swim / 1 bike)."""
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=4,
+        time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        strengths={"swim": 2, "bike": 4, "run": 1},
+        run_cap_value=run_cap("intermediate"),
+    )
+    assert sum(counts.values()) == 4
+    assert counts["bike"] >= 2
+    assert counts["bike"] >= counts["swim"]
+    # Chaque discipline de la course garde au moins une séance.
+    assert all(c >= 1 for c in counts.values())
+
+
+def test_allocate_sessions_respects_run_cap():
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=6,
+        time_shares={"run": 0.8, "bike": 0.2},
+        strengths={"run": 1, "bike": 3},
+        run_cap_value=2,
+    )
+    assert counts["run"] <= 2
+    assert sum(counts.values()) == 6
+
+
+def test_allocate_sessions_fewer_days_than_sports_keeps_biggest_stakes():
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=2,
+        time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        strengths={"swim": 3, "bike": 3, "run": 3},
+        run_cap_value=None,
+    )
+    assert sum(counts.values()) == 2
+    assert "bike" in counts  # l'enjeu dominant n'est jamais sacrifié

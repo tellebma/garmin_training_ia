@@ -408,16 +408,22 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
         race_sport="run",
     )
 
-    # Sunday gets the 'long' session (per _placement_priority_for_day)
+    # Le dernier jour d'entraînement porte la séance 'long' (cf. long_session_day)
     long_sessions = [s for s in sessions if s["session_type"] == "long"]
     endurance_sessions = [s for s in sessions if s["session_type"] == "endurance"]
     assert len(long_sessions) >= 1
     assert len(endurance_sessions) >= 1
 
     # Long must be heavier than endurance in TSS (within same sport)
+    long_sport = long_sessions[0]["sport"]
+    same_sport_endurance = [s for s in endurance_sessions if s["sport"] == long_sport]
     max_long_tss = max(s["target_tss"] for s in long_sessions)
-    max_endurance_tss = max(s["target_tss"] for s in endurance_sessions)
-    assert max_long_tss > max_endurance_tss
+    if same_sport_endurance:
+        assert max_long_tss > max(s["target_tss"] for s in same_sport_endurance)
+    # Et plus longue que toute endurance du même sport en durée.
+    max_long_duration = max(s["target_duration_s"] for s in long_sessions)
+    for s in same_sport_endurance:
+        assert max_long_duration > s["target_duration_s"]
 
 
 def test_build_week_sessions_bike_longer_than_run_and_tss_consistent() -> None:
@@ -932,6 +938,64 @@ def test_build_week_four_days_without_sunday_still_has_long() -> None:
     assert len(long_sessions) >= 1, f"aucune séance longue (jours : {sorted(trained_days)})"
     # La longue tombe le dernier jour d'entraînement, dimanche sélectionné ou pas.
     assert date.fromisoformat(long_sessions[0]["date"]).weekday() == max(trained_days)
+
+
+def test_estimate_race_time_shares_bike_dominant_on_hilly_tri() -> None:
+    """Course de l'athlète A : vélo 47 km / 2000 m D+ ~ 60 % du temps estimé."""
+    from garmin_sync.coach.planner import estimate_race_time_shares
+
+    legs = [
+        {"order": 1, "discipline": "swim", "distance_km": 1.4, "elevation_gain_m": 0},
+        {"order": 2, "discipline": "bike", "distance_km": 47, "elevation_gain_m": 2000},
+        {"order": 3, "discipline": "run", "distance_km": 8, "elevation_gain_m": 200},
+    ]
+    shares = estimate_race_time_shares(legs)
+    assert abs(sum(shares.values()) - 1.0) < 1e-6
+    assert shares["bike"] > 0.5, f"le vélo doit dominer : {shares}"
+    assert shares["bike"] > shares["run"] > shares["swim"]
+
+
+def test_estimate_race_time_shares_sums_duplicate_legs() -> None:
+    """Duathlon run-bike-run : les deux segments course s'additionnent."""
+    from garmin_sync.coach.planner import estimate_race_time_shares
+
+    legs = [
+        {"order": 1, "discipline": "run", "distance_km": 5, "elevation_gain_m": 0},
+        {"order": 2, "discipline": "bike", "distance_km": 20, "elevation_gain_m": 0},
+        {"order": 3, "discipline": "run", "distance_km": 5, "elevation_gain_m": 0},
+    ]
+    shares = estimate_race_time_shares(legs)
+    assert set(shares) == {"run", "bike"}
+    assert shares["run"] > shares["bike"]
+
+
+def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None:
+    """Régression #130 : la répartition suit l'enjeu de course (temps estimé),
+    plus l'ordre chronologique des legs (swim, bike, run, swim en prod)."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="build",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="bike",
+        race_time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    n_bike = sum(1 for s in training if s["sport"] == "bike")
+    n_swim = sum(1 for s in training if s["sport"] == "swim")
+    assert n_bike >= n_swim, f"bike={n_bike} < swim={n_swim}"
+    assert n_bike >= 2
+    # La séance longue porte sur la discipline dominante de l'épreuve.
+    long_sessions = [s for s in training if s["session_type"] == "long"]
+    assert long_sessions and long_sessions[0]["sport"] == "bike"
 
 
 def test_cap_limits_run_increase_to_10pct() -> None:
