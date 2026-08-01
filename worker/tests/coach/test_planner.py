@@ -1093,6 +1093,31 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
     assert long_sessions and long_sessions[0]["sport"] == "bike"
 
 
+def test_build_week_uses_declared_budget_with_five_days() -> None:
+    """Régression #129 : 8 h déclarées / 7 jours dispo ne doivent plus être
+    plafonnés à 4 jours par un classement « beginner » dû au point faible run.
+    Le run reste protégé par son cap PAR discipline (niveau run 1 -> 2 j max)."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"swim": 40.0, "bike": 100.0, "run": 40.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="bike",
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    assert len(training) == 5, f"attendu 5 jours (intermediate), obtenu {len(training)}"
+    n_run = sum(1 for s in training if s["sport"] == "run")
+    assert n_run <= 2, f"le run niveau 1 doit rester cappé à 2 j/sem : {n_run}"
+
+
 def test_cap_limits_run_increase_to_10pct() -> None:
     out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
     assert out["run"] == 110.0  # +10% max

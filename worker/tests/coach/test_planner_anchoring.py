@@ -44,7 +44,12 @@ def _run_plan(
     """Run generate_plan against mocks; capture inserted sessions + updates."""
     from garmin_sync.coach import planner as p_mod
 
-    captured: dict[str, Any] = {"sessions": [], "race_updates": [], "ps_updates": []}
+    captured: dict[str, Any] = {
+        "sessions": [],
+        "race_updates": [],
+        "ps_updates": [],
+        "plan_inserts": [],
+    }
     profile = {
         "user_id": "u1",
         "hours_per_week": 8,
@@ -70,7 +75,14 @@ def _run_plan(
 
     tp_mock = MagicMock()
     tp_mock.select.return_value.eq.return_value.execute.return_value.data = previous_plans or []
-    tp_mock.insert.return_value.execute.return_value.data = [{"id": "plan-new"}]
+
+    def _capture_plan_insert(payload: dict[str, Any]) -> MagicMock:
+        captured["plan_inserts"].append(payload)
+        m = MagicMock()
+        m.execute.return_value.data = [{"id": "plan-new"}]
+        return m
+
+    tp_mock.insert.side_effect = _capture_plan_insert
 
     ps_mock = MagicMock()
     # Requête carry-over des workouts déjà payés (futures sessions).
@@ -192,6 +204,18 @@ def test_week_offsets_are_unique_and_consistent_with_dates(monkeypatch) -> None:
         assert s["week_offset"] == expected, (
             f"{s['date']} : week_offset {s['week_offset']} != {expected}"
         )
+
+
+def test_plan_params_expose_declared_vs_planned_hours(monkeypatch) -> None:
+    """#129 : l'écart budget déclaré / volume planifié doit être visible dans
+    params (l'UI peut alors l'expliquer au lieu de laisser deviner)."""
+    today = date(2026, 8, 2)
+    race_date = today + timedelta(weeks=12)
+    cap = _run_plan(monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=None))
+
+    params = cap["plan_inserts"][0]["params"]
+    assert params["declared_hours_per_week"] == 8
+    assert params["planned_hours_reference_week"] > 0
 
 
 def test_reparented_past_sessions_get_realigned_week_offsets(monkeypatch) -> None:

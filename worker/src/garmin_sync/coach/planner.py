@@ -23,6 +23,7 @@ from garmin_sync.coach.training_days import (
     allocate_sport_sessions,
     assign_sports,
     athlete_level,
+    level_label_for_score,
     long_session_day,
     run_cap,
     select_training_days,
@@ -668,11 +669,14 @@ def _build_week_sessions(
     # legs. Sans parts fournies (anciens appels), parts égales.
     equal = {s: 1.0 / len(sports_in_race) for s in sports_in_race} if sports_in_race else {}
     shares = race_time_shares or equal
+    # Cap course PAR discipline (#129) : c'est le niveau run — pas le niveau
+    # global — qui borne l'impact traumatisant de la course a pied.
+    run_level = level_label_for_score(sports_strengths.get("run", 3))
     sport_counts = allocate_sport_sessions(
         count=count,
         time_shares=shares,
         strengths=sports_strengths,
-        run_cap_value=run_cap(level) if "run" in sports_in_race else None,
+        run_cap_value=run_cap(run_level) if "run" in sports_in_race else None,
     )
     sport_by_day = assign_sports(
         training_idx=sorted(training_idx), sport_counts=sport_counts, long_day_idx=long_day_idx
@@ -1077,6 +1081,18 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         all_sessions, cast(DbRows, existing_future_resp.data or [])
     )
 
+    # Écart budget déclaré / planifié rendu visible (#129) : l'UI peut afficher
+    # « X h planifiées sur Y h déclarées » au lieu de laisser l'athlète deviner
+    # pourquoi son plan ne remplit pas son budget. Semaine de référence = la
+    # première semaine entièrement future (la semaine courante peut être amputée).
+    reference_offset = min(current_offset + 1, weeks_count - 1)
+    planned_seconds = sum(
+        s.get("target_duration_s") or 0
+        for s in all_sessions
+        if s["week_offset"] == reference_offset
+    )
+    planned_hours_reference_week = round(planned_seconds / 3600, 1)
+
     # Archive ALL of the user's plans, not just this race's: scoping the cleanup to
     # race_goal_id left an orphan ACTIVE plan (and duplicate sessions on /today)
     # whenever the primary race changed.
@@ -1115,6 +1131,8 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
                     "activity_review_signals": [i.name for i in activity_review.insights],
                     "prep_start_date": anchor.isoformat(),
                     "current_week_offset": current_offset,
+                    "declared_hours_per_week": profile.get("hours_per_week"),
+                    "planned_hours_reference_week": planned_hours_reference_week,
                 },
             }
         )

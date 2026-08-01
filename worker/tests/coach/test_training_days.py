@@ -25,6 +25,22 @@ def test_athlete_level_from_strengths():
     assert athlete_level({"swim": 4, "bike": 5, "run": 4}) == "advanced"
 
 
+def test_athlete_level_not_dragged_down_by_one_weak_discipline():
+    """Régression #129 : un niveau 4 en vélo ne doit pas être classé beginner
+    parce que la moyenne des trois disciplines passe sous 2,5 (run à 1)."""
+    assert athlete_level({"swim": 2, "bike": 4, "run": 1}) != "beginner"
+
+
+def test_level_label_for_score():
+    from garmin_sync.coach.training_days import level_label_for_score
+
+    assert level_label_for_score(1) == "beginner"
+    assert level_label_for_score(2) == "beginner"
+    assert level_label_for_score(3) == "intermediate"
+    assert level_label_for_score(4) == "advanced"
+    assert level_label_for_score(5) == "advanced"
+
+
 def test_cap_niveau():
     assert cap_niveau("beginner") == 4
     assert cap_niveau("intermediate") == 5

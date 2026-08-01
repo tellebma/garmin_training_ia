@@ -10,12 +10,28 @@ Level = str  # "beginner" | "intermediate" | "advanced"
 
 
 def athlete_level(sports_strengths: dict[str, int]) -> Level:
-    """Niveau global derive de la moyenne des notes 1-5 par discipline."""
-    scores = [sports_strengths.get(s, 3) for s in ("swim", "bike", "run")]
-    mean = sum(scores) / len(scores)
+    """Niveau global derive de la moyenne des DEUX meilleures disciplines (#129).
+
+    La moyenne des trois classait « beginner » un athlete niveau 4 en velo a
+    cause d'un point faible isole (run 1) : plafond a 4 jours et 30 % du budget
+    horaire declare inutilise. La capacite d'entrainement est portee par les
+    points forts ; les protections specifiques (run cap) restent PAR discipline
+    via ``level_label_for_score``.
+    """
+    scores = sorted((sports_strengths.get(s, 3) for s in ("swim", "bike", "run")), reverse=True)
+    mean = sum(scores[:2]) / 2
     if mean < 2.5:
         return "beginner"
     if mean < 3.75:
+        return "intermediate"
+    return "advanced"
+
+
+def level_label_for_score(score: int) -> Level:
+    """Niveau d'UNE discipline isolee (note 1-5) — coherent avec athlete_level."""
+    if score <= 2:
+        return "beginner"
+    if score == 3:
         return "intermediate"
     return "advanced"
 
