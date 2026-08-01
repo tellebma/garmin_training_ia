@@ -1,6 +1,6 @@
 # Nouveautés
 
-## 1.16.0 — 2026-08-01
+## 1.15.5 — 2026-08-01
 
 - Les séances deviennent exploitables : les zones affichent des valeurs chiffrées (bpm, watts,
   allure) dès que ta FC max, ton FTP, ta VMA ou ton CSS sont connus — plus de « Z2 » sans repère.
