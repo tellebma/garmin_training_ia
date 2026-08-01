@@ -1,6 +1,6 @@
 {
   "name": "garmin_training",
-  "version": "1.14.1",
+  "version": "1.15.0",
   "private": true,
   "packageManager": "pnpm@11.1.2",
   "scripts": {

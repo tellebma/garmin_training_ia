@@ -1,3 +1,9 @@
+## [1.15.0](https://github.com/tellebma/garmin_training_ia/compare/v1.14.1...v1.15.0) (2026-08-01)
+
+### Features
+
+* **share:** calques PNG partageables en story depuis l'historique ([#119](https://github.com/tellebma/garmin_training_ia/issues/119)) ([054650a](https://github.com/tellebma/garmin_training_ia/commit/054650ab95a19192efa4fa5d024cb0b487130b52))
+
 ## [1.14.1](https://github.com/tellebma/garmin_training_ia/compare/v1.14.0...v1.14.1) (2026-07-26)
 
 ### Bug Fixes
