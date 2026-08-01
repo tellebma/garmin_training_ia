@@ -1,4 +1,4 @@
--- 20260801100000_planned_sessions_pma_sprint.sql
+-- 20260801140000_planned_sessions_pma_sprint.sql
 -- Audit coach #121 : le planner émet des types 'pma' et 'sprint' (peak / build
 -- avancé) mais le check de planned_sessions ne les autorisait pas. Le bug du
 -- plafond d'intensité (min global des niveaux) masquait le problème : aucune

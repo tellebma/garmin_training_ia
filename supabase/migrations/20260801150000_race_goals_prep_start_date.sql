@@ -1,4 +1,4 @@
--- 20260801110000_race_goals_prep_start_date.sql
+-- 20260801150000_race_goals_prep_start_date.sql
 -- Audit coach #123 : la périodisation était recalculée depuis `today` à chaque
 -- régénération hebdo -> l'horizon rétrécissait d'une semaine chaque dimanche et
 -- l'athlète restait perpétuellement en début de plan (jamais de phase peak,
