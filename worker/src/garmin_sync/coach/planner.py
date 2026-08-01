@@ -242,12 +242,19 @@ def _pick_session_type(
     types_for_phase: list[str],
     used_types: list[str],
     long_day_idx: int | None = None,
+    sport_used_count: int = 0,
 ) -> str:
     """Pick a session type respecting priority slots and avoiding back-to-back hard sessions.
 
     ``types_for_phase`` est la liste de la DISCIPLINE du jour (plafond d'intensité
     par sport, cf. #121) ; ``used_types`` reste l'historique global de la semaine
     pour éviter deux séances dures d'affilée, tous sports confondus.
+
+    ``sport_used_count`` (séances déjà posées pour CE sport cette semaine) sert la
+    garantie de séance de qualité : le premier créneau éligible d'un sport prend
+    un type dur si son niveau y donne droit — sans quoi l'index de rotation
+    global retombait presque toujours sur "endurance" pour un sport n'ayant
+    qu'un ou deux créneaux, et les semaines build/peak restaient sans intensité.
     """
     priority = _placement_priority_for_day(day_idx, long_day_idx)
     if priority == 0 and "long" in types_for_phase:
@@ -261,7 +268,12 @@ def _pick_session_type(
         candidates = [t for t in candidates if t not in _HARD_SESSION_TYPES]
     if not candidates:
         return "endurance"
-    return candidates[len(used_types) % len(candidates)]
+    hard = [t for t in candidates if t in _HARD_SESSION_TYPES]
+    if sport_used_count == 0 and hard:
+        return hard[0]
+    soft = [t for t in candidates if t not in _HARD_SESSION_TYPES]
+    pool = soft or candidates
+    return pool[len(used_types) % len(pool)]
 
 
 # Relative TSS weights by session type. "long" gets ~50% more, "recovery"
@@ -517,6 +529,7 @@ def _build_training_day_plan(
     """
     plan: dict[int, tuple[str, str]] = {}
     used_types: list[str] = []
+    sport_counts: dict[str, int] = {}
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
@@ -530,8 +543,10 @@ def _build_training_day_plan(
             types_for_phase=types_by_sport.get(sport, ["endurance"]),
             used_types=used_types,
             long_day_idx=long_day_idx,
+            sport_used_count=sport_counts.get(sport, 0),
         )
         used_types.append(stype)
+        sport_counts[sport] = sport_counts.get(sport, 0) + 1
         plan[day_idx] = (sport, stype)
     return plan
 

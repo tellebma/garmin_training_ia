@@ -1192,6 +1192,30 @@ def test_compute_tss_by_date_resolves_fc_max_from_observed_hr() -> None:
     assert out[date(2026, 7, 30)] != 50.0, "tier plat durée x 50 encore actif"
 
 
+def test_build_week_peak_phase_has_quality_session_for_strong_sport() -> None:
+    """Le premier créneau éligible d'un sport prend une séance de qualité : une
+    semaine peak d'un vélo niveau 4 doit contenir pma ou sprint, même quand la
+    rotation ne laisse qu'un ou deux créneaux au sport."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="peak",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="bike",
+        race_time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+    )
+    bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
+    assert bike_types & {"pma", "sprint"}, f"semaine peak sans intensité vélo : {bike_types}"
+
+
 def test_cap_limits_run_increase_to_10pct() -> None:
     out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
     assert out["run"] == 110.0  # +10% max
