@@ -203,7 +203,11 @@ export default async function TodayPage() {
 
   return (
     <div className="space-y-6">
-      <GarminStatusBanner status={garminSyncStatus} errorMessage={garminSyncError} />
+      <GarminStatusBanner
+        status={garminSyncStatus}
+        errorMessage={garminSyncError}
+        lastActivitiesSyncAt={lastActivitiesSyncAt}
+      />
       <header className="flex items-start justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold">Aujourd&rsquo;hui</h1>
