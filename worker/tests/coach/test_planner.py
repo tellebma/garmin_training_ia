@@ -10,6 +10,8 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    ObservedHabits,
+    RaceTarget,
     _pick_session_type,
     _progress_for_offset,
     cap_weekly_ramp_by_sport,
@@ -160,8 +162,8 @@ def test_build_phase_default_progress_keeps_pma_backward_compatible() -> None:
 
 
 def test_pick_session_type_avoids_pma_the_day_after_a_pma_day() -> None:
-    # day_idx=1 (mardi) n'est pas un slot réservé (long=dimanche, recovery=lundi/jeudi),
-    # donc _pick_session_type applique la logique anti back-to-back hard.
+    # day_idx=1 (mardi) n'est pas un slot réservé (long=dernier jour d'entraînement,
+    # recovery=lundi/jeudi), donc _pick_session_type applique l'anti back-to-back hard.
     picked = _pick_session_type(
         day_idx=1, types_for_phase=["pma", "sprint", "endurance"], used_types=["pma"]
     )
@@ -404,20 +406,25 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=today + timedelta(days=365),
-        race_sport="run",
+        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
     )
 
-    # Sunday gets the 'long' session (per _placement_priority_for_day)
+    # Le dernier jour d'entraînement porte la séance 'long' (cf. long_session_day)
     long_sessions = [s for s in sessions if s["session_type"] == "long"]
     endurance_sessions = [s for s in sessions if s["session_type"] == "endurance"]
     assert len(long_sessions) >= 1
     assert len(endurance_sessions) >= 1
 
     # Long must be heavier than endurance in TSS (within same sport)
+    long_sport = long_sessions[0]["sport"]
+    same_sport_endurance = [s for s in endurance_sessions if s["sport"] == long_sport]
     max_long_tss = max(s["target_tss"] for s in long_sessions)
-    max_endurance_tss = max(s["target_tss"] for s in endurance_sessions)
-    assert max_long_tss > max_endurance_tss
+    if same_sport_endurance:
+        assert max_long_tss > max(s["target_tss"] for s in same_sport_endurance)
+    # Et plus longue que toute endurance du même sport en durée.
+    max_long_duration = max(s["target_duration_s"] for s in long_sessions)
+    for s in same_sport_endurance:
+        assert max_long_duration > s["target_duration_s"]
 
 
 def test_build_week_sessions_bike_longer_than_run_and_tss_consistent() -> None:
@@ -507,15 +514,33 @@ def test_compute_elevation_per_sport_sums_legs() -> None:
     assert out == {"swim": 0, "bike": 2200, "run": 200}
 
 
+_PHASES_12W = [
+    (0, "base"),
+    (1, "base"),
+    (2, "base"),
+    (3, "base"),
+    (4, "base"),
+    (5, "base"),
+    (6, "base"),
+    (7, "build"),
+    (8, "build"),
+    (9, "build"),
+    (10, "peak"),
+    (11, "taper"),
+]
+
+
 def test_compute_weekly_elevation_targets_respects_thresholds() -> None:
     from garmin_sync.coach.planner import compute_weekly_elevation_targets
 
     # Hilly tri: bike 2200, run 200 -> both above threshold (>=300 / >=100)
     out = compute_weekly_elevation_targets(
-        race_dplus_by_sport={"swim": 0, "bike": 2200, "run": 200}, weeks_count=13
+        race_dplus_by_sport={"swim": 0, "bike": 2200, "run": 200},
+        week_offset=5,
+        phases=_PHASES_12W,
     )
-    assert out["bike"] == 2200 // 13
-    assert out["run"] == 200 // 13
+    assert out["bike"] > 0
+    assert out["run"] > 0
     assert out["swim"] == 0
 
 
@@ -523,8 +548,85 @@ def test_compute_weekly_elevation_targets_zero_on_flat_race() -> None:
     """A flat 10K route race -> all sports below threshold -> no hill training."""
     from garmin_sync.coach.planner import compute_weekly_elevation_targets
 
-    out = compute_weekly_elevation_targets(race_dplus_by_sport={"run": 50}, weeks_count=12)
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"run": 50}, week_offset=3, phases=_PHASES_12W
+    )
     assert out == {"run": 0}
+
+
+def test_elevation_progression_reaches_race_dplus_at_peak() -> None:
+    """Régression #131 : la cible hebdo doit ATTEINDRE le D+ de course en fin de
+    build/peak (prod : jamais plus de 500 m/sem pour une course à 2000 m)."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=10,  # semaine peak
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 500},
+    )
+    assert out["bike"] >= 2000, f"le pic doit couvrir le D+ de course, obtenu {out['bike']}"
+
+
+def test_elevation_progression_starts_from_observed_load() -> None:
+    """Le point de départ est le D+ réellement encaissé, pas zéro ni un étalement."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=0,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 500},
+    )
+    assert out["bike"] == 500
+
+
+def test_elevation_progression_bounded_by_weekly_ramp_cap() -> None:
+    from garmin_sync.coach.planner import WEEKLY_RAMP_CAP, compute_weekly_elevation_targets
+
+    prev = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=3,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 400},
+    )
+    cur = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=4,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 400},
+    )
+    assert cur["bike"] <= prev["bike"] * WEEKLY_RAMP_CAP["bike"] + 1  # +1 = arrondi
+
+
+def test_elevation_athlete_already_at_race_level_is_maintained() -> None:
+    """Athlète A : 2058 m/sem encaissés pour 2000 m de course. Le coach ne doit
+    pas retomber à 500 m/sem (et déclencher elevation_spike dans le même écran)."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=2,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 2058},
+    )
+    assert out["bike"] >= 1800, f"la charge D+ déjà encaissée doit être maintenue : {out}"
+
+
+def test_observed_weekly_elevation_by_sport_averages_28_days() -> None:
+    from garmin_sync.coach.planner import observed_weekly_elevation_by_sport
+
+    today = date(2026, 8, 2)
+    activities = [
+        {"start_time": "2026-07-28T08:00:00Z", "sport": "cycling", "elevation_gain_m": 1000},
+        {"start_time": "2026-07-20T08:00:00Z", "sport": "cycling", "elevation_gain_m": 1000},
+        {"start_time": "2026-07-12T08:00:00Z", "sport": "running", "elevation_gain_m": 200},
+        # Hors fenêtre : ignorée
+        {"start_time": "2026-05-01T08:00:00Z", "sport": "cycling", "elevation_gain_m": 5000},
+    ]
+    out = observed_weekly_elevation_by_sport(activities, today=today)
+    assert out["bike"] == 500  # 2000 m sur 4 semaines
+    assert out["run"] == 50
 
 
 def test_build_week_sessions_long_session_gets_more_elevation() -> None:
@@ -544,8 +646,7 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=today + timedelta(days=365),
-        race_sport="run",
+        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
         weekly_elevation_by_sport={"swim": 0, "bike": 200, "run": 30},
     )
 
@@ -582,8 +683,7 @@ def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=today + timedelta(days=365),
-        race_sport="run",
+        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     assert training
@@ -700,11 +800,39 @@ def test_advanced_peak_allows_pma_and_sprint() -> None:
     assert "sprint" in types
 
 
-def test_weekly_tss_floor_scales_with_hours() -> None:
-    from garmin_sync.coach.planner import weekly_tss_floor_from_hours
+def test_weekly_tss_cap_scales_with_hours() -> None:
+    from garmin_sync.coach.planner import weekly_tss_cap_from_hours
 
-    assert weekly_tss_floor_from_hours(8) == 360
-    assert weekly_tss_floor_from_hours(None) == 0
+    assert weekly_tss_cap_from_hours(8) == 360
+    assert weekly_tss_cap_from_hours(None) == 0
+
+
+def test_base_weekly_tss_measured_ctl_is_primary() -> None:
+    """Régression #128 : athlète A (ctl 21, 8 h déclarées) doit partir de sa
+    charge MESURÉE (147 TSS), pas du plancher déclaré (360 = 2,3x le réel)."""
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=21, hours_per_week=8) == 147.0
+
+
+def test_base_weekly_tss_declared_hours_are_a_feasibility_cap() -> None:
+    """Les heures déclarées bornent le volume (on ne planifie pas plus que le
+    budget temps), elles ne le gonflent jamais."""
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=80, hours_per_week=6) == 270.0
+
+
+def test_base_weekly_tss_cold_start_falls_back_to_declared_cap() -> None:
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=0, hours_per_week=8) == 360.0
+
+
+def test_base_weekly_tss_without_hours_uses_measured() -> None:
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=30, hours_per_week=None) == 210.0
 
 
 def _count(sessions, stype):
@@ -725,8 +853,7 @@ def test_build_week_caps_training_days_when_all_available() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="run",
+        race=RaceTarget(day=date(2026, 9, 1), sport="run"),
     )
     assert len(sessions) == 7
     assert _count(sessions, "rest") >= 1
@@ -747,8 +874,7 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
         available_days=["mon", "wed", "fri"],
         hours_per_week=6,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
+        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
     )
     bike_end = [s for s in sessions if s["sport"] == "bike" and s["session_type"] == "endurance"]
     assert bike_end
@@ -848,6 +974,248 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
         assert kw["sports_strengths"] == {"swim": 3, "bike": 3, "run": 3}, (
             f"Expected effective strengths, got {kw['sports_strengths']}"
         )
+
+
+def test_build_week_strong_bike_gets_threshold_despite_weak_run() -> None:
+    """Régression #121 : le niveau 1 en course ne doit pas interdire le seuil en
+    vélo (niveau 4). Le plafond d'intensité est PAR discipline, pas le min global."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="build",
+        week_start=date(2026, 6, 22),  # Monday
+        sports_in_race=["bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"bike": 200.0, "run": 80.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
+        progress=1.0,
+    )
+    bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
+    run_types = {s["session_type"] for s in sessions if s["sport"] == "run"}
+    assert bike_types & {"threshold", "pma"}, (
+        f"le vélo (niveau 4) doit avoir de l'intensité en build, obtenu : {bike_types}"
+    )
+    assert not (run_types & {"threshold", "pma", "sprint"}), (
+        f"la course (niveau 1) doit rester protégée, obtenu : {run_types}"
+    )
+
+
+def test_build_week_four_days_without_sunday_still_has_long() -> None:
+    """Régression #122 : la séance longue n'était attribuable que le dimanche,
+    or le sélecteur retenait lun/mer/ven/sam -> 0 séance longue depuis mai.
+    La longue doit suivre le dernier jour d'entraînement de la semaine."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),  # Monday
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
+        tss_by_sport={"swim": 50.0, "bike": 50.0, "run": 50.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race=RaceTarget(day=date(2026, 9, 1), sport="run"),
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
+    long_sessions = [s for s in training if s["session_type"] == "long"]
+    assert len(long_sessions) >= 1, f"aucune séance longue (jours : {sorted(trained_days)})"
+    # La longue tombe le dernier jour d'entraînement, dimanche sélectionné ou pas.
+    assert date.fromisoformat(long_sessions[0]["date"]).weekday() == max(trained_days)
+
+
+def test_estimate_race_time_shares_bike_dominant_on_hilly_tri() -> None:
+    """Course de l'athlète A : vélo 47 km / 2000 m D+ ~ 60 % du temps estimé."""
+    from garmin_sync.coach.planner import estimate_race_time_shares
+
+    legs = [
+        {"order": 1, "discipline": "swim", "distance_km": 1.4, "elevation_gain_m": 0},
+        {"order": 2, "discipline": "bike", "distance_km": 47, "elevation_gain_m": 2000},
+        {"order": 3, "discipline": "run", "distance_km": 8, "elevation_gain_m": 200},
+    ]
+    shares = estimate_race_time_shares(legs)
+    assert abs(sum(shares.values()) - 1.0) < 1e-6
+    assert shares["bike"] > 0.5, f"le vélo doit dominer : {shares}"
+    assert shares["bike"] > shares["run"] > shares["swim"]
+
+
+def test_estimate_race_time_shares_sums_duplicate_legs() -> None:
+    """Duathlon run-bike-run : les deux segments course s'additionnent."""
+    from garmin_sync.coach.planner import estimate_race_time_shares
+
+    legs = [
+        {"order": 1, "discipline": "run", "distance_km": 5, "elevation_gain_m": 0},
+        {"order": 2, "discipline": "bike", "distance_km": 20, "elevation_gain_m": 0},
+        {"order": 3, "discipline": "run", "distance_km": 5, "elevation_gain_m": 0},
+    ]
+    shares = estimate_race_time_shares(legs)
+    assert set(shares) == {"run", "bike"}
+    assert shares["run"] > shares["bike"]
+
+
+def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None:
+    """Régression #130 : la répartition suit l'enjeu de course (temps estimé),
+    plus l'ordre chronologique des legs (swim, bike, run, swim en prod)."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="build",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race=RaceTarget(
+            day=date(2026, 9, 1),
+            sport="bike",
+            time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        ),
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    n_bike = sum(1 for s in training if s["sport"] == "bike")
+    n_swim = sum(1 for s in training if s["sport"] == "swim")
+    assert n_bike >= n_swim, f"bike={n_bike} < swim={n_swim}"
+    assert n_bike >= 2
+    # La séance longue porte sur la discipline dominante de l'épreuve.
+    long_sessions = [s for s in training if s["session_type"] == "long"]
+    assert long_sessions
+    assert long_sessions[0]["sport"] == "bike"
+
+
+def test_build_week_uses_declared_budget_with_five_days() -> None:
+    """Régression #129 : 8 h déclarées / 7 jours dispo ne doivent plus être
+    plafonnés à 4 jours par un classement « beginner » dû au point faible run.
+    Le run reste protégé par son cap PAR discipline (niveau run 1 -> 2 j max)."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"swim": 40.0, "bike": 100.0, "run": 40.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    assert len(training) == 5, f"attendu 5 jours (intermediate), obtenu {len(training)}"
+    n_run = sum(1 for s in training if s["sport"] == "run")
+    assert n_run <= 2, f"le run niveau 1 doit rester cappé à 2 j/sem : {n_run}"
+
+
+def test_observed_weekday_usage_counts_and_durations() -> None:
+    from garmin_sync.coach.planner import observed_weekday_usage
+
+    today = date(2026, 8, 2)  # dimanche
+    activities = [
+        # Deux gros vélos le samedi (weekday 5)
+        {"start_time": "2026-07-25T09:00:00Z", "sport": "cycling", "duration_s": 9000},
+        {"start_time": "2026-07-18T09:00:00Z", "sport": "cycling", "duration_s": 8000},
+        # Un run le mardi (weekday 1)
+        {"start_time": "2026-07-28T07:00:00Z", "sport": "running", "duration_s": 2400},
+        # Hors fenêtre : ignoré
+        {"start_time": "2026-05-01T09:00:00Z", "sport": "cycling", "duration_s": 9000},
+    ]
+    counts, durations = observed_weekday_usage(activities, today=today)
+    assert counts == {5: 2, 1: 1}
+    assert durations[5] == 17000.0
+    assert durations[1] == 2400.0
+
+
+def test_build_week_places_sessions_on_athlete_observed_days() -> None:
+    """Régression #127 : 0 correspondance prévu/réalisé sur 20 jours parce que
+    la grille mécanique ignorait les jours réellement utilisés. Les jours et la
+    séance longue doivent suivre le comportement observé."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
+        tss_by_sport={"swim": 50.0, "bike": 120.0, "run": 50.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race=RaceTarget(
+            day=date(2026, 9, 1),
+            sport="bike",
+            time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        ),
+        observed=ObservedHabits(
+            weekday_counts={1: 3, 3: 2, 5: 4, 6: 3},
+            weekday_durations={1: 3600.0, 3: 4000.0, 5: 16000.0, 6: 7000.0},
+        ),
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
+    assert trained_days == {1, 3, 5, 6}, f"jours {sorted(trained_days)} != habitudes athlète"
+    long_sessions = [s for s in training if s["session_type"] == "long"]
+    assert long_sessions, "il faut une séance longue"
+    # La longue tombe le samedi, jour des grosses sorties observées.
+    assert date.fromisoformat(long_sessions[0]["date"]).weekday() == 5
+
+
+def test_compute_tss_by_date_resolves_fc_max_from_observed_hr() -> None:
+    """Raccord lot A (#120/#134) : fc_max_bpm NULL en prod ne doit plus faire
+    retomber le TSS du planner sur le tier plat durée x 50 quand des hr_max
+    observés permettent de résoudre une FCmax."""
+    from garmin_sync.coach.planner import _compute_tss_by_date
+
+    today = date(2026, 8, 2)
+    activities = [
+        {
+            "start_time": "2026-07-30T08:00:00Z",
+            "sport": "running",
+            "duration_s": 3600,
+            "power_avg": None,
+            "hr_avg": 140,
+            "hr_max": 185,
+            "tss": None,
+        }
+    ]
+    profile = {"ftp_watts": None, "fc_max_bpm": None}
+    out = _compute_tss_by_date(activities, profile, today=today)
+    assert out[date(2026, 7, 30)] != 50.0, "tier plat durée x 50 encore actif"
+
+
+def test_build_week_peak_phase_has_quality_session_for_strong_sport() -> None:
+    """Le premier créneau éligible d'un sport prend une séance de qualité : une
+    semaine peak d'un vélo niveau 4 doit contenir pma ou sprint, même quand la
+    rotation ne laisse qu'un ou deux créneaux au sport."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="peak",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race=RaceTarget(
+            day=date(2026, 9, 1),
+            sport="bike",
+            time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        ),
+    )
+    bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
+    assert bike_types & {"pma", "sprint"}, f"semaine peak sans intensité vélo : {bike_types}"
 
 
 def test_cap_limits_run_increase_to_10pct() -> None:
