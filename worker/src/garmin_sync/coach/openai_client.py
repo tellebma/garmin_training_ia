@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -15,6 +16,8 @@ from garmin_sync.coach.workout_schema import (
     validate_workout_for_session,
 )
 from garmin_sync.config import get_settings
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -204,6 +207,15 @@ def _attempt_workout(
     try:
         workout = validate_workout_for_session(Workout.model_validate(payload), session)
     except ValueError as e:
+        # Log structuré du motif de rejet : permet de cibler les enveloppes
+        # insatisfiables (ex : longues sorties vélo, cf. issue #124).
+        log.warning(
+            "workout validation rejected sport=%s type=%s target_s=%s reason=%s",
+            session.get("sport"),
+            session.get("session_type"),
+            session.get("target_duration_s"),
+            e,
+        )
         error = OpenAIError(
             f"OpenAI returned unrealistic workout: {e}",
             raw_payload=json.dumps(payload, ensure_ascii=False),

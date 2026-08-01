@@ -13,6 +13,17 @@ from garmin_sync.coach.sessions import (
 )
 
 
+@pytest.fixture(autouse=True)
+def failure_rate_alert_mock(monkeypatch):
+    """Neutralise l'alerte taux d'échec (qui interroge la DB) dans tous les tests."""
+    mock = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "garmin_sync.coach.sessions.maybe_alert_generation_failure_rate",
+        mock,
+    )
+    return mock
+
+
 def _mock_workout():
     return {
         "warmup": {"duration_s": 600, "target": {"label": "Z1", "rpe": 2}, "notes": None},
@@ -162,7 +173,41 @@ def test_ensure_sessions_records_usage_on_total_failure(
         attempts=3,
         status="failed",
         session_id="s1",
+        error_reason="OpenAI returned unrealistic workout: warmup too long",
     )
+
+
+@patch("garmin_sync.coach.sessions.is_flag_active", return_value=True)
+@patch("garmin_sync.coach.sessions.record_llm_usage")
+@patch("garmin_sync.coach.sessions.generate_workout_for_session")
+@patch("garmin_sync.coach.sessions.get_admin_client")
+def test_ensure_sessions_checks_failure_rate_alert_on_failure(
+    mock_db,
+    mock_gen,
+    mock_record,  # noqa: ARG001
+    _mock_flag,  # noqa: PT019
+    failure_rate_alert_mock,
+):
+    db = MagicMock()
+    mock_db.return_value = db
+    _planned_select_chain(db).data = [
+        {
+            "id": "s1",
+            "sport": "run",
+            "session_type": "endurance",
+            "target_duration_s": 3000,
+            "target_tss": 50,
+            "phase": "base",
+            "date": "2026-05-21",
+        }
+    ]
+    _profile_chain(db).data = {"sports_strengths": {"run": 3}}
+    _race_chain(db).data = None
+    mock_gen.side_effect = OpenAIError("boom")
+
+    ensure_sessions(user_id="u1", days=7)
+
+    failure_rate_alert_mock.assert_called_once()
 
 
 @patch("garmin_sync.coach.sessions.generate_workout_for_session")
