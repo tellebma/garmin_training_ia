@@ -1,3 +1,5 @@
+// Miroir TypeScript du schéma Pydantic `worker/src/garmin_sync/coach/workout_schema.py` —
+// quand tu changes l'un, change l'autre.
 export type Zone = 'Z1' | 'Z2' | 'Z3' | 'Z4' | 'Z5'
 
 export interface IntervalTarget {
@@ -9,6 +11,9 @@ export interface IntervalTarget {
   watts_high?: number | null
   pace_low_kmh?: number | null
   pace_high_kmh?: number | null
+  // Allure natation en s/100m (dérivée du CSS) — low = plus rapide (issue #125).
+  pace_per_100m_low_s?: number | null
+  pace_per_100m_high_s?: number | null
   // Cadence : interprétation dépendante du sport (rpm vélo, foulées/min course,
   // coups de bras/min natation), jamais validée numériquement côté serveur.
   cadence_low?: number | null
@@ -19,6 +24,8 @@ export interface IntervalBlock {
   duration_s: number
   target: IntervalTarget
   notes?: string | null
+  // Distance optionnelle par bloc — essentielle en natation (« 8×100 m »).
+  distance_m?: number | null
 }
 
 export interface IntervalSet {

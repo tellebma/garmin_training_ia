@@ -88,6 +88,16 @@ Règles :
 - technical_focus : 1 phrase FR sur l'aspect technique spécifique au sport.
 """
 
+# Un coach écrit « 8×100 m départ 1'50 », jamais « 2160 secondes » (issue #125).
+_SWIM_PROMPT_GUIDANCE = """Consignes natation (impératives) :
+- Renseigne distance_m (en mètres, multiples de 25) pour chaque bloc : échauffement,
+  éducatifs, séries, retour au calme.
+- Structure type d'une séance : échauffement progressif, éducatifs (drills technique)
+  en début de corps de séance, séries principales en sets répétés (reps + work + rest),
+  retour au calme facile.
+- Précise le départ des séries dans notes (ex : « départ toutes les 1'50 »).
+- N'exprime jamais l'allure en km/h : pense en secondes par 100 m."""
+
 
 @lru_cache(maxsize=1)
 def _get_client() -> OpenAI:
@@ -176,6 +186,8 @@ def _build_user_prompt(
     lines.extend(_activity_review_lines(race_context.get("activity_review")))
     if session.get("coach_context"):
         lines.extend(["", f"Contexte coach : {session['coach_context']}"])
+    if session["sport"] == "swim":
+        lines.extend(["", _SWIM_PROMPT_GUIDANCE])
     lines.extend(["", describe_session_envelope(session)])
     return "\n".join(lines)
 

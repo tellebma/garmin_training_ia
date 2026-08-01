@@ -29,6 +29,26 @@ def _plain_workout() -> Workout:
     )
 
 
+def test_block_accepts_optional_distance_m():
+    b = IntervalBlock(duration_s=95, distance_m=100, target=IntervalTarget(label="Z4", rpe=8))
+    assert b.distance_m == 100
+
+
+def test_block_distance_m_defaults_to_none():
+    assert _plain_block().distance_m is None
+
+
+def test_block_rejects_non_positive_distance_m():
+    with pytest.raises(ValidationError):
+        IntervalBlock(duration_s=95, distance_m=0, target=IntervalTarget(label="Z4", rpe=8))
+
+
+def test_target_accepts_swim_pace_per_100m_bounds():
+    t = IntervalTarget(label="Z2", rpe=4, pace_per_100m_low_s=103, pace_per_100m_high_s=107)
+    assert t.pace_per_100m_low_s == 103
+    assert t.pace_per_100m_high_s == 107
+
+
 def test_enrich_fills_bpm_bounds_from_fc_max():
     out = enrich_workout_targets(_plain_workout(), athlete={"fc_max_bpm": 195}, sport="run")
     z2 = out.main[0]
