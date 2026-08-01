@@ -206,9 +206,14 @@ export function ActivityStoryExport({
     })
 
     let stale = false
-    void canvasToPngBlob(canvas).then((blob) => {
-      if (!stale) readyBlobRef.current = blob
-    })
+    canvasToPngBlob(canvas)
+      .then((blob) => {
+        if (!stale) readyBlobRef.current = blob
+      })
+      .catch(() => {
+        // L'export retombera sur un encodage à la demande.
+        readyBlobRef.current = null
+      })
     return () => {
       stale = true
     }
@@ -243,21 +248,29 @@ export function ActivityStoryExport({
     return canvasToPngBlob(canvas)
   }, [])
 
-  const onDownload = useCallback(async () => {
+  const failed = useCallback(() => {
+    setFeedback({ tone: 'muted', text: "L'image n'a pas pu être générée." })
+  }, [])
+
+  // Comme le partage : on part du PNG déjà encodé quand il est prêt, sans `await`.
+  const onDownload = useCallback(() => {
+    const ready = readyBlobRef.current
     setBusy(true)
     setFeedback(null)
-    try {
-      const blob = readyBlobRef.current ?? (await exportBlob())
-      if (!blob) {
-        setFeedback({ tone: 'muted', text: "L'image n'a pas pu être générée." })
-        return
-      }
-      downloadBlob(blob, storyFileName(activity, view))
-      setFeedback({ tone: 'ok', text: 'PNG téléchargé.' })
-    } finally {
-      setBusy(false)
-    }
-  }, [activity, exportBlob, view])
+    ;(ready ? Promise.resolve(ready) : exportBlob())
+      .then((blob) => {
+        if (!blob) {
+          failed()
+          return
+        }
+        downloadBlob(blob, storyFileName(activity, view))
+        setFeedback({ tone: 'ok', text: 'PNG téléchargé.' })
+      })
+      .catch(failed)
+      .finally(() => {
+        setBusy(false)
+      })
+  }, [activity, exportBlob, failed, view])
 
   const applyShareResult = useCallback((result: ShareResult, blob: Blob, fileName: string) => {
     if (result === 'shared') setFeedback({ tone: 'ok', text: 'Image envoyée au partage.' })
@@ -281,28 +294,30 @@ export function ActivityStoryExport({
     setFeedback(null)
 
     if (ready) {
-      void sharePng(ready, fileName, title)
+      sharePng(ready, fileName, title)
         .then((result) => {
           applyShareResult(result, ready, fileName)
         })
+        .catch(failed)
         .finally(() => {
           setBusy(false)
         })
       return
     }
 
-    void exportBlob()
+    exportBlob()
       .then(async (blob) => {
         if (!blob) {
-          setFeedback({ tone: 'muted', text: "L'image n'a pas pu être générée." })
+          failed()
           return
         }
         applyShareResult(await sharePng(blob, fileName, title), blob, fileName)
       })
+      .catch(failed)
       .finally(() => {
         setBusy(false)
       })
-  }, [activity, applyShareResult, exportBlob, sportLabel, subtitle, view])
+  }, [activity, applyShareResult, exportBlob, failed, sportLabel, subtitle, view])
 
   const previewClass = format === 'story' ? 'w-[220px]' : 'w-[260px]'
 
@@ -426,14 +441,7 @@ export function ActivityStoryExport({
           )}
 
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy}
-              onClick={() => {
-                void onDownload()
-              }}
-            >
+            <Button type="button" size="sm" disabled={busy} onClick={onDownload}>
               <Download size={14} />
               Télécharger le PNG
             </Button>
