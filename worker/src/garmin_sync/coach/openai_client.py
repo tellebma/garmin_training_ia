@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -12,9 +13,12 @@ from openai import OpenAI
 from garmin_sync.coach.workout_schema import (
     Workout,
     describe_session_envelope,
+    enrich_workout_targets,
     validate_workout_for_session,
 )
 from garmin_sync.config import get_settings
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -72,7 +76,8 @@ Règles :
   12min retour calme.
 - Séance "recovery" : Z1 seulement, durée courte, échauffement intégré ou minimal.
 - Séance "endurance" : un bloc principal Z2-Z3 majoritaire.
-- Séance "long" : un seul gros bloc continu (pas d'intervalles).
+- Séance "long" : corps de séance continu en endurance (1 à 3 blocs successifs
+  sans récupération entre eux, pas d'intervalles) — un échauffement court suffit.
 - Séance "intervals" : des sets répétés (work + rest).
 - Séance "threshold" : 2-4 sets de 6-10min à intensité seuil (Z4), récupération 2-5min.
 - Séance "pma" : répétitions de 1 à 3min à 110-130% du seuil (Z4-Z5), récupération
@@ -83,6 +88,16 @@ Règles :
 - summary_md : 1-2 phrases FR conseil du jour, motivant mais bref.
 - technical_focus : 1 phrase FR sur l'aspect technique spécifique au sport.
 """
+
+# Un coach écrit « 8x100 m départ 1'50 », jamais « 2160 secondes » (issue #125).
+_SWIM_PROMPT_GUIDANCE = """Consignes natation (impératives) :
+- Renseigne distance_m (en mètres, multiples de 25) pour chaque bloc : échauffement,
+  éducatifs, séries, retour au calme.
+- Structure type d'une séance : échauffement progressif, éducatifs (drills technique)
+  en début de corps de séance, séries principales en sets répétés (reps + work + rest),
+  retour au calme facile.
+- Précise le départ des séries dans notes (ex : « départ toutes les 1'50 »).
+- N'exprime jamais l'allure en km/h : pense en secondes par 100 m."""
 
 
 @lru_cache(maxsize=1)
@@ -172,6 +187,8 @@ def _build_user_prompt(
     lines.extend(_activity_review_lines(race_context.get("activity_review")))
     if session.get("coach_context"):
         lines.extend(["", f"Contexte coach : {session['coach_context']}"])
+    if session["sport"] == "swim":
+        lines.extend(["", _SWIM_PROMPT_GUIDANCE])
     lines.extend(["", describe_session_envelope(session)])
     return "\n".join(lines)
 
@@ -204,6 +221,15 @@ def _attempt_workout(
     try:
         workout = validate_workout_for_session(Workout.model_validate(payload), session)
     except ValueError as e:
+        # Log structuré du motif de rejet : permet de cibler les enveloppes
+        # insatisfiables (ex : longues sorties vélo, cf. issue #124).
+        log.warning(
+            "workout validation rejected sport=%s type=%s target_s=%s reason=%s",
+            session.get("sport"),
+            session.get("session_type"),
+            session.get("target_duration_s"),
+            e,
+        )
         error = OpenAIError(
             f"OpenAI returned unrealistic workout: {e}",
             raw_payload=json.dumps(payload, ensure_ascii=False),
@@ -267,8 +293,13 @@ def generate_workout_for_session(
         total_prompt += prompt_tokens
         total_completion += completion_tokens
         if isinstance(result, Workout):
+            # Bornes chiffrées (FC/W/allure) dérivées du profil : le LLM laisse
+            # régulièrement ces champs à null (issue #125).
+            enriched = enrich_workout_targets(
+                result, athlete=athlete, sport=str(session.get("sport") or "")
+            )
             return WorkoutResult(
-                workout=result,
+                workout=enriched,
                 usage=LlmUsage(model, total_prompt, total_completion),
                 attempts=attempts,
             )

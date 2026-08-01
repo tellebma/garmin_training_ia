@@ -45,8 +45,18 @@ def test_settings_openai_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_TIMEOUT_S", raising=False)
     get_settings.cache_clear()
     s = get_settings()
-    assert s.openai_model == "gpt-4o-mini"
+    # gpt-4o-mini échouait sur 34 % des générations (issue #124) : le défaut est
+    # un modèle actuel, toujours surchargeable via OPENAI_MODEL.
+    assert s.openai_model == "gpt-5.4-mini"
     assert s.openai_timeout_s == 30
+
+
+def test_settings_openai_model_stays_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+    get_settings.cache_clear()
+    s = get_settings()
+    assert s.openai_model == "gpt-4o-mini"
 
 
 def test_gps_backfill_batch_defaults_to_8() -> None:

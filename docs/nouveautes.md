@@ -1,7 +1,13 @@
 # Nouveautés
 
-## 1.15.1 — 2026-08-01
+## 1.16.0 — 2026-08-01
 
+- Les séances deviennent exploitables : les zones affichent des valeurs chiffrées (bpm, watts,
+  allure) dès que ta FC max, ton FTP, ta VMA ou ton CSS sont connus — plus de « Z2 » sans repère.
+- La natation est enfin écrite comme au bord du bassin : distances en mètres, séries avec départ
+  (« 8 × 100 m départ 1'50 »), échauffement, éducatifs et retour au calme.
+- Quand la génération d'une séance échoue plusieurs fois, l'app te le dit clairement et te
+  propose un bouton pour la relancer — fini les cases vides sans explication.
 - Un bandeau apparaît désormais sur « Aujourd'hui » dès que ta synchronisation Garmin est en
   panne depuis plusieurs jours, pour que tu saches que ton plan et ton briefing peuvent
   s'appuyer sur des données périmées tant qu'elle n'a pas repris.

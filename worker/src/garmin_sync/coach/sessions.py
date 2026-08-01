@@ -9,7 +9,7 @@ from typing import Any, cast
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.briefing import build_next_session_adjustment
 from garmin_sync.coach.discipline_level import load_effective_strengths
-from garmin_sync.coach.llm_usage import record_llm_usage
+from garmin_sync.coach.llm_usage import maybe_alert_generation_failure_rate, record_llm_usage
 from garmin_sync.coach.openai_client import OpenAIError, generate_workout_for_session
 from garmin_sync.feature_flags import is_flag_active
 from garmin_sync.observability import capture
@@ -187,6 +187,7 @@ def _generate_and_persist(
         )
         # Enregistre le coût des tentatives brûlées (sinon 3 requêtes facturées
         # disparaissent du finops — chemin dominant vu le taux d'échec réel).
+        # Le motif de rejet est persisté pour cibler les enveloppes insatisfiables.
         if e.usage is not None:
             record_llm_usage(
                 user_id=user_id,
@@ -197,7 +198,9 @@ def _generate_and_persist(
                 attempts=e.attempts,
                 status="failed",
                 session_id=session["id"],
+                error_reason=str(e),
             )
+        maybe_alert_generation_failure_rate()
         try:
             failures = (session.get("workout_generation_failures") or 0) + 1
             db.table("planned_sessions").update(
@@ -354,13 +357,18 @@ def regenerate_session(*, user_id: str, session_id: str) -> dict[str, Any]:
                 attempts=e.attempts,
                 status="failed",
                 session_id=session_id,
+                error_reason=str(e),
             )
+        maybe_alert_generation_failure_rate()
         raise
     db.table("planned_sessions").update(
         {
             "workout": result.workout.model_dump(),
             "workout_generated_at": datetime.now(UTC).isoformat(),
             "workout_generation_failed_at": None,
+            # La relance manuelle est la porte de sortie d'une séance abandonnée :
+            # remettre le compteur, sinon elle reste marquée abandonnée (UI + cron).
+            "workout_generation_failures": 0,
         }
     ).eq("id", session_id).execute()
     record_llm_usage(

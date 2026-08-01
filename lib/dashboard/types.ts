@@ -33,6 +33,8 @@ export interface PlannedSession {
   notes: string | null
   workout?: unknown
   workout_generated_at?: string | null
+  // Compteur d'échecs de génération LLM ; >= 3 => génération abandonnée (issue #124).
+  workout_generation_failures?: number | null
 }
 
 export interface ActivityRowDto {
