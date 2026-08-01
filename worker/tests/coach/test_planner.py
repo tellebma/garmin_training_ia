@@ -850,6 +850,35 @@ def test_generate_plan_uses_history_adjusted_discipline_level(monkeypatch) -> No
         )
 
 
+def test_build_week_strong_bike_gets_threshold_despite_weak_run() -> None:
+    """Régression #121 : le niveau 1 en course ne doit pas interdire le seuil en
+    vélo (niveau 4). Le plafond d'intensité est PAR discipline, pas le min global."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="build",
+        week_start=date(2026, 6, 22),  # Monday
+        sports_in_race=["bike", "run"],
+        sports_strengths={"swim": 2, "bike": 4, "run": 1},
+        tss_by_sport={"bike": 200.0, "run": 80.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="bike",
+        progress=1.0,
+    )
+    bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
+    run_types = {s["session_type"] for s in sessions if s["sport"] == "run"}
+    assert bike_types & {"threshold", "pma"}, (
+        f"le vélo (niveau 4) doit avoir de l'intensité en build, obtenu : {bike_types}"
+    )
+    assert not (run_types & {"threshold", "pma", "sprint"}), (
+        f"la course (niveau 1) doit rester protégée, obtenu : {run_types}"
+    )
+
+
 def test_cap_limits_run_increase_to_10pct() -> None:
     out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
     assert out["run"] == 110.0  # +10% max

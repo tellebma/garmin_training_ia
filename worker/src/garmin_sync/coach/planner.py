@@ -214,7 +214,12 @@ def _pick_session_type(
     types_for_phase: list[str],
     used_types: list[str],
 ) -> str:
-    """Pick a session type respecting priority slots and avoiding back-to-back hard sessions."""
+    """Pick a session type respecting priority slots and avoiding back-to-back hard sessions.
+
+    ``types_for_phase`` est la liste de la DISCIPLINE du jour (plafond d'intensité
+    par sport, cf. #121) ; ``used_types`` reste l'historique global de la semaine
+    pour éviter deux séances dures d'affilée, tous sports confondus.
+    """
     priority = _placement_priority_for_day(day_idx)
     if priority == 0 and "long" in types_for_phase:
         return "long"
@@ -411,7 +416,7 @@ def _build_training_day_plan(
     week_start: date,
     training_idx: set[int],
     sport_by_day: dict[int, str],
-    types_for_phase: list[str],
+    types_by_sport: dict[str, list[str]],
     is_last_week: bool,
     race_date: date,
 ) -> dict[int, tuple[str, str]]:
@@ -421,6 +426,10 @@ def _build_training_day_plan(
     consistent with the emission loop. Only days selected as training days
     (and not the race day) get an entry. Both the weight tallies and the emitted
     sessions derive from this map, so they can never diverge.
+
+    ``types_by_sport`` porte le plafond d'intensité PAR discipline (#121) : le
+    type du jour est tiré de la liste du sport assigné à ce jour — un niveau 1
+    en course n'interdit plus le seuil en vélo.
     """
     plan: dict[int, tuple[str, str]] = {}
     used_types: list[str] = []
@@ -431,11 +440,13 @@ def _build_training_day_plan(
             continue
         if day_idx not in training_idx:
             continue
+        sport = sport_by_day.get(day_idx, "run")
         stype = _pick_session_type(
-            day_idx=day_idx, types_for_phase=types_for_phase, used_types=used_types
+            day_idx=day_idx,
+            types_for_phase=types_by_sport.get(sport, ["endurance"]),
+            used_types=used_types,
         )
         used_types.append(stype)
-        sport = sport_by_day.get(day_idx, "run")
         plan[day_idx] = (sport, stype)
     return plan
 
@@ -517,8 +528,14 @@ def _build_week_sessions(
     sessions: list[dict[str, Any]] = []
 
     level = athlete_level(sports_strengths)
-    max_level = min((sports_strengths.get(s, 3) for s in sports_in_race), default=3)
-    types_for_phase = pick_session_types_for_phase(phase, max_level=max_level, progress=progress)
+    # Plafond d'intensité PAR discipline (#121) : le min global verrouillait
+    # l'intensité de TOUS les sports sur la discipline la plus faible.
+    types_by_sport = {
+        s: pick_session_types_for_phase(
+            phase, max_level=sports_strengths.get(s, 3), progress=progress
+        )
+        for s in sports_in_race
+    }
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
 
     # Deload weeks (every 4th, except taper) need a stricter rest floor.
@@ -537,7 +554,7 @@ def _build_week_sessions(
         week_start=week_start,
         training_idx=training_idx,
         sport_by_day=sport_by_day,
-        types_for_phase=types_for_phase,
+        types_by_sport=types_by_sport,
         is_last_week=is_last_week,
         race_date=race_date,
     )
