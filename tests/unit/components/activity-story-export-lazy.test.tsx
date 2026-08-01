@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 const canvasToPngBlob = vi.hoisted(() => vi.fn())
 const renderActivityStory = vi.hoisted(() => vi.fn())
@@ -59,9 +59,12 @@ describe('ActivityStoryExportLazy', () => {
       />
     )
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Partager en story' })).toBeTruthy()
-    })
+    // Le composant est chargé par un import dynamique : sous la charge de la
+    // suite complète, sa résolution dépasse régulièrement le timeout par défaut
+    // de 1 s (issue #137 — échecs intermittents bloquant les pre-push). Le
+    // plafond généreux ci-dessous n'allonge pas le test quand tout va bien :
+    // findBy* rend la main dès que l'élément apparaît.
+    await screen.findByRole('heading', { name: 'Partager en story' }, { timeout: 15_000 })
     // Sans GPS ni altitude, seul le gabarit « Métriques seules » est proposé.
     expect(screen.getByRole('button', { name: 'Métriques seules' })).toBeTruthy()
   })
