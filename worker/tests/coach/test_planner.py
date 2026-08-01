@@ -10,6 +10,8 @@ from garmin_sync.coach.planner import (
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
+    ObservedHabits,
+    RaceTarget,
     _pick_session_type,
     _progress_for_offset,
     cap_weekly_ramp_by_sport,
@@ -404,8 +406,7 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=today + timedelta(days=365),
-        race_sport="run",
+        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
     )
 
     # Le dernier jour d'entraînement porte la séance 'long' (cf. long_session_day)
@@ -645,8 +646,7 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=today + timedelta(days=365),
-        race_sport="run",
+        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
         weekly_elevation_by_sport={"swim": 0, "bike": 200, "run": 30},
     )
 
@@ -683,8 +683,7 @@ def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=today + timedelta(days=365),
-        race_sport="run",
+        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     assert training
@@ -854,8 +853,7 @@ def test_build_week_caps_training_days_when_all_available() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="run",
+        race=RaceTarget(day=date(2026, 9, 1), sport="run"),
     )
     assert len(sessions) == 7
     assert _count(sessions, "rest") >= 1
@@ -876,8 +874,7 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
         available_days=["mon", "wed", "fri"],
         hours_per_week=6,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
+        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
     )
     bike_end = [s for s in sessions if s["sport"] == "bike" and s["session_type"] == "endurance"]
     assert bike_end
@@ -994,8 +991,7 @@ def test_build_week_strong_bike_gets_threshold_despite_weak_run() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
+        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
         progress=1.0,
     )
     bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
@@ -1024,8 +1020,7 @@ def test_build_week_four_days_without_sunday_still_has_long() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="run",
+        race=RaceTarget(day=date(2026, 9, 1), sport="run"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
@@ -1079,9 +1074,11 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
-        race_time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        race=RaceTarget(
+            day=date(2026, 9, 1),
+            sport="bike",
+            time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        ),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     n_bike = sum(1 for s in training if s["sport"] == "bike")
@@ -1110,8 +1107,7 @@ def test_build_week_uses_declared_budget_with_five_days() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
+        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     assert len(training) == 5, f"attendu 5 jours (intermediate), obtenu {len(training)}"
@@ -1154,11 +1150,15 @@ def test_build_week_places_sessions_on_athlete_observed_days() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
-        race_time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
-        observed_weekday_counts={1: 3, 3: 2, 5: 4, 6: 3},  # mar/jeu/sam/dim
-        observed_weekday_durations={1: 3600.0, 3: 4000.0, 5: 16000.0, 6: 7000.0},
+        race=RaceTarget(
+            day=date(2026, 9, 1),
+            sport="bike",
+            time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        ),
+        observed=ObservedHabits(
+            weekday_counts={1: 3, 3: 2, 5: 4, 6: 3},
+            weekday_durations={1: 3600.0, 3: 4000.0, 5: 16000.0, 6: 7000.0},
+        ),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
@@ -1208,9 +1208,11 @@ def test_build_week_peak_phase_has_quality_session_for_strong_sport() -> None:
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         is_last_week=False,
-        race_date=date(2026, 9, 1),
-        race_sport="bike",
-        race_time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        race=RaceTarget(
+            day=date(2026, 9, 1),
+            sport="bike",
+            time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        ),
     )
     bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
     assert bike_types & {"pma", "sprint"}, f"semaine peak sans intensité vélo : {bike_types}"

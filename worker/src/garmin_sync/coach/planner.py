@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, cast
 
@@ -36,6 +37,56 @@ from garmin_sync.supabase_client import get_admin_client
 log = logging.getLogger(__name__)
 
 DbRows = list[dict[str, Any]]
+
+_UTC_SUFFIX = "+00:00"
+
+
+@dataclass(frozen=True)
+class RaceTarget:
+    """Ce que la course impose au plan : sa date, son sport et son profil d'effort.
+
+    Regroupé (plutôt que passé paramètre par paramètre) pour garder les signatures
+    de construction de semaine sous la limite de lisibilité : elles portaient 16 et
+    17 paramètres, dont ces quatre-là, toujours transmis ensemble.
+    """
+
+    day: date
+    sport: str
+    time_shares: dict[str, float] | None = None
+    dplus_by_sport: dict[str, int] | None = None
+
+
+@dataclass(frozen=True)
+class ObservedHabits:
+    """Ce que l'athlète fait réellement, mesuré sur son historique récent.
+
+    Tout est optionnel : sans ces signaux le planner retombe sur ses répartitions
+    par défaut (étalement mécanique des jours, D+ parti de zéro).
+    """
+
+    weekday_counts: dict[int, int] | None = None
+    weekday_durations: dict[int, float] | None = None
+    weekly_dplus: dict[str, int] | None = None
+
+
+# Défaut partagé : la dataclass est frozen, donc sûre en singleton de module
+# (et ruff B008 interdit de l'instancier dans une signature).
+NO_OBSERVED_HABITS = ObservedHabits()
+
+
+def _activity_day(raw: Any) -> date | None:
+    """Jour d'une activité depuis son ``start_time``, ou None s'il est inutilisable.
+
+    Garmin sérialise en ``...Z``, que ``fromisoformat`` ne sait pas lire avant
+    Python 3.11 — le remplacement reste explicite pour rester lisible.
+    """
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", _UTC_SUFFIX)).date()
+    except ValueError:
+        return None
+
 
 # Ramp rates by phase / week index
 NORMAL_RAMP_RATE = 1.05  # +5% per week (normal weeks)
@@ -192,7 +243,7 @@ def _placement_priority_for_day(day_idx: int, long_day_idx: int | None = None) -
 # Disciplines multi-segments : le jour de course porte la discipline du
 # race_goal, pas celle du premier leg (#135 — un triathlon s'affichait comme
 # une séance de natation). Le check DB accepte ces valeurs depuis la migration
-# 20260801120000_planned_sessions_multisport.
+# 20260801130000_planned_sessions_multisport.
 _MULTI_SPORT_DISCIPLINES = {"triathlon", "duathlon", "aquathlon"}
 
 
@@ -585,11 +636,8 @@ def observed_weekly_elevation_by_sport(
     start = today - timedelta(days=window_days)
     totals: dict[str, float] = {}
     for a in activities:
-        raw = a.get("start_time")
-        if not isinstance(raw, str) or not raw:
-            continue
-        d = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
-        if not (start <= d <= today):
+        d = _activity_day(a.get("start_time"))
+        if d is None or not (start <= d <= today):
             continue
         disc = normalize_discipline(str(a.get("sport") or ""))
         if disc is None:
@@ -619,11 +667,8 @@ def observed_weekday_usage(
     counts: dict[int, int] = {}
     durations: dict[int, float] = {}
     for a in activities:
-        raw = a.get("start_time")
-        if not isinstance(raw, str) or not raw:
-            continue
-        d = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
-        if not (start <= d <= today):
+        d = _activity_day(a.get("start_time"))
+        if d is None or not (start <= d <= today):
             continue
         weekday = d.weekday()
         counts[weekday] = counts.get(weekday, 0) + 1
@@ -694,13 +739,10 @@ def _build_week_sessions(
     available_days: list[str],
     hours_per_week: float | None,
     is_last_week: bool,
-    race_date: date,
-    race_sport: str,
+    race: RaceTarget,
     weekly_elevation_by_sport: dict[str, int] | None = None,
     progress: float = 1.0,
-    race_time_shares: dict[str, float] | None = None,
-    observed_weekday_counts: dict[int, int] | None = None,
-    observed_weekday_durations: dict[int, float] | None = None,
+    observed: ObservedHabits = NO_OBSERVED_HABITS,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions.
 
@@ -736,13 +778,13 @@ def _build_week_sessions(
     # Jours calés sur les habitudes observées de l'athlète (#127) — la grille
     # mécanique jamais suivie générait 0 correspondance prévu/réalisé.
     training_idx = select_training_days_observed(
-        available_idx=available_idx, count=count, weekday_counts=observed_weekday_counts
+        available_idx=available_idx, count=count, weekday_counts=observed.weekday_counts
     )
-    long_day_idx = long_session_day(training_idx, weekday_durations=observed_weekday_durations)
+    long_day_idx = long_session_day(training_idx, weekday_durations=observed.weekday_durations)
     # Répartition des séances par l'enjeu de course (#130), pas par l'ordre des
     # legs. Sans parts fournies (anciens appels), parts égales.
     equal = {s: 1.0 / len(sports_in_race) for s in sports_in_race} if sports_in_race else {}
-    shares = race_time_shares or equal
+    shares = race.time_shares or equal
     # Cap course PAR discipline (#129) : c'est le niveau run — pas le niveau
     # global — qui borne l'impact traumatisant de la course a pied.
     run_level = level_label_for_score(sports_strengths.get("run", 3))
@@ -763,7 +805,7 @@ def _build_week_sessions(
         sport_by_day=sport_by_day,
         types_by_sport=types_by_sport,
         is_last_week=is_last_week,
-        race_date=race_date,
+        race_date=race.day,
         long_day_idx=long_day_idx,
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
@@ -773,9 +815,9 @@ def _build_week_sessions(
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
 
-        if is_last_week and day == race_date:
+        if is_last_week and day == race.day:
             sessions.append(
-                _race_day_session(day=day, race_sport=race_sport, week_offset=week_offset)
+                _race_day_session(day=day, race_sport=race.sport, week_offset=week_offset)
             )
             continue
         if day_idx not in day_plan:
@@ -823,8 +865,9 @@ def _compute_tss_by_date(
         )
         if tss is None:
             continue
-        start_time_raw = a["start_time"].replace("Z", "+00:00")
-        d = datetime.fromisoformat(start_time_raw).date()
+        d = _activity_day(a.get("start_time"))
+        if d is None:
+            continue
         tss_by_date[d] = tss_by_date.get(d, 0.0) + tss
     return tss_by_date
 
@@ -883,14 +926,9 @@ def _build_all_week_sessions(
     available_days: list[str],
     weeks_count: int,
     week_start: date,
-    race_date: date,
-    race_sport: str,
-    race_dplus_by_sport: dict[str, int],
+    race: RaceTarget,
     current_offset: int = 0,
-    race_time_shares: dict[str, float] | None = None,
-    observed_weekly_dplus: dict[str, int] | None = None,
-    observed_weekday_counts: dict[int, int] | None = None,
-    observed_weekday_durations: dict[int, float] | None = None,
+    observed: ObservedHabits = NO_OBSERVED_HABITS,
 ) -> list[dict[str, Any]]:
     """Build planned sessions for all weeks of the plan.
 
@@ -909,10 +947,10 @@ def _build_all_week_sessions(
         # Cible D+ par semaine : progression ancrée vers un pic en fin de build,
         # partant du D+ réellement encaissé, réduite en taper (#131).
         weekly_elevation_by_sport = compute_weekly_elevation_targets(
-            race_dplus_by_sport=race_dplus_by_sport,
+            race_dplus_by_sport=race.dplus_by_sport or {},
             week_offset=offset,
             phases=phases,
-            observed_weekly_dplus=observed_weekly_dplus,
+            observed_weekly_dplus=observed.weekly_dplus,
         )
         weekly_tss = base_weekly * load_multipliers[i]
         if hours_cap > 0:
@@ -943,13 +981,10 @@ def _build_all_week_sessions(
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
             is_last_week=is_last,
-            race_date=race_date,
-            race_sport=race_sport,
+            race=race,
             weekly_elevation_by_sport=weekly_elevation_by_sport,
             progress=progress,
-            race_time_shares=race_time_shares,
-            observed_weekday_counts=observed_weekday_counts,
-            observed_weekday_durations=observed_weekday_durations,
+            observed=observed,
         )
         all_sessions.extend(sessions)
     return all_sessions
@@ -1139,13 +1174,17 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         available_days=available_days,
         weeks_count=weeks_count,
         week_start=week_start,
-        race_date=race_date,
-        race_sport=race_sport,
-        race_dplus_by_sport=race_dplus_by_sport,
-        race_time_shares=race_time_shares,
-        observed_weekly_dplus=observed_weekly_dplus,
-        observed_weekday_counts=observed_weekday_counts,
-        observed_weekday_durations=observed_weekday_durations,
+        race=RaceTarget(
+            day=race_date,
+            sport=race_sport,
+            time_shares=race_time_shares,
+            dplus_by_sport=race_dplus_by_sport,
+        ),
+        observed=ObservedHabits(
+            weekday_counts=observed_weekday_counts,
+            weekday_durations=observed_weekday_durations,
+            weekly_dplus=observed_weekly_dplus,
+        ),
     )
 
     # Drop any session dated before today: when the week grid starts a few days in

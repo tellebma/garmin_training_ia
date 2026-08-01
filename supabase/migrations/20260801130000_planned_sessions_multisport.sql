@@ -1,4 +1,4 @@
--- 20260801120000_planned_sessions_multisport.sql
+-- 20260801130000_planned_sessions_multisport.sql
 -- Audit coach #135 : la journée de course d'un triathlon était typée
 -- sport = 'swim' (premier leg) — l'athlète voyait sa course affichée comme une
 -- séance de natation. Le planner écrit désormais la discipline du race_goal
