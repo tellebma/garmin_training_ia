@@ -683,8 +683,14 @@ def _build_all_week_sessions(
     race_date: date,
     race_sport: str,
     race_dplus_by_sport: dict[str, int],
+    current_offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Build planned sessions for all weeks of the plan."""
+    """Build planned sessions for all weeks of the plan.
+
+    ``current_offset`` est la semaine qui contient `today` dans la grille ancrée
+    (#123) : c'est elle — et non plus l'offset 0, potentiellement passé — qui
+    reçoit le multiplicateur prudent de première semaine.
+    """
     all_sessions: list[dict[str, Any]] = []
     prev_tss_by_sport: dict[str, float] | None = None
     load_multipliers = compute_week_load_multipliers(phases)
@@ -698,7 +704,7 @@ def _build_all_week_sessions(
             today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
         )
         weekly_tss = base_weekly * load_multipliers[i]
-        if offset == 0:
+        if offset == current_offset:
             weekly_tss *= first_week_tss_multiplier
         progress = _progress_for_offset(offset, phases)
         tss_by_sport = distribute_weekly_tss_by_sport(
@@ -767,8 +773,67 @@ def carry_over_workouts(
     return reused
 
 
-def generate_plan(user_id: str) -> dict[str, Any]:
+# Garde-fou : la contrainte DB borne training_plans.weeks_count à 52. Une ancre
+# trop ancienne (course décalée d'un an, données legacy) ne doit pas la violer.
+_MAX_PREP_WEEKS = 52
+
+
+def _ensure_prep_anchor(
+    db: Any, race: dict[str, Any], *, today: date, race_date: date
+) -> date:
+    """Retourne l'ancre IMMUABLE du début de préparation (#123).
+
+    Posée à la première génération (prep_start_date = today) puis réutilisée
+    telle quelle : les phases et week_offset se calculent depuis cette date,
+    pas depuis `today` — sinon l'horizon rétrécit à chaque régénération hebdo
+    et l'athlète reste coincé en début de plan (jamais de peak, retours
+    build -> base observés en prod à J-21 de la course).
+    """
+    raw = race.get("prep_start_date")
+    if raw:
+        anchor = date.fromisoformat(raw)
+    else:
+        anchor = today
+        db.table("race_goals").update({"prep_start_date": today.isoformat()}).eq(
+            "id", race["id"]
+        ).execute()
+    # Jamais dans le futur (course re-datée à la main), jamais au-delà de la
+    # contrainte DB sur weeks_count.
+    anchor = min(anchor, today)
+    return max(anchor, race_date - timedelta(weeks=_MAX_PREP_WEEKS))
+
+
+def _realign_past_week_offsets(db: Any, *, plan_id: str, grid_start: date, today_iso: str) -> None:
+    """Réaligne les week_offset des séances passées re-parentées (#123 corollaire).
+
+    Les sessions héritées d'anciens plans portaient les offsets de LEUR grille
+    d'origine -> deux « semaine 0 » coexistaient dans un même plan et l'affichage
+    « semaine N » du frontend était faux. On regroupe par offset recalculé pour
+    limiter le nombre d'updates (une par semaine passée, pas une par séance).
+    """
+    rows = cast(
+        DbRows,
+        db.table("planned_sessions")
+        .select("id, date")
+        .eq("plan_id", plan_id)
+        .lt("date", today_iso)
+        .execute()
+        .data
+        or [],
+    )
+    by_offset: dict[int, list[str]] = {}
+    for row in rows:
+        offset = max(0, (date.fromisoformat(row["date"]) - grid_start).days // 7)
+        by_offset.setdefault(offset, []).append(row["id"])
+    for offset, ids in by_offset.items():
+        db.table("planned_sessions").update({"week_offset": offset}).in_("id", ids).execute()
+
+
+def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     """Generate a training plan for the given user.
+
+    ``today`` est injectable pour tester la stabilité des régénérations (l'ancre
+    de périodisation ne bouge pas quand `today` avance).
 
     Returns:
         {"status": "ok", "plan_id": str, "weeks_count": int, "sessions_count": int}
@@ -792,7 +857,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
 
     _race_builder = (
         db.table("race_goals")
-        .select("id, race_date, discipline, legs")
+        .select("id, race_date, discipline, legs, prep_start_date")
         .eq("user_id", user_id)
         .eq("is_primary", True)
         .maybe_single()
@@ -802,7 +867,7 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     if not race:
         return {"status": "no_race_goal"}
 
-    today = date.today()
+    today = today or date.today()
     race_date = date.fromisoformat(race["race_date"])
     if race_date <= today:
         return {"status": "race_in_past"}
@@ -812,8 +877,10 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     )
     first_week_tss_multiplier = compute_first_week_tss_multiplier(activity_review)
 
-    # Compute phases and per-week sessions
-    phases = compute_phases(today, race_date)
+    # Phases ancrées sur le début de préparation immuable, pas sur `today` :
+    # la régénération hebdo recalcule les charges, plus jamais le découpage.
+    anchor = _ensure_prep_anchor(db, race, today=today, race_date=race_date)
+    phases = compute_phases(anchor, race_date)
     weeks_count = len(phases)
     sports_in_race = [leg["discipline"] for leg in race["legs"]]
     race_sport = race["legs"][0]["discipline"] if race["legs"] else "run"
@@ -834,11 +901,15 @@ def generate_plan(user_id: str) -> dict[str, Any]:
     # taper and no race session (prod bug 2026-07). Days before ``today`` (when the
     # grid starts slightly in the past) are dropped just before insert.
     week_start = race_date - timedelta(days=weeks_count * 7 - 1)
+    # Avec l'ancre, la semaine « courante » n'est plus forcément l'offset 0 : le
+    # multiplicateur prudent de reprise s'applique à la première semaine générée.
+    current_offset = min(weeks_count - 1, max(0, (today - week_start).days // 7))
     all_sessions = _build_all_week_sessions(
         phases=phases,
         today_state=today_state,
         profile=profile,
         first_week_tss_multiplier=first_week_tss_multiplier,
+        current_offset=current_offset,
         sports_in_race=sports_in_race,
         effective_strengths=effective_strengths,
         available_days=available_days,
@@ -891,7 +962,9 @@ def generate_plan(user_id: str) -> dict[str, Any]:
             {
                 "user_id": user_id,
                 "race_goal_id": race["id"],
-                "start_date": today.isoformat(),
+                # start_date = ancre de prep : cohérent avec weeks_count/end_date
+                # (les week_offset se lisent depuis cette origine).
+                "start_date": anchor.isoformat(),
                 "end_date": race_date.isoformat(),
                 "weeks_count": weeks_count,
                 "ctl_initial": round(today_state.ctl, 2),
@@ -902,6 +975,8 @@ def generate_plan(user_id: str) -> dict[str, Any]:
                     "cold_start": len(tss_by_date) < 14,
                     "first_week_tss_multiplier": first_week_tss_multiplier,
                     "activity_review_signals": [i.name for i in activity_review.insights],
+                    "prep_start_date": anchor.isoformat(),
+                    "current_week_offset": current_offset,
                 },
             }
         )
@@ -916,6 +991,11 @@ def generate_plan(user_id: str) -> dict[str, Any]:
         db.table("planned_sessions").update({"plan_id": plan_id}).in_(
             "plan_id", previous_plan_ids
         ).lt("date", today_iso).execute()
+        # ... et réaligner leurs week_offset sur la grille ancrée (sinon deux
+        # « semaine 0 » coexistent dans le plan, cf. bug prod du 13/07 + 26/07).
+        _realign_past_week_offsets(
+            db, plan_id=plan_id, grid_start=week_start, today_iso=today_iso
+        )
 
     for s in all_sessions:
         s["plan_id"] = plan_id
