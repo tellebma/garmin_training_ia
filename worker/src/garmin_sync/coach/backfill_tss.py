@@ -46,6 +46,52 @@ def _fetch_profile(db: Any, user_id: str) -> dict[str, Any]:
     return cast("dict[str, Any]", resp.data or {})
 
 
+def _backfill_user(
+    db: Any, user_id: str, user_activities: list[dict[str, Any]], *, today: date
+) -> tuple[int, int, int]:
+    """Recompute TSS for one user's activities. Returns (updated, skipped, errors)."""
+    profile = _fetch_profile(db, user_id)
+    # fc_max fallback (issue #120): profile value, else the user's observed
+    # 90-day hr_max from the rows fetched above.
+    fc_max = resolve_fc_max_bpm(profile.get("fc_max_bpm"), user_activities, today=today)
+    updated = 0
+    skipped = 0
+    errors = 0
+    for a in user_activities:
+        try:
+            tss = compute_tss(
+                duration_s=a.get("duration_s") or 0,
+                sport=a.get("sport") or "",
+                power_avg=a.get("power_avg"),
+                hr_avg=a.get("hr_avg"),
+                ftp_watts=profile.get("ftp_watts"),
+                fc_max_bpm=fc_max,
+            )
+            if tss is None or tss == a.get("tss"):
+                skipped += 1
+                continue
+            db.table("activities").update({"tss": tss}).eq("id", a["id"]).execute()
+            updated += 1
+        except Exception:
+            log.exception("Failed to backfill TSS for activity %s", a.get("id"))
+            errors += 1
+    return updated, skipped, errors
+
+
+def _recompute_states(touched_users: set[str]) -> tuple[int, int]:
+    """Refresh daily_banister_state for each user. Returns (recomputed, errors)."""
+    recomputed = 0
+    errors = 0
+    for user_id in sorted(touched_users):
+        try:
+            recompute_daily_state(user_id)
+            recomputed += 1
+        except Exception:
+            log.exception("Failed to recompute daily state for user %s", user_id)
+            errors += 1
+    return recomputed, errors
+
+
 def backfill_tss(*, recompute_all: bool = False, recompute_state: bool = True) -> dict[str, int]:
     """Recompute TSS for activities, then daily_banister_state per touched user.
 
@@ -64,39 +110,19 @@ def backfill_tss(*, recompute_all: bool = False, recompute_state: bool = True) -
     errors = 0
     touched_users: set[str] = set()
     for user_id, user_activities in by_user.items():
-        profile = _fetch_profile(db, user_id)
-        # fc_max fallback (issue #120): profile value, else the user's observed
-        # 90-day hr_max from the rows fetched above.
-        fc_max = resolve_fc_max_bpm(profile.get("fc_max_bpm"), user_activities, today=today)
-        for a in user_activities:
-            try:
-                tss = compute_tss(
-                    duration_s=a.get("duration_s") or 0,
-                    sport=a.get("sport") or "",
-                    power_avg=a.get("power_avg"),
-                    hr_avg=a.get("hr_avg"),
-                    ftp_watts=profile.get("ftp_watts"),
-                    fc_max_bpm=fc_max,
-                )
-                if tss is None or tss == a.get("tss"):
-                    skipped += 1
-                    continue
-                db.table("activities").update({"tss": tss}).eq("id", a["id"]).execute()
-                updated += 1
-                touched_users.add(user_id)
-            except Exception:
-                log.exception("Failed to backfill TSS for activity %s", a.get("id"))
-                errors += 1
+        user_updated, user_skipped, user_errors = _backfill_user(
+            db, user_id, user_activities, today=today
+        )
+        updated += user_updated
+        skipped += user_skipped
+        errors += user_errors
+        if user_updated:
+            touched_users.add(user_id)
 
     users_recomputed = 0
     if recompute_state:
-        for user_id in sorted(touched_users):
-            try:
-                recompute_daily_state(user_id)
-                users_recomputed += 1
-            except Exception:
-                log.exception("Failed to recompute daily state for user %s", user_id)
-                errors += 1
+        users_recomputed, state_errors = _recompute_states(touched_users)
+        errors += state_errors
 
     return {
         "updated": updated,
