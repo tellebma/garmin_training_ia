@@ -556,7 +556,10 @@ _ELEVATION_OBSERVED_WINDOW_DAYS = 28
 
 
 def observed_weekly_elevation_by_sport(
-    activities: list[dict[str, Any]], *, today: date, window_days: int = _ELEVATION_OBSERVED_WINDOW_DAYS
+    activities: list[dict[str, Any]],
+    *,
+    today: date,
+    window_days: int = _ELEVATION_OBSERVED_WINDOW_DAYS,
 ) -> dict[str, int]:
     """D+ hebdo moyen réellement encaissé par discipline sur la fenêtre récente.
 
@@ -978,9 +981,7 @@ def carry_over_workouts(
 _MAX_PREP_WEEKS = 52
 
 
-def _ensure_prep_anchor(
-    db: Any, race: dict[str, Any], *, today: date, race_date: date
-) -> date:
+def _ensure_prep_anchor(db: Any, race: dict[str, Any], *, today: date, race_date: date) -> date:
     """Retourne l'ancre IMMUABLE du début de préparation (#123).
 
     Posée à la première génération (prep_start_date = today) puis réutilisée
@@ -1219,9 +1220,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         ).lt("date", today_iso).execute()
         # ... et réaligner leurs week_offset sur la grille ancrée (sinon deux
         # « semaine 0 » coexistent dans le plan, cf. bug prod du 13/07 + 26/07).
-        _realign_past_week_offsets(
-            db, plan_id=plan_id, grid_start=week_start, today_iso=today_iso
-        )
+        _realign_past_week_offsets(db, plan_id=plan_id, grid_start=week_start, today_iso=today_iso)
 
     for s in all_sessions:
         s["plan_id"] = plan_id

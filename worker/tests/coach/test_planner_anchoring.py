@@ -129,7 +129,9 @@ def test_anchored_prep_reaches_late_phases(monkeypatch) -> None:
     today = date(2026, 8, 2)
     race_date = today + timedelta(days=27)
     prep_start = today - timedelta(weeks=9)
-    cap = _run_plan(monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=prep_start))
+    cap = _run_plan(
+        monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=prep_start)
+    )
 
     phases = {s["phase"] for s in cap["sessions"]}
     assert "base" not in phases, f"retour en base à J-27 : {phases}"
@@ -184,7 +186,9 @@ def test_existing_anchor_is_not_overwritten(monkeypatch) -> None:
     today = date(2026, 8, 2)
     race_date = today + timedelta(days=27)
     prep_start = today - timedelta(weeks=9)
-    cap = _run_plan(monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=prep_start))
+    cap = _run_plan(
+        monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=prep_start)
+    )
 
     assert cap["race_updates"] == [], f"l'ancre a été réécrite : {cap['race_updates']}"
 
@@ -195,7 +199,9 @@ def test_week_offsets_are_unique_and_consistent_with_dates(monkeypatch) -> None:
     today = date(2026, 8, 2)
     race_date = today + timedelta(days=27)
     prep_start = today - timedelta(weeks=9)
-    cap = _run_plan(monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=prep_start))
+    cap = _run_plan(
+        monkeypatch, today=today, race=_make_race(race_date=race_date, prep_start=prep_start)
+    )
 
     weeks_count = cap["result"]["weeks_count"]
     grid_start = race_date - timedelta(days=weeks_count * 7 - 1)
@@ -239,9 +245,7 @@ def test_reparented_past_sessions_get_realigned_week_offsets(monkeypatch) -> Non
         previous_plans=[{"id": "old-plan"}],
     )
 
-    expected_offsets = {
-        (date.fromisoformat(p["date"]) - grid_start).days // 7 for p in past
-    }
+    expected_offsets = {(date.fromisoformat(p["date"]) - grid_start).days // 7 for p in past}
     realigned = {u["week_offset"] for u in cap["ps_updates"] if "week_offset" in u}
     assert realigned == expected_offsets, (
         f"offsets réalignés {realigned} != attendus {expected_offsets}"

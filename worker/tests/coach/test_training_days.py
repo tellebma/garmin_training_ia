@@ -105,9 +105,7 @@ def test_select_observed_days_respects_availability_mask():
     from garmin_sync.coach.training_days import select_training_days_observed
 
     counts = {0: 9, 6: 8, 2: 5, 4: 4}
-    chosen = select_training_days_observed(
-        available_idx={2, 4, 5}, count=2, weekday_counts=counts
-    )
+    chosen = select_training_days_observed(available_idx={2, 4, 5}, count=2, weekday_counts=counts)
     assert chosen <= {2, 4, 5}
     assert len(chosen) == 2
 
@@ -131,9 +129,7 @@ def test_run_cap_by_level():
 
 def test_assign_sports_no_back_to_back_run():
     days = [0, 1, 2, 3, 4]
-    assignment = assign_sports(
-        training_idx=days, sport_counts={"swim": 1, "bike": 2, "run": 2}
-    )
+    assignment = assign_sports(training_idx=days, sport_counts={"swim": 1, "bike": 2, "run": 2})
     ordered = [assignment[d] for d in days]
     for a, b in pairwise(ordered):
         assert not (a == "run" and b == "run")

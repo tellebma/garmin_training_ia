@@ -1090,7 +1090,8 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
     assert n_bike >= 2
     # La séance longue porte sur la discipline dominante de l'épreuve.
     long_sessions = [s for s in training if s["session_type"] == "long"]
-    assert long_sessions and long_sessions[0]["sport"] == "bike"
+    assert long_sessions
+    assert long_sessions[0]["sport"] == "bike"
 
 
 def test_build_week_uses_declared_budget_with_five_days() -> None:
