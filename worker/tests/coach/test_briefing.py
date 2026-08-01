@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from garmin_sync.coach.activity_review import build_activity_review
+from garmin_sync.coach.activity_review import ActivityInsight, build_activity_review
 from garmin_sync.coach.briefing import (
     BASELINE_SCORE,
     BRIEFING_CACHE_VERSION,
@@ -176,6 +177,52 @@ def test_build_coach_recommendation_rest_advised_is_clear():
     assert "Z1" in rec.instruction
 
 
+def _rest_review_with_risk_insight():
+    review = _empty_review()
+    return replace(
+        review,
+        insights=[
+            ActivityInsight(
+                "load_spike",
+                "risk",
+                "Charge des 7 derniers jours nettement au-dessus de ta tendance.",
+                -10,
+            )
+        ],
+    )
+
+
+def test_build_coach_recommendation_rest_day_never_says_execute_the_session():
+    """Regression #132: a rest day combined with a risk insight (e.g. load_spike, which is
+    almost always present) must never produce an "execute the session" instruction — there
+    is no session to execute.
+    """
+    rec = build_coach_recommendation(
+        status="ready",
+        planned_session={"sport": "rest", "session_type": "rest", "target_duration_s": 0},
+        suggested_session=None,
+        activity_review=_rest_review_with_risk_insight(),
+        session_feedback=None,
+    )
+
+    assert "exécute la séance" not in rec.instruction.lower()
+    assert rec.action == "rest"
+
+
+def test_build_coach_recommendation_rest_day_without_risk_stays_a_rest_message():
+    rec = build_coach_recommendation(
+        status="ready",
+        planned_session={"sport": "rest", "session_type": "rest", "target_duration_s": 0},
+        suggested_session=None,
+        activity_review=_empty_review(),
+        session_feedback=None,
+    )
+
+    assert rec.action == "rest"
+    assert "exécute la séance" not in rec.instruction.lower()
+    assert "suis la séance prévue" not in rec.instruction.lower()
+
+
 def _mock_db_with(
     *,
     hrv=None,
@@ -291,6 +338,22 @@ def test_build_next_session_adjustment_ignores_risky_feedback_for_easy_session()
     )
 
     assert adjustment.status == "none"
+
+
+def test_build_next_session_adjustment_rest_day_default_never_says_follow_the_session():
+    """Regression #132: the no-op fallback for a rest day must not read as "follow the
+    planned session" — there is no session, and pairing that text with a risk insight
+    reads as an instruction to train.
+    """
+    adjustment = build_next_session_adjustment(
+        planned_session={"sport": "rest", "session_type": "rest", "target_duration_s": 0},
+        suggested_session=None,
+        activity_review=_rest_review_with_risk_insight(),
+        session_feedback=None,
+    )
+
+    assert "suis la séance prévue" not in adjustment.instruction.lower()
+    assert adjustment.target_session is not None
 
 
 def test_build_next_session_adjustment_eases_hard_session_after_watch_feedback():
@@ -481,6 +544,44 @@ def test_compute_briefing_activity_load_spike_affects_readiness(mock_db_fn):
 
 
 @patch("garmin_sync.coach.briefing.get_admin_client")
+def test_compute_briefing_rest_day_with_load_spike_never_says_execute_the_session(mock_db_fn):
+    """Regression #132, prod repro: a rest day where activity_load_spike (near-permanent
+    risk insight) is present must not tell the athlete to execute/follow "the session".
+    """
+    activities = [
+        {"start_time": "2026-05-19T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 95},
+        {
+            "start_time": "2026-05-18T08:00:00Z",
+            "sport": "bike",
+            "duration_s": 3 * 3600,
+            "tss": 130,
+        },
+        {"start_time": "2026-05-08T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 90},
+        {"start_time": "2026-05-01T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 90},
+        {"start_time": "2026-04-24T08:00:00Z", "sport": "run", "duration_s": 3600, "tss": 90},
+    ]
+    db = _mock_db_with(
+        hrv={"hrv_rmssd": 42, "hrv_status": "balanced", "hrv_weekly_avg": 42},
+        sleep={"sleep_duration_s": 7.5 * 3600, "sleep_score": 75},
+        daily={"resting_hr": 55, "body_battery_low": 60},
+        tsb=2.0,
+        planned={"sport": "rest", "session_type": "rest", "target_duration_s": 0},
+        baseline_rows=[{"resting_hr": 55}],
+        activities=activities,
+    )
+    mock_db_fn.return_value = db
+
+    b = compute_briefing("u1", today=date(2026, 5, 20))
+
+    factor_names = {f.name for f in b.factors}
+    assert "activity_load_spike" in factor_names
+    assert b.is_rest_day is True
+    assert b.coach_recommendation.action == "rest"
+    assert "exécute la séance" not in b.coach_recommendation.instruction.lower()
+    assert "suis la séance prévue" not in b.next_session_adjustment.instruction.lower()
+
+
+@patch("garmin_sync.coach.briefing.get_admin_client")
 def test_compute_briefing_skips_stale_session_feedback(mock_db_fn):
     """A latest activity older than the recency window must not drive post-session feedback.
 
@@ -530,6 +631,10 @@ def test_compute_briefing_keeps_recent_session_feedback(mock_db_fn):
 
     assert b.last_session_feedback is not None
     assert b.last_session_feedback.verdict == "sport_mismatch"
+    # Regression #127 (briefing part): a sport swap is an observance signal, not a
+    # fatigue one — it must not be folded into readiness_score.
+    assert b.readiness_score == BASELINE_SCORE
+    assert not any(f.name.startswith("session_feedback_") for f in b.factors)
 
 
 def test_dailybriefing_to_dict_serializes_factors_and_suggestion():
