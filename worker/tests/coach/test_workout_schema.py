@@ -9,10 +9,120 @@ from garmin_sync.coach.workout_schema import (
     IntervalTarget,
     Workout,
     describe_session_envelope,
+    enrich_workout_targets,
     envelope_for_session,
     structure_caps_for_type,
     validate_workout_for_session,
 )
+
+
+def _plain_block(duration_s: int = 600, label: str = "Z2") -> IntervalBlock:
+    return IntervalBlock(duration_s=duration_s, target=IntervalTarget(label=label, rpe=4))
+
+
+def _plain_workout() -> Workout:
+    return Workout(
+        warmup=_plain_block(600, "Z1"),
+        main=[_plain_block(2400, "Z2")],
+        cooldown=_plain_block(600, "Z1"),
+        summary_md="ok",
+    )
+
+
+def test_enrich_fills_bpm_bounds_from_fc_max():
+    out = enrich_workout_targets(_plain_workout(), athlete={"fc_max_bpm": 195}, sport="run")
+    z2 = out.main[0]
+    assert isinstance(z2, IntervalBlock)
+    assert z2.target.bpm_low == round(0.60 * 195)
+    assert z2.target.bpm_high == round(0.70 * 195)
+    assert out.warmup.target.bpm_low == round(0.50 * 195)  # Z1
+
+
+def test_enrich_fills_watts_from_ftp_for_bike_only():
+    athlete = {"fc_max_bpm": 195, "ftp_watts": 240}
+    bike = enrich_workout_targets(_plain_workout(), athlete=athlete, sport="bike")
+    run = enrich_workout_targets(_plain_workout(), athlete=athlete, sport="run")
+    bike_main = bike.main[0]
+    run_main = run.main[0]
+    assert isinstance(bike_main, IntervalBlock)
+    assert isinstance(run_main, IntervalBlock)
+    assert bike_main.target.watts_low == round(0.56 * 240)
+    assert bike_main.target.watts_high == round(0.75 * 240)
+    assert run_main.target.watts_low is None
+
+
+def test_enrich_fills_run_pace_from_vma():
+    out = enrich_workout_targets(_plain_workout(), athlete={"vma_kmh": 17.0}, sport="run")
+    main = out.main[0]
+    assert isinstance(main, IntervalBlock)
+    assert main.target.pace_low_kmh == pytest.approx(0.65 * 17.0, abs=0.1)
+    assert main.target.pace_high_kmh == pytest.approx(0.75 * 17.0, abs=0.1)
+
+
+def test_enrich_fills_swim_pace_per_100m_from_css():
+    out = enrich_workout_targets(_plain_workout(), athlete={"css_per_100m_s": 95}, sport="swim")
+    main = out.main[0]
+    assert isinstance(main, IntervalBlock)
+    # Z2 = CSS + 8..12 s/100m ; low = plus rapide (moins de secondes)
+    assert main.target.pace_per_100m_low_s == 103
+    assert main.target.pace_per_100m_high_s == 107
+    # jamais de km/h illisible injecté pour la natation
+    assert main.target.pace_low_kmh is None
+
+
+def test_enrich_covers_interval_set_work_and_rest():
+    workout = Workout(
+        warmup=_plain_block(600, "Z1"),
+        main=[
+            IntervalSet(
+                reps=4,
+                work=IntervalBlock(duration_s=300, target=IntervalTarget(label="Z4", rpe=8)),
+                rest=IntervalBlock(duration_s=120, target=IntervalTarget(label="Z1", rpe=2)),
+            )
+        ],
+        cooldown=_plain_block(600, "Z1"),
+        summary_md="ok",
+    )
+    out = enrich_workout_targets(workout, athlete={"fc_max_bpm": 190}, sport="run")
+    s = out.main[0]
+    assert isinstance(s, IntervalSet)
+    assert s.work.target.bpm_low == round(0.80 * 190)
+    assert s.rest.target.bpm_low == round(0.50 * 190)
+
+
+def test_enrich_preserves_llm_provided_values():
+    workout = Workout(
+        warmup=_plain_block(600, "Z1"),
+        main=[
+            IntervalBlock(
+                duration_s=2400,
+                target=IntervalTarget(label="Z2", rpe=4, bpm_low=120, bpm_high=140),
+            )
+        ],
+        cooldown=_plain_block(600, "Z1"),
+        summary_md="ok",
+    )
+    out = enrich_workout_targets(workout, athlete={"fc_max_bpm": 195}, sport="run")
+    main = out.main[0]
+    assert isinstance(main, IntervalBlock)
+    assert main.target.bpm_low == 120
+    assert main.target.bpm_high == 140
+
+
+def test_enrich_degrades_gracefully_without_profile_data():
+    out = enrich_workout_targets(_plain_workout(), athlete={}, sport="run")
+    main = out.main[0]
+    assert isinstance(main, IntervalBlock)
+    assert main.target.bpm_low is None
+    assert main.target.pace_low_kmh is None
+
+
+def test_enrich_does_not_mutate_input():
+    workout = _plain_workout()
+    enrich_workout_targets(workout, athlete={"fc_max_bpm": 195}, sport="run")
+    main = workout.main[0]
+    assert isinstance(main, IntervalBlock)
+    assert main.target.bpm_low is None
 
 
 def test_describe_session_envelope_states_numeric_bounds():

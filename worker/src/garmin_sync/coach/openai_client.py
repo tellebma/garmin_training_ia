@@ -13,6 +13,7 @@ from openai import OpenAI
 from garmin_sync.coach.workout_schema import (
     Workout,
     describe_session_envelope,
+    enrich_workout_targets,
     validate_workout_for_session,
 )
 from garmin_sync.config import get_settings
@@ -279,8 +280,13 @@ def generate_workout_for_session(
         total_prompt += prompt_tokens
         total_completion += completion_tokens
         if isinstance(result, Workout):
+            # Bornes chiffrées (FC/W/allure) dérivées du profil : le LLM laisse
+            # régulièrement ces champs à null (issue #125).
+            enriched = enrich_workout_targets(
+                result, athlete=athlete, sport=str(session.get("sport") or "")
+            )
             return WorkoutResult(
-                workout=result,
+                workout=enriched,
                 usage=LlmUsage(model, total_prompt, total_completion),
                 attempts=attempts,
             )
