@@ -768,6 +768,29 @@ par version. État lu/non-lu stocké sur `athlete_profiles.last_seen_changelog_v
 de mise à jour ajouté à `CLAUDE.md`. Spec :
 `docs/superpowers/specs/2026-07-12-e21-notifications-nouveautes-design.md`.
 
+### EPIC E22 — Calques PNG partageables (story Instagram) (demande owner 2026-07-30)
+
+**Priorité : P2 — Statut : V1 livrée (PR #119)**
+
+Sur `/history/[id]`, section « Partager en story » qui génère un **sticker PNG** (fond
+transparent par défaut) avec la trace GPS et les métriques principales, à superposer sur sa
+photo dans Instagram / WhatsApp / Snapchat. Style validé par l'owner sur référence des calques
+de partage Strava : composition **centrée et compacte**, sans marque tierce.
+
+Cinq gabarits (tracé + métriques, métriques + tracé, profil + métriques, métriques seules,
+tracé seul), deux formats (story 9:16, carré 1:1), trois fonds (transparent / dégradé /
+sombre), cinq couleurs d'accent, 3 à 4 métriques sélectionnables selon le gabarit, titre et
+signature désactivables. Export par téléchargement, ou feuille de partage native
+(`navigator.share({ files })`) quand le navigateur le supporte.
+
+Rendu 100 % Canvas côté client, sans nouvelle dépendance et sans fond de carte (les tuiles
+externes « taint » le canvas et empêchent `toBlob()`). Spec :
+`docs/superpowers/specs/2026-07-30-e22-calques-png-partage-activite-design.md`.
+
+**Suite possible (Todo)** : coloration du tracé par métrique (FC / vitesse) comme sur la carte
+MapLibre ; icône de sport dessinée sur le sticker (`Path2D`) ; bouton de partage direct depuis
+la liste `/history` ; comparaison « vs sortie similaire » sur le calque.
+
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 
 **Priorité : P1 — Statut : V1 livrée (auto-apply, sans gate)**
