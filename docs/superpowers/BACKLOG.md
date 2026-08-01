@@ -770,7 +770,7 @@ de mise à jour ajouté à `CLAUDE.md`. Spec :
 
 ### EPIC E22 — Calques PNG partageables (story Instagram) (demande owner 2026-07-30)
 
-**Priorité : P2 — Statut : V1 livrée**
+**Priorité : P2 — Statut : V1 livrée (PR #119)**
 
 Sur `/history/[id]`, section « Partager en story » qui génère un **sticker PNG** (fond
 transparent par défaut) avec la trace GPS et les métriques principales, à superposer sur sa
