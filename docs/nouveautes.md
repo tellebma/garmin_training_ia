@@ -1,5 +1,13 @@
 # Nouveautés
 
+## 1.15.1 — 2026-08-01
+
+- Le briefing du jour ne te dit plus « exécute la séance » un jour de repos : le message
+  reste cohérent avec le plan, même quand un signal de charge est présent.
+- Avoir échangé deux disciplines dans la semaine (ex. nagé au lieu de pédaler) n'influence
+  plus ta note de forme du jour : c'est une information d'assiduité affichée à part, pas
+  un signe de fatigue.
+
 ## 1.15.0 — 2026-07-30
 
 - Partage tes sorties en story : sur la fiche d'une activité, la section « Partager en story »
