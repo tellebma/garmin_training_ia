@@ -1,3 +1,9 @@
+## [1.15.6](https://github.com/tellebma/garmin_training_ia/compare/v1.15.5...v1.15.6) (2026-08-01)
+
+### Bug Fixes
+
+* **db:** réordonne les migrations de l'audit coach après la migration LLM ([#143](https://github.com/tellebma/garmin_training_ia/issues/143)) ([5fa6c07](https://github.com/tellebma/garmin_training_ia/commit/5fa6c074624825d693cfca9178c86e96c2c07404))
+
 ## [1.15.5](https://github.com/tellebma/garmin_training_ia/compare/v1.15.4...v1.15.5) (2026-08-01)
 
 ### Bug Fixes
