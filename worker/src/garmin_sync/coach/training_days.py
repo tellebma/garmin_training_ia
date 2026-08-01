@@ -76,6 +76,17 @@ def select_training_days(*, available_idx: set[int], count: int) -> set[int]:
     return set(sorted(picked)[:count])
 
 
+def long_session_day(training_idx: set[int]) -> int | None:
+    """Jour de la séance longue : le DERNIER jour d'entraînement de la semaine.
+
+    Dérivé des jours réellement retenus (et non d'un index en dur) : le dimanche
+    codé en dur n'était jamais sélectionné par ``select_training_days``, donc
+    aucune séance longue n'était jamais émise (#122). Le dernier jour (samedi ou
+    dimanche en pratique) laisse la semaine récupérer après la grosse sortie.
+    """
+    return max(training_idx) if training_idx else None
+
+
 def assign_sports(
     *, training_idx: list[int], sports_in_race: list[str], level: Level
 ) -> dict[int, str]:

@@ -160,8 +160,8 @@ def test_build_phase_default_progress_keeps_pma_backward_compatible() -> None:
 
 
 def test_pick_session_type_avoids_pma_the_day_after_a_pma_day() -> None:
-    # day_idx=1 (mardi) n'est pas un slot réservé (long=dimanche, recovery=lundi/jeudi),
-    # donc _pick_session_type applique la logique anti back-to-back hard.
+    # day_idx=1 (mardi) n'est pas un slot réservé (long=dernier jour d'entraînement,
+    # recovery=lundi/jeudi), donc _pick_session_type applique l'anti back-to-back hard.
     picked = _pick_session_type(
         day_idx=1, types_for_phase=["pma", "sprint", "endurance"], used_types=["pma"]
     )
@@ -877,6 +877,33 @@ def test_build_week_strong_bike_gets_threshold_despite_weak_run() -> None:
     assert not (run_types & {"threshold", "pma", "sprint"}), (
         f"la course (niveau 1) doit rester protégée, obtenu : {run_types}"
     )
+
+
+def test_build_week_four_days_without_sunday_still_has_long() -> None:
+    """Régression #122 : la séance longue n'était attribuable que le dimanche,
+    or le sélecteur retenait lun/mer/ven/sam -> 0 séance longue depuis mai.
+    La longue doit suivre le dernier jour d'entraînement de la semaine."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),  # Monday
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
+        tss_by_sport={"swim": 50.0, "bike": 50.0, "run": 50.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="run",
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
+    long_sessions = [s for s in training if s["session_type"] == "long"]
+    assert len(long_sessions) >= 1, f"aucune séance longue (jours : {sorted(trained_days)})"
+    # La longue tombe le dernier jour d'entraînement, dimanche sélectionné ou pas.
+    assert date.fromisoformat(long_sessions[0]["date"]).weekday() == max(trained_days)
 
 
 def test_cap_limits_run_increase_to_10pct() -> None:

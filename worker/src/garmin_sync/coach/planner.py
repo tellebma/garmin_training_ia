@@ -21,6 +21,7 @@ from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.training_days import (
     assign_sports,
     athlete_level,
+    long_session_day,
     select_training_days,
     training_days_count,
 )
@@ -169,9 +170,14 @@ def cap_weekly_ramp_by_sport(
     return capped
 
 
-def _placement_priority_for_day(day_idx: int) -> int:
-    """Sunday (=6) gets long sessions; Mon/Thu (=0,3) get recovery; rest = mid-week."""
-    if day_idx == 6:
+def _placement_priority_for_day(day_idx: int, long_day_idx: int | None = None) -> int:
+    """Le jour "longue" est dérivé des jours d'entraînement retenus (#122) ;
+    Mon/Thu (=0,3) get recovery; rest = mid-week.
+
+    L'ancien codage en dur `day_idx == 6` (dimanche) ne matchait jamais les jours
+    choisis par ``select_training_days`` -> 0 séance longue émise depuis mai.
+    """
+    if long_day_idx is not None and day_idx == long_day_idx:
         return 0  # long
     if day_idx in (0, 3):
         return 2  # recovery
@@ -213,6 +219,7 @@ def _pick_session_type(
     day_idx: int,
     types_for_phase: list[str],
     used_types: list[str],
+    long_day_idx: int | None = None,
 ) -> str:
     """Pick a session type respecting priority slots and avoiding back-to-back hard sessions.
 
@@ -220,7 +227,7 @@ def _pick_session_type(
     par sport, cf. #121) ; ``used_types`` reste l'historique global de la semaine
     pour éviter deux séances dures d'affilée, tous sports confondus.
     """
-    priority = _placement_priority_for_day(day_idx)
+    priority = _placement_priority_for_day(day_idx, long_day_idx)
     if priority == 0 and "long" in types_for_phase:
         return "long"
     if priority == 2 and "recovery" in types_for_phase:
@@ -419,6 +426,7 @@ def _build_training_day_plan(
     types_by_sport: dict[str, list[str]],
     is_last_week: bool,
     race_date: date,
+    long_day_idx: int | None = None,
 ) -> dict[int, tuple[str, str]]:
     """Single-pass day plan: weekday index -> (sport, session_type).
 
@@ -445,6 +453,7 @@ def _build_training_day_plan(
             day_idx=day_idx,
             types_for_phase=types_by_sport.get(sport, ["endurance"]),
             used_types=used_types,
+            long_day_idx=long_day_idx,
         )
         used_types.append(stype)
         plan[day_idx] = (sport, stype)
@@ -557,6 +566,7 @@ def _build_week_sessions(
         types_by_sport=types_by_sport,
         is_last_week=is_last_week,
         race_date=race_date,
+        long_day_idx=long_session_day(training_idx),
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
     sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
