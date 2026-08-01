@@ -11,10 +11,11 @@ from datetime import date, datetime, timedelta
 from typing import Any, cast
 
 from garmin_sync.coach.banister import (
+    cold_start_state,
     compute_banister_history,
-    estimate_initial_ctl_from_profile,
+    is_cold_start,
 )
-from garmin_sync.coach.tss import compute_tss
+from garmin_sync.coach.tss import compute_tss, resolve_fc_max_bpm
 from garmin_sync.supabase_client import get_admin_client
 
 
@@ -35,12 +36,13 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
 
     activities_resp = (
         db.table("activities")
-        .select("start_time, sport, duration_s, power_avg, hr_avg")
+        .select("start_time, sport, duration_s, power_avg, hr_avg, hr_max")
         .eq("user_id", user_id)
         .gte("start_time", start.isoformat())
         .execute()
     )
     activities = cast("list[dict[str, Any]]", activities_resp.data or [])
+    fc_max = resolve_fc_max_bpm(profile.get("fc_max_bpm"), activities, today=today)
 
     tss_by_date: dict[date, float] = {}
     for a in activities:
@@ -50,7 +52,7 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
             power_avg=a.get("power_avg"),
             hr_avg=a.get("hr_avg"),
             ftp_watts=profile.get("ftp_watts"),
-            fc_max_bpm=profile.get("fc_max_bpm"),
+            fc_max_bpm=fc_max,
         )
         if tss is None:
             continue
@@ -58,21 +60,22 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
         d = datetime.fromisoformat(raw_start).date()
         tss_by_date[d] = tss_by_date.get(d, 0.0) + tss
 
-    # < 14 activity days in window → cold-start estimate (matches planner.py)
-    if len(tss_by_date) < 14:
-        init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
-        init_atl = init_ctl  # ATL mirrors CTL at cold start
+    n_days = (today - start).days + 1
+    if is_cold_start(tss_by_date):
+        # Cold start (issue #134): the profile estimate is TODAY's form, shared
+        # with the planner via cold_start_state. Materialize it as a flat
+        # baseline — simulating 180 days of decay from a fabricated seed is
+        # exactly the bug this replaces (CTL≈0 in the app vs full estimate in
+        # the plan). daily_tss still reflects the real (sparse) activities.
+        states = [cold_start_state(profile.get("hours_per_week"))] * n_days
     else:
-        init_ctl = 0.0
-        init_atl = 0.0
-
-    states = compute_banister_history(
-        tss_by_date=tss_by_date,
-        start=start,
-        end=today,
-        initial_ctl=init_ctl,
-        initial_atl=init_atl,
-    )
+        states = compute_banister_history(
+            tss_by_date=tss_by_date,
+            start=start,
+            end=today,
+            initial_ctl=0.0,
+            initial_atl=0.0,
+        )
 
     rows: list[dict[str, Any]] = []
     for i, s in enumerate(states):

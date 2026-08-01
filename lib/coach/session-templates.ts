@@ -48,7 +48,25 @@ function fmtDuration(s: number): string {
   return rem === 0 ? `${String(h)}h` : `${String(h)}h${String(rem).padStart(2, '0')}`
 }
 
+// 103 s -> "1'43" (format allure/départ natation).
+function fmtSecondsAsMinSec(s: number): string {
+  const m = Math.floor(s / 60)
+  const sec = Math.round(s % 60)
+  return `${String(m)}'${String(sec).padStart(2, '0')}`
+}
+
+// Natation : la distance prime sur la durée (« 400 m », pas « 8min »).
+function fmtQuantity(b: IntervalBlock, sport: Sport): string {
+  if (sport === 'swim' && b.distance_m) {
+    return `${String(b.distance_m)} m`
+  }
+  return fmtDuration(b.duration_s)
+}
+
 function fmtTarget(t: IntervalTarget, sport: Sport): string {
+  if (sport === 'swim' && t.pace_per_100m_low_s && t.pace_per_100m_high_s) {
+    return `${fmtSecondsAsMinSec(t.pace_per_100m_low_s)}–${fmtSecondsAsMinSec(t.pace_per_100m_high_s)} /100m`
+  }
   if (t.bpm_low !== undefined && t.bpm_low !== null && t.bpm_high) {
     return `${String(t.bpm_low)}-${String(t.bpm_high)} bpm`
   }
@@ -65,15 +83,20 @@ function fmtTarget(t: IntervalTarget, sport: Sport): string {
 }
 
 function renderBlock(b: IntervalBlock, sport: Sport, indent = ''): string {
-  const lines = [`${indent}- ${fmtDuration(b.duration_s)} @ ${fmtTarget(b.target, sport)}`]
+  const lines = [`${indent}- ${fmtQuantity(b, sport)} @ ${fmtTarget(b.target, sport)}`]
   if (b.notes) lines.push(`${indent}  *${b.notes}*`)
   return lines.join('\n')
 }
 
 function renderSet(s: IntervalSet, sport: Sport): string {
   const repsLabel = `${String(s.reps)} × `
-  const workLine = `- ${repsLabel}${fmtDuration(s.work.duration_s)} @ ${fmtTarget(s.work.target, sport)}`
-  const restLine = `  Récup ${fmtDuration(s.rest.duration_s)} @ ${fmtTarget(s.rest.target, sport)}`
+  const workLine = `- ${repsLabel}${fmtQuantity(s.work, sport)} @ ${fmtTarget(s.work.target, sport)}`
+  // Natation en séries sur distance : convention bord de bassin « départ toutes
+  // les X » (temps de nage + récup) plutôt qu'une ligne Récup séparée.
+  const restLine =
+    sport === 'swim' && s.work.distance_m
+      ? `  départ ${fmtSecondsAsMinSec(s.work.duration_s + s.rest.duration_s)}`
+      : `  Récup ${fmtDuration(s.rest.duration_s)} @ ${fmtTarget(s.rest.target, sport)}`
   const lines = [workLine, restLine]
   if (s.work.notes) lines.push(`  *${s.work.notes}*`)
   return lines.join('\n')

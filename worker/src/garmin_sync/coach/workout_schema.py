@@ -26,6 +26,10 @@ class IntervalTarget(BaseModel):
     watts_high: int | None = None
     pace_low_kmh: float | None = None
     pace_high_kmh: float | None = None
+    # Allure natation en s/100m (dérivée du CSS) : une allure de nage en km/h est
+    # illisible pour l'athlète comme pour l'UI (issue #125). low = plus rapide.
+    pace_per_100m_low_s: int | None = Field(default=None, ge=1)
+    pace_per_100m_high_s: int | None = Field(default=None, ge=1)
     # Cadence : interprétation dépendante du sport (pas de bornes physiologiques
     # universelles) — rpm en vélo, foulées/min en course, coups de bras/min en
     # natation. Champ informatif transmis tel quel ; seul un garde-fou négatif
@@ -38,6 +42,9 @@ class IntervalBlock(BaseModel):
     duration_s: int = Field(ge=1)
     target: IntervalTarget
     notes: str | None = None
+    # Distance optionnelle par bloc — essentielle en natation (« 8x100 m » et non
+    # « 2160 secondes »), utile ailleurs. La durée reste la référence temporelle.
+    distance_m: int | None = Field(default=None, ge=1)
 
 
 class IntervalSet(BaseModel):
@@ -81,6 +88,119 @@ class Workout(BaseModel):
 
     def main_duration_s(self) -> int:
         return sum(block_duration_s(block) for block in self.main)
+
+
+# --- Zones chiffrées dérivées du profil (issue #125) -------------------------
+# Le LLM renvoie régulièrement des cibles vides (« Z2 » sans bornes). Dès que la
+# donnée profil existe, on dérive des bornes chiffrées déterministes par zone.
+# Tables classiques : FC en % FCmax, puissance en % FTP (Coggan), allure course
+# en % VMA, natation en offset s/100m autour du CSS.
+
+_HR_ZONE_PCT: dict[str, tuple[float, float]] = {
+    "Z1": (0.50, 0.60),
+    "Z2": (0.60, 0.70),
+    "Z3": (0.70, 0.80),
+    "Z4": (0.80, 0.90),
+    "Z5": (0.90, 1.00),
+}
+_POWER_ZONE_PCT: dict[str, tuple[float, float]] = {
+    "Z1": (0.40, 0.55),
+    "Z2": (0.56, 0.75),
+    "Z3": (0.76, 0.90),
+    "Z4": (0.91, 1.05),
+    "Z5": (1.06, 1.20),
+}
+_RUN_PACE_PCT_VMA: dict[str, tuple[float, float]] = {
+    "Z1": (0.55, 0.65),
+    "Z2": (0.65, 0.75),
+    "Z3": (0.75, 0.82),
+    "Z4": (0.82, 0.90),
+    "Z5": (0.90, 1.05),
+}
+# Offsets s/100m autour du CSS ; (low, high) numériques — low = plus rapide.
+_SWIM_CSS_OFFSET_S: dict[str, tuple[int, int]] = {
+    "Z1": (12, 20),
+    "Z2": (8, 12),
+    "Z3": (4, 8),
+    "Z4": (-1, 4),
+    "Z5": (-5, -1),
+}
+
+
+def _positive_number(value: object) -> float | None:
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value)
+    return None
+
+
+def _target_updates(
+    target: IntervalTarget, athlete: dict[str, object], sport: str
+) -> dict[str, object]:
+    """Bornes chiffrées manquantes pour une cible, sans écraser celles du LLM."""
+    updates: dict[str, object] = {}
+    fc_max = _positive_number(athlete.get("fc_max_bpm"))
+    if fc_max and target.bpm_low is None and target.bpm_high is None:
+        lo, hi = _HR_ZONE_PCT[target.label]
+        updates["bpm_low"] = round(lo * fc_max)
+        updates["bpm_high"] = round(hi * fc_max)
+
+    ftp = _positive_number(athlete.get("ftp_watts"))
+    if sport == "bike" and ftp and target.watts_low is None and target.watts_high is None:
+        lo, hi = _POWER_ZONE_PCT[target.label]
+        updates["watts_low"] = round(lo * ftp)
+        updates["watts_high"] = round(hi * ftp)
+
+    vma = _positive_number(athlete.get("vma_kmh"))
+    if sport == "run" and vma and target.pace_low_kmh is None and target.pace_high_kmh is None:
+        lo, hi = _RUN_PACE_PCT_VMA[target.label]
+        updates["pace_low_kmh"] = round(lo * vma, 1)
+        updates["pace_high_kmh"] = round(hi * vma, 1)
+
+    css = _positive_number(athlete.get("css_per_100m_s"))
+    if (
+        sport == "swim"
+        and css
+        and target.pace_per_100m_low_s is None
+        and target.pace_per_100m_high_s is None
+    ):
+        off_lo, off_hi = _SWIM_CSS_OFFSET_S[target.label]
+        updates["pace_per_100m_low_s"] = round(css + off_lo)
+        updates["pace_per_100m_high_s"] = round(css + off_hi)
+    return updates
+
+
+def _enrich_block(block: IntervalBlock, athlete: dict[str, object], sport: str) -> IntervalBlock:
+    updates = _target_updates(block.target, athlete, sport)
+    if not updates:
+        return block
+    return block.model_copy(update={"target": block.target.model_copy(update=updates)})
+
+
+def _enrich_main_block(block: MainBlock, athlete: dict[str, object], sport: str) -> MainBlock:
+    if isinstance(block, IntervalSet):
+        return block.model_copy(
+            update={
+                "work": _enrich_block(block.work, athlete, sport),
+                "rest": _enrich_block(block.rest, athlete, sport),
+            }
+        )
+    return _enrich_block(block, athlete, sport)
+
+
+def enrich_workout_targets(workout: Workout, *, athlete: dict[str, object], sport: str) -> Workout:
+    """Nouveau workout avec bornes chiffrées (FC/W/allure) dérivées du profil.
+
+    Ne remplit que les champs laissés à None par le LLM ; sans donnée profil,
+    le workout est rendu tel quel (dégradation propre — cf. issue #120 pour la
+    fiabilisation de fc_max_bpm en amont).
+    """
+    return workout.model_copy(
+        update={
+            "warmup": _enrich_block(workout.warmup, athlete, sport),
+            "main": [_enrich_main_block(b, athlete, sport) for b in workout.main],
+            "cooldown": _enrich_block(workout.cooldown, athlete, sport),
+        }
+    )
 
 
 @dataclass(frozen=True)

@@ -21,7 +21,8 @@ import { EmptyState } from '../_components/empty-state'
 import { GarminStatusBanner } from '../_components/garmin-status-banner'
 import { MetricTile } from '../_components/metric-tile'
 import { PhaseBadge } from '../_components/phase-badge'
-import { SessionCard } from '../_components/session-card'
+import { RegenerateSessionButton } from '../_components/regenerate-session-button'
+import { SessionCard, isGenerationAbandoned } from '../_components/session-card'
 import { ActivityRow } from '../_components/activity-row'
 import { BanisterChart } from '../_components/charts/banister-chart'
 import { SyncTimingsCard } from '../_components/sync-timings-card'
@@ -50,6 +51,22 @@ function renderWorkoutMarkdown(session: PlannedSession): React.ReactNode {
           session.session_type
         )}
       </pre>
+    )
+  }
+  if (isGenerationAbandoned(session)) {
+    // Séance abandonnée par le cron (3 échecs LLM) : sans ce panneau, la case
+    // resterait « en cours de génération » pour toujours (issue #124).
+    return (
+      <div className="border-destructive/50 space-y-2 rounded-md border p-4">
+        <p className="text-destructive text-sm font-medium">
+          La génération de cette séance a échoué plusieurs fois.
+        </p>
+        <p className="text-muted-foreground text-xs">
+          Le coach n&rsquo;a pas réussi à produire un contenu valide pour cette séance. Tu peux
+          relancer la génération manuellement.
+        </p>
+        <RegenerateSessionButton sessionId={session.id} />
+      </div>
     )
   }
   return (
@@ -121,7 +138,7 @@ export default async function TodayPage() {
     supabase
       .from('planned_sessions')
       .select(
-        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes, workout, workout_generated_at, plan_id, training_plans!inner(status)'
+        'id, date, sport, session_type, target_duration_s, target_tss, target_elevation_gain_m, phase, week_offset, notes, workout, workout_generated_at, workout_generation_failures, plan_id, training_plans!inner(status)'
       )
       .eq('user_id', userId)
       .eq('date', today)
