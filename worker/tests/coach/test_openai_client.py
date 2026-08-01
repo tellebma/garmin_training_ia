@@ -183,7 +183,7 @@ def test_generate_workout_returns_usage_alongside_workout(mock_get_client):
     )
 
     assert result.workout.total_duration_s() > 0
-    assert result.usage.model == "gpt-4o-mini"
+    assert result.usage.model == "gpt-5.4-mini"  # défaut settings depuis #124
     assert result.usage.prompt_tokens == 1200
     assert result.usage.completion_tokens == 340
 
