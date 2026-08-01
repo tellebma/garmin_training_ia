@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     discord_webhook_url: SecretStr | None = Field(default=None)
     openai_api_key: SecretStr = Field(default=SecretStr(""))
     openai_admin_api_key: SecretStr = Field(default=SecretStr(""))
-    openai_model: str = Field(default="gpt-4o-mini")
+    # Modèle par défaut : gpt-4o-mini rejetait ~34 % des générations (issue #124).
+    # Surchargeable via OPENAI_MODEL ; penser à mettre à jour llm_pricing.py.
+    openai_model: str = Field(default="gpt-5.4-mini")
     openai_timeout_s: int = Field(default=30)
     openai_max_attempts: int = Field(default=3, ge=1)
     gps_backfill_batch: int = Field(default=8)

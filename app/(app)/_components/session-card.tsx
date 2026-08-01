@@ -9,6 +9,14 @@ import type { Workout } from '@/lib/coach/workout-types'
 import type { PlannedSession } from '@/lib/dashboard/types'
 import { RegenerateSessionButton } from './regenerate-session-button'
 
+// Miroir de MAX_GENERATION_FAILURES côté worker (coach/sessions.py) : au-delà,
+// le cron n'essaiera plus jamais — seule la relance manuelle peut débloquer.
+const GENERATION_ABANDONED_THRESHOLD = 3
+
+export function isGenerationAbandoned(session: PlannedSession): boolean {
+  return (session.workout_generation_failures ?? 0) >= GENERATION_ABANDONED_THRESHOLD
+}
+
 interface SessionCardProps {
   session: PlannedSession
   compact?: boolean
@@ -81,6 +89,18 @@ export function SessionCard({
               {workoutToMarkdown(workout, session.sport as CoachSport, session.session_type)}
             </pre>
           </details>
+          <RegenerateSessionButton sessionId={session.id} />
+        </div>
+      )}
+      {showWorkout && !workout && isGenerationAbandoned(session) && (
+        <div className="border-destructive/50 space-y-2 rounded-lg border p-3">
+          <p className="text-destructive text-sm font-medium">
+            La génération de cette séance a échoué plusieurs fois.
+          </p>
+          <p className="text-muted-foreground text-xs">
+            Le coach n&rsquo;a pas réussi à produire un contenu valide. Relance la génération — si
+            ça persiste, la séance restera planifiée sans détail.
+          </p>
           <RegenerateSessionButton sessionId={session.id} />
         </div>
       )}

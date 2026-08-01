@@ -61,4 +61,27 @@ describe('SessionCard', () => {
     expect(screen.getByTestId('regenerate')).toBeTruthy()
     expect(screen.queryByText('Récupération planifiée')).toBeNull()
   })
+
+  it('surfaces the abandoned-generation state with a retry button (issue #124)', () => {
+    const abandoned: PlannedSession = {
+      ...runSession,
+      workout: null,
+      workout_generation_failures: 3,
+    }
+    render(<SessionCard session={abandoned} showWorkout />)
+    expect(screen.getByText(/génération .*a échoué/i)).toBeTruthy()
+    expect(screen.getByTestId('regenerate')).toBeTruthy()
+    expect(screen.queryByText('Voir la séance détaillée')).toBeNull()
+  })
+
+  it('shows nothing special while generation is still pending (few failures)', () => {
+    const pending: PlannedSession = {
+      ...runSession,
+      workout: null,
+      workout_generation_failures: 1,
+    }
+    render(<SessionCard session={pending} showWorkout />)
+    expect(screen.queryByText(/génération .*a échoué/i)).toBeNull()
+    expect(screen.queryByTestId('regenerate')).toBeNull()
+  })
 })

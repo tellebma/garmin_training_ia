@@ -183,7 +183,7 @@ def test_generate_workout_returns_usage_alongside_workout(mock_get_client):
     )
 
     assert result.workout.total_duration_s() > 0
-    assert result.usage.model == "gpt-4o-mini"
+    assert result.usage.model == "gpt-5.4-mini"  # défaut settings depuis #124
     assert result.usage.prompt_tokens == 1200
     assert result.usage.completion_tokens == 340
 
@@ -298,6 +298,73 @@ def _endurance_session() -> dict:
         "target_tss": 60,
         "phase": "build",
     }
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_prompt_includes_swim_structure_guidance(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+    session = {**_endurance_session(), "sport": "swim"}
+    generate_workout_for_session(
+        session=session, athlete=_athlete_full(), race_context=_race_context()
+    )
+    user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
+    assert "distance_m" in user_msg
+    assert "éducatifs" in user_msg
+    assert "départ" in user_msg
+    assert "km/h" in user_msg  # interdiction explicite
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_prompt_omits_swim_guidance_for_other_sports(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+    generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+    user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
+    assert "Consignes natation" not in user_msg
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_generated_workout_carries_numeric_zone_bounds(mock_get_client):
+    """Issue #125 : le LLM laisse bpm/watts à null — les bornes doivent être
+    dérivées du profil (FC max, FTP) sur le workout final."""
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+
+    result = generate_workout_for_session(
+        session=_endurance_session(),  # bike
+        athlete=_athlete_full(),  # fc_max 195, ftp 240
+        race_context=_race_context(),
+    )
+
+    main = result.workout.main[0]
+    assert main.target.bpm_low == round(0.60 * 195)
+    assert main.target.bpm_high == round(0.70 * 195)
+    assert main.target.watts_low == round(0.56 * 240)
+    assert main.target.watts_high == round(0.75 * 240)
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_generated_workout_without_profile_data_stays_unbounded(mock_get_client):
+    """Dégradation propre tant que fc_max/FTP sont inconnus (fiabilisation #120)."""
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+
+    result = generate_workout_for_session(
+        session=_endurance_session(),
+        athlete={"sports_strengths": {"swim": 3, "bike": 3, "run": 3}},
+        race_context=_race_context(),
+    )
+
+    main = result.workout.main[0]
+    assert main.target.bpm_low is None
+    assert main.target.watts_low is None
 
 
 @patch("garmin_sync.coach.openai_client._get_client")

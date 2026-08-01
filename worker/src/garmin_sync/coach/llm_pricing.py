@@ -4,8 +4,10 @@ from __future__ import annotations
 
 MODEL_PRICING: dict[str, dict[str, float]] = {
     "gpt-4o-mini": {"input_per_1m": 0.15, "output_per_1m": 0.60},
-    # Future-proof : prêt si on bascule (le cached input à 0,02$/1M n'est pas
-    # modélisé ici -> léger sur-comptage de l'input, sûr).
+    # Modèle par défaut depuis le fix #124 (le cached input n'est pas modélisé
+    # ici -> léger sur-comptage de l'input, sûr).
+    "gpt-5.4-mini": {"input_per_1m": 0.75, "output_per_1m": 4.50},
+    "gpt-5.4": {"input_per_1m": 2.50, "output_per_1m": 15.00},
     "gpt-5.4-nano": {"input_per_1m": 0.20, "output_per_1m": 1.25},
 }
 
