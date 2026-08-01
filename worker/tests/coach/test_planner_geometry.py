@@ -100,6 +100,15 @@ def test_plan_last_session_is_race_day(monkeypatch) -> None:
     assert race_sessions[0]["phase"] == "race"
 
 
+def test_race_day_of_triathlon_is_not_a_swim_session(monkeypatch) -> None:
+    """Régression #135 : le jour de course d'un triathlon portait le sport du
+    premier leg (swim). Il doit porter la discipline du race_goal."""
+    sessions = _run_generate_plan_capturing_sessions(monkeypatch, race_in_days=34)
+    race_sessions = [s for s in sessions if s["session_type"] == "race"]
+    assert len(race_sessions) == 1
+    assert race_sessions[0]["sport"] == "triathlon"
+
+
 def test_plan_has_no_session_before_today(monkeypatch) -> None:
     """Aucune séance mort-née dans le passé (semaine 0 ancrée au passé)."""
     today = date.today().isoformat()

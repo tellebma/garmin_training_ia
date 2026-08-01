@@ -188,6 +188,23 @@ def _placement_priority_for_day(day_idx: int, long_day_idx: int | None = None) -
     return 1
 
 
+# Disciplines multi-segments : le jour de course porte la discipline du
+# race_goal, pas celle du premier leg (#135 — un triathlon s'affichait comme
+# une séance de natation). Le check DB accepte ces valeurs depuis la migration
+# 20260801120000_planned_sessions_multisport.
+_MULTI_SPORT_DISCIPLINES = {"triathlon", "duathlon", "aquathlon"}
+
+
+def _race_day_sport(race: dict[str, Any]) -> str:
+    discipline = str(race.get("discipline") or "")
+    if discipline in _MULTI_SPORT_DISCIPLINES:
+        return discipline
+    legs = race.get("legs") or []
+    if legs:
+        return str(legs[0].get("discipline") or "run")
+    return discipline or "run"
+
+
 def _race_day_session(*, day: date, race_sport: str, week_offset: int) -> dict[str, Any]:
     return {
         "date": day.isoformat(),
@@ -1064,7 +1081,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     # chargent via estimate_race_time_shares).
     sports_in_race = list(dict.fromkeys(leg["discipline"] for leg in race["legs"]))
     race_time_shares = estimate_race_time_shares(race["legs"])
-    race_sport = race["legs"][0]["discipline"] if race["legs"] else "run"
+    race_sport = _race_day_sport(race)
     sports_strengths = profile.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
     effective_strengths = load_effective_strengths(
         db, user_id, sports_strengths, today=today, activities=activities
