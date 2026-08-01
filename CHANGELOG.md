@@ -1,3 +1,9 @@
+## [1.15.4](https://github.com/tellebma/garmin_training_ia/compare/v1.15.3...v1.15.4) (2026-08-01)
+
+### Bug Fixes
+
+* **coach:** lot B audit — planner (intensité, longue, périodisation ancrée, volume, répartition, D+, re-timing, jour de course) ([#141](https://github.com/tellebma/garmin_training_ia/issues/141)) ([e403aa9](https://github.com/tellebma/garmin_training_ia/commit/e403aa9fe96de055ab969ab6899696dab392a40d)), closes [#121](https://github.com/tellebma/garmin_training_ia/issues/121) [#122](https://github.com/tellebma/garmin_training_ia/issues/122) [#123](https://github.com/tellebma/garmin_training_ia/issues/123) [#120](https://github.com/tellebma/garmin_training_ia/issues/120) [#128](https://github.com/tellebma/garmin_training_ia/issues/128) [#130](https://github.com/tellebma/garmin_training_ia/issues/130) [#131](https://github.com/tellebma/garmin_training_ia/issues/131) [#129](https://github.com/tellebma/garmin_training_ia/issues/129) [#127](https://github.com/tellebma/garmin_training_ia/issues/127) [#135](https://github.com/tellebma/garmin_training_ia/issues/135) [#139](https://github.com/tellebma/garmin_training_ia/issues/139) [#134](https://github.com/tellebma/garmin_training_ia/issues/134) [#139](https://github.com/tellebma/garmin_training_ia/issues/139) [#121](https://github.com/tellebma/garmin_training_ia/issues/121) [#140](https://github.com/tellebma/garmin_training_ia/issues/140) [#137](https://github.com/tellebma/garmin_training_ia/issues/137)
+
 ## [1.15.3](https://github.com/tellebma/garmin_training_ia/compare/v1.15.2...v1.15.3) (2026-08-01)
 
 ### Bug Fixes
