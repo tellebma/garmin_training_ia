@@ -1,3 +1,9 @@
+## [1.15.5](https://github.com/tellebma/garmin_training_ia/compare/v1.15.4...v1.15.5) (2026-08-01)
+
+### Bug Fixes
+
+* **coach:** garde-fou de fraîcheur avant régénération du plan ([#126](https://github.com/tellebma/garmin_training_ia/issues/126)) ([#138](https://github.com/tellebma/garmin_training_ia/issues/138)) ([e29cbbb](https://github.com/tellebma/garmin_training_ia/commit/e29cbbb3b2fb490d76599fde0d0e6b7574922115))
+
 ## [1.15.4](https://github.com/tellebma/garmin_training_ia/compare/v1.15.3...v1.15.4) (2026-08-01)
 
 ### Bug Fixes
