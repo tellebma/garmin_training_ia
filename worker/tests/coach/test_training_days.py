@@ -79,6 +79,50 @@ def test_select_count_ge_available_returns_all():
     assert select_training_days(available_idx={0, 2, 4}, count=9) == {0, 2, 4}
 
 
+def test_select_observed_days_follows_athlete_habits():
+    """Régression #127 : l'athlète pose ses séances mar/jeu/sam/dim depuis des
+    semaines, la grille mécanique lun/mer/ven/sam ne doit plus être reproposée."""
+    from garmin_sync.coach.training_days import select_training_days_observed
+
+    counts = {1: 4, 3: 3, 5: 5, 6: 4}  # mar, jeu, sam, dim
+    chosen = select_training_days_observed(
+        available_idx={0, 1, 2, 3, 4, 5, 6}, count=4, weekday_counts=counts
+    )
+    assert chosen == {1, 3, 5, 6}
+
+
+def test_select_observed_days_falls_back_to_spread_when_sparse():
+    from garmin_sync.coach.training_days import select_training_days_observed
+
+    sparse = {2: 1}  # signal insuffisant
+    chosen = select_training_days_observed(
+        available_idx={0, 1, 2, 3, 4, 5, 6}, count=4, weekday_counts=sparse
+    )
+    assert chosen == select_training_days(available_idx={0, 1, 2, 3, 4, 5, 6}, count=4)
+
+
+def test_select_observed_days_respects_availability_mask():
+    from garmin_sync.coach.training_days import select_training_days_observed
+
+    counts = {0: 9, 6: 8, 2: 5, 4: 4}
+    chosen = select_training_days_observed(
+        available_idx={2, 4, 5}, count=2, weekday_counts=counts
+    )
+    assert chosen <= {2, 4, 5}
+    assert len(chosen) == 2
+
+
+def test_long_session_day_prefers_athlete_biggest_day():
+    """#127 : la séance longue suit le jour où l'athlète roule déjà longtemps."""
+    from garmin_sync.coach.training_days import long_session_day
+
+    # L'athlète fait ses grosses sorties le jeudi (durée cumulée max).
+    durations = {1: 3600.0, 3: 15000.0, 5: 4000.0}
+    assert long_session_day({1, 3, 5}, weekday_durations=durations) == 3
+    # Sans signal : dernier jour d'entraînement (comportement #122).
+    assert long_session_day({1, 3, 5}) == 5
+
+
 def test_run_cap_by_level():
     assert run_cap("beginner") == 2
     assert run_cap("intermediate") == 3

@@ -1118,6 +1118,56 @@ def test_build_week_uses_declared_budget_with_five_days() -> None:
     assert n_run <= 2, f"le run niveau 1 doit rester cappé à 2 j/sem : {n_run}"
 
 
+def test_observed_weekday_usage_counts_and_durations() -> None:
+    from garmin_sync.coach.planner import observed_weekday_usage
+
+    today = date(2026, 8, 2)  # dimanche
+    activities = [
+        # Deux gros vélos le samedi (weekday 5)
+        {"start_time": "2026-07-25T09:00:00Z", "sport": "cycling", "duration_s": 9000},
+        {"start_time": "2026-07-18T09:00:00Z", "sport": "cycling", "duration_s": 8000},
+        # Un run le mardi (weekday 1)
+        {"start_time": "2026-07-28T07:00:00Z", "sport": "running", "duration_s": 2400},
+        # Hors fenêtre : ignoré
+        {"start_time": "2026-05-01T09:00:00Z", "sport": "cycling", "duration_s": 9000},
+    ]
+    counts, durations = observed_weekday_usage(activities, today=today)
+    assert counts == {5: 2, 1: 1}
+    assert durations[5] == 17000.0
+    assert durations[1] == 2400.0
+
+
+def test_build_week_places_sessions_on_athlete_observed_days() -> None:
+    """Régression #127 : 0 correspondance prévu/réalisé sur 20 jours parce que
+    la grille mécanique ignorait les jours réellement utilisés. Les jours et la
+    séance longue doivent suivre le comportement observé."""
+    from garmin_sync.coach.planner import _build_week_sessions
+
+    sessions = _build_week_sessions(
+        week_offset=0,
+        phase="base",
+        week_start=date(2026, 6, 22),
+        sports_in_race=["swim", "bike", "run"],
+        sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
+        tss_by_sport={"swim": 50.0, "bike": 120.0, "run": 50.0},
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        hours_per_week=8,
+        is_last_week=False,
+        race_date=date(2026, 9, 1),
+        race_sport="bike",
+        race_time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        observed_weekday_counts={1: 3, 3: 2, 5: 4, 6: 3},  # mar/jeu/sam/dim
+        observed_weekday_durations={1: 3600.0, 3: 4000.0, 5: 16000.0, 6: 7000.0},
+    )
+    training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
+    trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
+    assert trained_days == {1, 3, 5, 6}, f"jours {sorted(trained_days)} != habitudes athlète"
+    long_sessions = [s for s in training if s["session_type"] == "long"]
+    assert long_sessions, "il faut une séance longue"
+    # La longue tombe le samedi, jour des grosses sorties observées.
+    assert date.fromisoformat(long_sessions[0]["date"]).weekday() == 5
+
+
 def test_cap_limits_run_increase_to_10pct() -> None:
     out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
     assert out["run"] == 110.0  # +10% max

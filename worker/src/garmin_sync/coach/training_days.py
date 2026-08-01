@@ -92,15 +92,57 @@ def select_training_days(*, available_idx: set[int], count: int) -> set[int]:
     return set(sorted(picked)[:count])
 
 
-def long_session_day(training_idx: set[int]) -> int | None:
-    """Jour de la séance longue : le DERNIER jour d'entraînement de la semaine.
+# Nombre minimal de séances observées sur la fenêtre pour considérer les
+# habitudes de l'athlète comme un signal fiable (sinon étalement mécanique).
+_MIN_OBSERVED_SESSIONS = 6
 
-    Dérivé des jours réellement retenus (et non d'un index en dur) : le dimanche
-    codé en dur n'était jamais sélectionné par ``select_training_days``, donc
-    aucune séance longue n'était jamais émise (#122). Le dernier jour (samedi ou
-    dimanche en pratique) laisse la semaine récupérer après la grosse sortie.
+
+def select_training_days_observed(
+    *,
+    available_idx: set[int],
+    count: int,
+    weekday_counts: dict[int, int] | None,
+) -> set[int]:
+    """Choisit les jours d'entraînement en suivant les habitudes OBSERVÉES (#127).
+
+    Prod : la grille mécanique lun/mer/ven/sam était reproposée chaque semaine
+    alors que l'athlète posait ses grosses sorties en fin de semaine -> zéro
+    correspondance prévu/réalisé sur 20 jours, et un malus d'observance en
+    prime. Si le signal est suffisant (>= ``_MIN_OBSERVED_SESSIONS`` séances
+    sur la fenêtre, parmi les jours disponibles), on retient les jours les plus
+    utilisés ; sinon retour à l'étalement mécanique (``select_training_days``).
     """
-    return max(training_idx) if training_idx else None
+    counts = weekday_counts or {}
+    observed_total = sum(counts.get(d, 0) for d in available_idx)
+    if observed_total < _MIN_OBSERVED_SESSIONS:
+        return select_training_days(available_idx=available_idx, count=count)
+    days = sorted(available_idx)
+    if count <= 0:
+        return set()
+    if count >= len(days):
+        return set(days)
+    ranked = sorted(days, key=lambda d: (-counts.get(d, 0), d))
+    return set(ranked[:count])
+
+
+def long_session_day(
+    training_idx: set[int], weekday_durations: dict[int, float] | None = None
+) -> int | None:
+    """Jour de la séance longue, dérivé des jours réellement retenus (#122/#127).
+
+    Priorité au jour où l'athlète cumule DÉJÀ le plus de temps d'entraînement
+    (``weekday_durations``) : c'est là que la grosse sortie a une chance d'être
+    faite. À défaut de signal, le dernier jour d'entraînement de la semaine
+    (samedi/dimanche en pratique) — l'ancien dimanche codé en dur n'était
+    jamais sélectionné, donc aucune séance longue n'était jamais émise.
+    """
+    if not training_idx:
+        return None
+    if weekday_durations:
+        best = max(sorted(training_idx), key=lambda d: weekday_durations.get(d, 0.0))
+        if weekday_durations.get(best, 0.0) > 0:
+            return best
+    return max(training_idx)
 
 
 def allocate_sport_sessions(
