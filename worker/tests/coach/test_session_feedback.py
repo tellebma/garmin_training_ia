@@ -91,6 +91,22 @@ def test_session_feedback_trained_on_rest_day():
     assert "repos" in feedback.message.lower()
 
 
+def test_session_feedback_sport_mismatch_does_not_penalize_readiness():
+    """Regression #127 (briefing part): swapping the day's sport is a planning divergence,
+    not a fatigue signal. It must not move readiness_score, only stay visible as
+    observance info (verdict/message) with a neutral readiness_impact.
+    """
+    feedback = build_session_feedback(
+        activity=_activity(sport="swim"),
+        planned_session=_planned(sport="bike", session_type="endurance"),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "sport_mismatch"
+    assert feedback.severity == "watch"
+    assert feedback.readiness_impact == 0
+
+
 def test_session_feedback_unplanned_activity():
     feedback = build_session_feedback(activity=_activity(), planned_session=None)
 
