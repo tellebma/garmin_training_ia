@@ -257,3 +257,54 @@ def test_sync_garmin_profile_happy_path_only_garmin_synced_at_when_empty() -> No
     assert result["fetched"] == {}
     payload = fake_db.table.return_value.update.call_args.args[0]
     assert list(payload.keys()) == ["garmin_synced_at"]
+
+
+def test_sync_garmin_profile_warns_when_fc_max_absent_from_payload(caplog) -> None:
+    """#120: fc_max_bpm stayed NULL in prod without any trace. When Garmin's
+    payload has no usable userMaxHr, a WARNING must name the missing field."""
+    import logging
+
+    from garmin_sync.profile_sync import sync_garmin_profile
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = (  # noqa: E501
+        _make_creds_row()
+    )
+    fake_client = MagicMock()
+    fake_client.get_user_profile.return_value = {"userData": {"functionalThresholdPower": 245}}
+    fake_client.get_max_metrics.return_value = {}
+
+    with (
+        patch("garmin_sync.profile_sync.get_admin_client", return_value=fake_db),
+        patch("garmin_sync.profile_sync.login_with_tokens", return_value=fake_client),
+        caplog.at_level(logging.WARNING, logger="garmin_sync.profile_sync"),
+    ):
+        result = sync_garmin_profile("u1")
+
+    assert result["status"] == "ok"
+    warnings = [r for r in caplog.records if "fc_max" in r.getMessage()]
+    assert warnings, "expected a WARNING naming the missing fc_max field"
+
+
+def test_sync_garmin_profile_no_fc_max_warning_when_present(caplog) -> None:
+    import logging
+
+    from garmin_sync.profile_sync import sync_garmin_profile
+
+    fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = (  # noqa: E501
+        _make_creds_row()
+    )
+    fake_client = MagicMock()
+    fake_client.get_user_profile.return_value = {"userData": {"userMaxHr": 188}}
+    fake_client.get_max_metrics.return_value = {}
+
+    with (
+        patch("garmin_sync.profile_sync.get_admin_client", return_value=fake_db),
+        patch("garmin_sync.profile_sync.login_with_tokens", return_value=fake_client),
+        caplog.at_level(logging.WARNING, logger="garmin_sync.profile_sync"),
+    ):
+        result = sync_garmin_profile("u1")
+
+    assert result["status"] == "ok"
+    assert not [r for r in caplog.records if "fc_max" in r.getMessage()]
