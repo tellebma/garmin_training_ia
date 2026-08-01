@@ -6,7 +6,6 @@ en charge), la progression reposait uniquement sur une dérive de CTL quasi null
 from __future__ import annotations
 
 from garmin_sync.coach.planner import (
-    _MIN_ELEVATION_SPREAD_WEEKS,
     DELOAD_RAMP_RATE,
     NORMAL_RAMP_RATE,
     compute_week_load_multipliers,
@@ -54,29 +53,58 @@ def test_progression_actually_happens_over_plan() -> None:
     assert max(m) > 1.10, "aucune montée en charge réelle sur le plan"
 
 
+_ELEV_PHASES = [
+    (0, "base"),
+    (1, "base"),
+    (2, "base"),
+    (3, "build"),
+    (4, "build"),
+    (5, "build"),
+    (6, "peak"),
+    (7, "taper"),
+]
+
+
 def test_elevation_target_drops_in_taper() -> None:
-    """Le D+ hebdo doit BAISSER en taper : on ne va pas grimper 500 m la semaine
+    """Le D+ hebdo doit BAISSER en taper : on ne va pas grimper 2000 m la semaine
     avant la course (bug prod : 500 m ciblés en pleine semaine de taper)."""
-    build = compute_weekly_elevation_targets(
-        race_dplus_by_sport={"bike": 2000}, weeks_count=8, phase="build"
+    peak = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=6,
+        phases=_ELEV_PHASES,
+        observed_weekly_dplus={"bike": 600},
     )
     taper = compute_weekly_elevation_targets(
-        race_dplus_by_sport={"bike": 2000}, weeks_count=8, phase="taper"
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=7,
+        phases=_ELEV_PHASES,
+        observed_weekly_dplus={"bike": 600},
     )
-    assert taper["bike"] < build["bike"]
+    assert taper["bike"] < peak["bike"]
 
 
-def test_elevation_target_does_not_explode_as_race_approaches() -> None:
-    """Bug prod : `D+ total / semaines restantes` recalculé chaque dimanche sur un
-    horizon qui rétrécit -> 166 m/sem à 12 semaines, 500 m à 4, 1000 m à 2.
-    Un plancher de dénominateur borne la cible."""
-    far = compute_weekly_elevation_targets(
-        race_dplus_by_sport={"bike": 2000}, weeks_count=8, phase="build"
-    )
-    near = compute_weekly_elevation_targets(
-        race_dplus_by_sport={"bike": 2000}, weeks_count=2, phase="build"
-    )
-    assert near["bike"] == 2000 // 4, "la cible doit être bornée, pas 1000 m/sem"
-    # Sans plancher, 2 semaines restantes donneraient 1000 m/sem : le cap divise ça par 2.
-    assert near["bike"] == 2000 // _MIN_ELEVATION_SPREAD_WEEKS
-    assert far["bike"] == 2000 // 8
+def test_elevation_target_is_monotonic_until_peak() -> None:
+    """La cible D+ PROGRESSE vers un pic >= D+ de course en fin de build/peak,
+    au lieu d'étaler le total de la course sur la préparation (bug prod :
+    500 m/sem constants pour 2000 m de course, jamais atteints)."""
+    targets = [
+        compute_weekly_elevation_targets(
+            race_dplus_by_sport={"bike": 2000},
+            week_offset=w,
+            phases=_ELEV_PHASES,
+            observed_weekly_dplus={"bike": 800},
+        )["bike"]
+        for w, _ in _ELEV_PHASES[:-1]  # hors taper
+    ]
+    assert targets == sorted(targets), f"progression non monotone : {targets}"
+    assert targets[-1] >= 1999, f"le pic ({targets[-1]}) doit couvrir le D+ de course"
+    # Stable par régénération : la cible dépend du week_offset ancré, plus d'un
+    # horizon restant qui rétrécit (l'explosion 166 -> 500 -> 1000 m/sem est
+    # rendue impossible par construction).
+    again = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=3,
+        phases=_ELEV_PHASES,
+        observed_weekly_dplus={"bike": 800},
+    )["bike"]
+    assert again == targets[3]

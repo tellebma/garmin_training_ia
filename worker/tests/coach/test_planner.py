@@ -513,15 +513,33 @@ def test_compute_elevation_per_sport_sums_legs() -> None:
     assert out == {"swim": 0, "bike": 2200, "run": 200}
 
 
+_PHASES_12W = [
+    (0, "base"),
+    (1, "base"),
+    (2, "base"),
+    (3, "base"),
+    (4, "base"),
+    (5, "base"),
+    (6, "base"),
+    (7, "build"),
+    (8, "build"),
+    (9, "build"),
+    (10, "peak"),
+    (11, "taper"),
+]
+
+
 def test_compute_weekly_elevation_targets_respects_thresholds() -> None:
     from garmin_sync.coach.planner import compute_weekly_elevation_targets
 
     # Hilly tri: bike 2200, run 200 -> both above threshold (>=300 / >=100)
     out = compute_weekly_elevation_targets(
-        race_dplus_by_sport={"swim": 0, "bike": 2200, "run": 200}, weeks_count=13
+        race_dplus_by_sport={"swim": 0, "bike": 2200, "run": 200},
+        week_offset=5,
+        phases=_PHASES_12W,
     )
-    assert out["bike"] == 2200 // 13
-    assert out["run"] == 200 // 13
+    assert out["bike"] > 0
+    assert out["run"] > 0
     assert out["swim"] == 0
 
 
@@ -529,8 +547,85 @@ def test_compute_weekly_elevation_targets_zero_on_flat_race() -> None:
     """A flat 10K route race -> all sports below threshold -> no hill training."""
     from garmin_sync.coach.planner import compute_weekly_elevation_targets
 
-    out = compute_weekly_elevation_targets(race_dplus_by_sport={"run": 50}, weeks_count=12)
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"run": 50}, week_offset=3, phases=_PHASES_12W
+    )
     assert out == {"run": 0}
+
+
+def test_elevation_progression_reaches_race_dplus_at_peak() -> None:
+    """Régression #131 : la cible hebdo doit ATTEINDRE le D+ de course en fin de
+    build/peak (prod : jamais plus de 500 m/sem pour une course à 2000 m)."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=10,  # semaine peak
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 500},
+    )
+    assert out["bike"] >= 2000, f"le pic doit couvrir le D+ de course, obtenu {out['bike']}"
+
+
+def test_elevation_progression_starts_from_observed_load() -> None:
+    """Le point de départ est le D+ réellement encaissé, pas zéro ni un étalement."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=0,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 500},
+    )
+    assert out["bike"] == 500
+
+
+def test_elevation_progression_bounded_by_weekly_ramp_cap() -> None:
+    from garmin_sync.coach.planner import WEEKLY_RAMP_CAP, compute_weekly_elevation_targets
+
+    prev = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=3,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 400},
+    )
+    cur = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=4,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 400},
+    )
+    assert cur["bike"] <= prev["bike"] * WEEKLY_RAMP_CAP["bike"] + 1  # +1 = arrondi
+
+
+def test_elevation_athlete_already_at_race_level_is_maintained() -> None:
+    """Athlète A : 2058 m/sem encaissés pour 2000 m de course. Le coach ne doit
+    pas retomber à 500 m/sem (et déclencher elevation_spike dans le même écran)."""
+    from garmin_sync.coach.planner import compute_weekly_elevation_targets
+
+    out = compute_weekly_elevation_targets(
+        race_dplus_by_sport={"bike": 2000},
+        week_offset=2,
+        phases=_PHASES_12W,
+        observed_weekly_dplus={"bike": 2058},
+    )
+    assert out["bike"] >= 1800, f"la charge D+ déjà encaissée doit être maintenue : {out}"
+
+
+def test_observed_weekly_elevation_by_sport_averages_28_days() -> None:
+    from garmin_sync.coach.planner import observed_weekly_elevation_by_sport
+
+    today = date(2026, 8, 2)
+    activities = [
+        {"start_time": "2026-07-28T08:00:00Z", "sport": "cycling", "elevation_gain_m": 1000},
+        {"start_time": "2026-07-20T08:00:00Z", "sport": "cycling", "elevation_gain_m": 1000},
+        {"start_time": "2026-07-12T08:00:00Z", "sport": "running", "elevation_gain_m": 200},
+        # Hors fenêtre : ignorée
+        {"start_time": "2026-05-01T08:00:00Z", "sport": "cycling", "elevation_gain_m": 5000},
+    ]
+    out = observed_weekly_elevation_by_sport(activities, today=today)
+    assert out["bike"] == 500  # 2000 m sur 4 semaines
+    assert out["run"] == 50
 
 
 def test_build_week_sessions_long_session_gets_more_elevation() -> None:

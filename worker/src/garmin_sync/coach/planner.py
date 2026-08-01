@@ -18,6 +18,7 @@ from garmin_sync.coach.banister import (
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
+from garmin_sync.coach.sports import normalize_discipline
 from garmin_sync.coach.training_days import (
     allocate_sport_sessions,
     assign_sports,
@@ -459,7 +460,8 @@ def _training_day_session(
         elev_weight = _ELEVATION_SESSION_WEIGHT.get(stype, 0.0)
         elev_total = max(0.5, sport_elevation_weight_total.get(sport, 1.0))
         if elev_weight > 0:
-            target_elevation = round(weekly_dplus * elev_weight / elev_total)
+            # Borné par la contrainte DB (<= 5000 m par séance).
+            target_elevation = min(5000, round(weekly_dplus * elev_weight / elev_total))
 
     return {
         "date": day.isoformat(),
@@ -525,41 +527,90 @@ def _tally_sport_weights(
     return totals
 
 
-# Plancher de dénominateur pour la répartition du D+. Sans lui, la cible hebdo
-# explose à mesure que l'horizon rétrécit (le plan est régénéré chaque semaine) :
-# 2000 m donnaient 166 m/sem à 12 semaines, 500 m à 4, 1000 m à 2 — soit l'inverse
-# d'une périodisation, avec du gros dénivelé juste avant la course.
-_MIN_ELEVATION_SPREAD_WEEKS = 4
+# Point de départ de la progression D+ quand aucun historique n'est observé
+# (fraction du D+ de course), et facteur de réduction en taper.
+_ELEVATION_START_FRACTION = 0.4
+_ELEVATION_TAPER_FACTOR = 0.3
 
-# Le D+ suit la phase : on accumule en build/peak, on lève le pied en base, et on
-# réduit fortement en taper (bug prod : 500 m ciblés en pleine semaine de taper).
-_ELEVATION_PHASE_FACTOR: dict[str, float] = {
-    "base": 0.7,
-    "build": 1.0,
-    "peak": 1.0,
-    "taper": 0.3,
-}
+# Fenêtre d'observation du D+ réellement encaissé par l'athlète.
+_ELEVATION_OBSERVED_WINDOW_DAYS = 28
+
+
+def observed_weekly_elevation_by_sport(
+    activities: list[dict[str, Any]], *, today: date, window_days: int = _ELEVATION_OBSERVED_WINDOW_DAYS
+) -> dict[str, int]:
+    """D+ hebdo moyen réellement encaissé par discipline sur la fenêtre récente.
+
+    Sert de point de départ à la progression de dénivelé (#131) : l'athlète qui
+    encaisse déjà 2000 m/sem ne doit pas se voir prescrire 500 m — puis être
+    alerté « elevation_spike » dans le même briefing.
+    """
+    start = today - timedelta(days=window_days)
+    totals: dict[str, float] = {}
+    for a in activities:
+        raw = a.get("start_time")
+        if not isinstance(raw, str) or not raw:
+            continue
+        d = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+        if not (start <= d <= today):
+            continue
+        disc = normalize_discipline(str(a.get("sport") or ""))
+        if disc is None:
+            continue
+        totals[disc] = totals.get(disc, 0.0) + float(a.get("elevation_gain_m") or 0)
+    weeks = window_days / 7
+    return {s: round(v / weeks) for s, v in totals.items()}
 
 
 def compute_weekly_elevation_targets(
-    *, race_dplus_by_sport: dict[str, int], weeks_count: int, phase: str = "build"
+    *,
+    race_dplus_by_sport: dict[str, int],
+    week_offset: int,
+    phases: Sequence[tuple[int, Phase]],
+    observed_weekly_dplus: dict[str, int] | None = None,
 ) -> dict[str, int]:
-    """Weekly D+ target per sport, gated by per-sport thresholds.
+    """Weekly D+ target per sport : progression vers un PIC, plus un étalement.
 
-    Sports whose race D+ is below ``_ELEVATION_THRESHOLD_M`` get a 0 weekly target
-    (no hill training needed). Above it, the race's total D+ is spread over the
-    plan — but the denominator is floored at ``_MIN_ELEVATION_SPREAD_WEEKS`` so a
-    shrinking horizon can't inflate the target, and scaled by the week's phase so
-    the taper actually tapers.
+    L'ancien modèle divisait le D+ total de la course par les semaines du plan
+    (2000 m -> 500 m/sem) : aucune semaine n'approchait jamais la contrainte
+    réelle de l'épreuve, et la cible restait sous ce que l'athlète encaissait
+    déjà (#131). Ici :
+
+    - point de départ = D+ hebdo OBSERVÉ (ou ``_ELEVATION_START_FRACTION`` du
+      D+ de course sans historique) ;
+    - croissance géométrique bornée par ``WEEKLY_RAMP_CAP`` (cohérent avec le
+      cap TSS), calée pour atteindre >= 100 % du D+ de course à la dernière
+      semaine hors taper ;
+    - taper : réduction franche (``_ELEVATION_TAPER_FACTOR``).
+
+    Ancrée sur ``week_offset`` (grille immuable, #123) : la cible d'une semaine
+    calendaire ne change plus d'une régénération à l'autre. Sports sous
+    ``_ELEVATION_THRESHOLD_M`` : cible 0 (pas de travail de côte nécessaire).
     """
-    if weeks_count <= 0:
-        return {}
-    spread = max(weeks_count, _MIN_ELEVATION_SPREAD_WEEKS)
-    factor = _ELEVATION_PHASE_FACTOR.get(phase, 1.0)
+    observed = observed_weekly_dplus or {}
+    non_taper = [o for o, ph in phases if ph != "taper"]
+    peak_offset = max(non_taper, default=0)
+    phase_by_offset: dict[int, str] = dict(phases)
+    phase = phase_by_offset.get(week_offset, "build")
+
     out: dict[str, int] = {}
     for sport, total in race_dplus_by_sport.items():
         threshold = _ELEVATION_THRESHOLD_M.get(sport, 200)
-        out[sport] = round(total * factor / spread) if total >= threshold else 0
+        if total < threshold:
+            out[sport] = 0
+            continue
+        peak_target = float(total)
+        start = float(observed.get(sport) or 0) or peak_target * _ELEVATION_START_FRACTION
+        start = min(start, peak_target)
+        cap = WEEKLY_RAMP_CAP.get(sport, 1.20)
+        if peak_offset > 0 and start < peak_target:
+            growth = min(cap, (peak_target / start) ** (1 / peak_offset))
+        else:
+            growth = 1.0
+        target = min(peak_target, start * growth**week_offset)
+        if phase == "taper":
+            target *= _ELEVATION_TAPER_FACTOR
+        out[sport] = round(target)
     return out
 
 
@@ -754,6 +805,7 @@ def _build_all_week_sessions(
     race_dplus_by_sport: dict[str, int],
     current_offset: int = 0,
     race_time_shares: dict[str, float] | None = None,
+    observed_weekly_dplus: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Build planned sessions for all weeks of the plan.
 
@@ -769,10 +821,13 @@ def _build_all_week_sessions(
     )
     hours_cap = weekly_tss_cap_from_hours(profile.get("hours_per_week"))
     for i, (offset, phase) in enumerate(phases):
-        # Cible D+ recalculée par semaine : elle dépend de la phase (le taper doit
-        # réellement lever le pied sur le dénivelé).
+        # Cible D+ par semaine : progression ancrée vers un pic en fin de build,
+        # partant du D+ réellement encaissé, réduite en taper (#131).
         weekly_elevation_by_sport = compute_weekly_elevation_targets(
-            race_dplus_by_sport=race_dplus_by_sport, weeks_count=weeks_count, phase=phase
+            race_dplus_by_sport=race_dplus_by_sport,
+            week_offset=offset,
+            phases=phases,
+            observed_weekly_dplus=observed_weekly_dplus,
         )
         weekly_tss = base_weekly * load_multipliers[i]
         if hours_cap > 0:
@@ -970,9 +1025,10 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     )
     available_days = profile.get("available_days") or ["mon", "wed", "fri"]
 
-    # Per-sport race D+ — la cible hebdo est dérivée par semaine (phase-aware)
-    # dans _build_all_week_sessions.
+    # Per-sport race D+ — la cible hebdo est dérivée par semaine (progression
+    # ancrée) dans _build_all_week_sessions, en partant du D+ observé.
     race_dplus_by_sport = compute_elevation_per_sport(race.get("legs") or [])
+    observed_weekly_dplus = observed_weekly_elevation_by_sport(activities, today=today)
 
     # Anchor the week grid so the LAST week ENDS on race_date (race day = last day
     # of the last week). Previously week_start was pinned to the Monday of the
@@ -999,6 +1055,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         race_sport=race_sport,
         race_dplus_by_sport=race_dplus_by_sport,
         race_time_shares=race_time_shares,
+        observed_weekly_dplus=observed_weekly_dplus,
     )
 
     # Drop any session dated before today: when the week grid starts a few days in
