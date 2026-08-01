@@ -700,11 +700,39 @@ def test_advanced_peak_allows_pma_and_sprint() -> None:
     assert "sprint" in types
 
 
-def test_weekly_tss_floor_scales_with_hours() -> None:
-    from garmin_sync.coach.planner import weekly_tss_floor_from_hours
+def test_weekly_tss_cap_scales_with_hours() -> None:
+    from garmin_sync.coach.planner import weekly_tss_cap_from_hours
 
-    assert weekly_tss_floor_from_hours(8) == 360
-    assert weekly_tss_floor_from_hours(None) == 0
+    assert weekly_tss_cap_from_hours(8) == 360
+    assert weekly_tss_cap_from_hours(None) == 0
+
+
+def test_base_weekly_tss_measured_ctl_is_primary() -> None:
+    """Régression #128 : athlète A (ctl 21, 8 h déclarées) doit partir de sa
+    charge MESURÉE (147 TSS), pas du plancher déclaré (360 = 2,3x le réel)."""
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=21, hours_per_week=8) == 147.0
+
+
+def test_base_weekly_tss_declared_hours_are_a_feasibility_cap() -> None:
+    """Les heures déclarées bornent le volume (on ne planifie pas plus que le
+    budget temps), elles ne le gonflent jamais."""
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=80, hours_per_week=6) == 270.0
+
+
+def test_base_weekly_tss_cold_start_falls_back_to_declared_cap() -> None:
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=0, hours_per_week=8) == 360.0
+
+
+def test_base_weekly_tss_without_hours_uses_measured() -> None:
+    from garmin_sync.coach.planner import compute_base_weekly_tss
+
+    assert compute_base_weekly_tss(ctl=30, hours_per_week=None) == 210.0
 
 
 def _count(sessions, stype):

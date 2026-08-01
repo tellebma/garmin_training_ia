@@ -295,16 +295,40 @@ def _tss_per_hour(sport: str, stype: str) -> float:
     return _TSS_PER_HOUR.get((sport, stype), _TSS_PER_HOUR_DEFAULT)
 
 
-# TSS/h moyen pondéré d'une semaine type (Z2 dominant) pour ancrer le volume
-# sur les heures déclarées, indépendamment du CTL lissé.
+# TSS/h moyen pondéré d'une semaine type (Z2 dominant) pour convertir les heures
+# déclarées en budget TSS de faisabilité.
 _AVG_WEEKLY_TSS_PER_HOUR = 45.0
 
 
-def weekly_tss_floor_from_hours(hours_per_week: float | None) -> int:
-    """Volume hebdo plancher dérivé des heures déclarées (avant ramp)."""
+def weekly_tss_cap_from_hours(hours_per_week: float | None) -> int:
+    """Budget TSS hebdo maximal dérivé des heures déclarées (0 = pas de budget)."""
     if not hours_per_week:
         return 0
     return round(hours_per_week * _AVG_WEEKLY_TSS_PER_HOUR)
+
+
+def compute_base_weekly_tss(*, ctl: float, hours_per_week: float | None) -> float:
+    """Volume hebdo de départ : le CTL MESURÉ est la source primaire, les heures
+    déclarées un plafond de faisabilité — plus jamais un plancher (#128).
+
+    Bug prod : ``max(ctl*7, heures*45)`` faisait piloter le plan par la
+    déclaration d'onboarding (360 TSS) au lieu du réel mesuré (147) — le plan
+    exigeait 2,3x la charge de l'athlète et « load_spike » devenait permanent.
+    Le ramp hebdo (+5 %) fait converger progressivement la charge mesurée vers
+    le budget déclaré au fil du plan, au lieu de l'imposer d'emblée.
+
+    NOTE #120 : tant que le TSS approxime ``durée x 50``, le CTL reste un proxy
+    de volume. Cette fonction ne consomme que ``ctl`` : elle devient juste
+    automatiquement dès que le calcul du TSS est corrigé.
+    """
+    measured = max(0.0, ctl) * 7
+    cap = weekly_tss_cap_from_hours(hours_per_week)
+    if cap <= 0:
+        return measured
+    if measured <= 0:
+        # Aucun historique : on repart du budget déclaré (seul signal dispo).
+        return float(cap)
+    return float(min(measured, cap))
 
 
 # Minimum per-sport race elevation gain (m) below which we don't bother training
@@ -694,16 +718,21 @@ def _build_all_week_sessions(
     all_sessions: list[dict[str, Any]] = []
     prev_tss_by_sport: dict[str, float] | None = None
     load_multipliers = compute_week_load_multipliers(phases)
+    base_weekly = compute_base_weekly_tss(
+        ctl=today_state.ctl, hours_per_week=profile.get("hours_per_week")
+    )
+    hours_cap = weekly_tss_cap_from_hours(profile.get("hours_per_week"))
     for i, (offset, phase) in enumerate(phases):
         # Cible D+ recalculée par semaine : elle dépend de la phase (le taper doit
         # réellement lever le pied sur le dénivelé).
         weekly_elevation_by_sport = compute_weekly_elevation_targets(
             race_dplus_by_sport=race_dplus_by_sport, weeks_count=weeks_count, phase=phase
         )
-        base_weekly = max(
-            today_state.ctl * 7, weekly_tss_floor_from_hours(profile.get("hours_per_week"))
-        )
         weekly_tss = base_weekly * load_multipliers[i]
+        if hours_cap > 0:
+            # Le ramp converge vers le budget déclaré mais ne le dépasse pas :
+            # les heures dispo restent un plafond de faisabilité (#128).
+            weekly_tss = min(weekly_tss, float(hours_cap))
         if offset == current_offset:
             weekly_tss *= first_week_tss_multiplier
         progress = _progress_for_offset(offset, phases)
