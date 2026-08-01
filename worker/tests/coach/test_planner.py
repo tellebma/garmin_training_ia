@@ -1168,6 +1168,29 @@ def test_build_week_places_sessions_on_athlete_observed_days() -> None:
     assert date.fromisoformat(long_sessions[0]["date"]).weekday() == 5
 
 
+def test_compute_tss_by_date_resolves_fc_max_from_observed_hr() -> None:
+    """Raccord lot A (#120/#134) : fc_max_bpm NULL en prod ne doit plus faire
+    retomber le TSS du planner sur le tier plat durée x 50 quand des hr_max
+    observés permettent de résoudre une FCmax."""
+    from garmin_sync.coach.planner import _compute_tss_by_date
+
+    today = date(2026, 8, 2)
+    activities = [
+        {
+            "start_time": "2026-07-30T08:00:00Z",
+            "sport": "running",
+            "duration_s": 3600,
+            "power_avg": None,
+            "hr_avg": 140,
+            "hr_max": 185,
+            "tss": None,
+        }
+    ]
+    profile = {"ftp_watts": None, "fc_max_bpm": None}
+    out = _compute_tss_by_date(activities, profile, today=today)
+    assert out[date(2026, 7, 30)] != 50.0, "tier plat durée x 50 encore actif"
+
+
 def test_cap_limits_run_increase_to_10pct() -> None:
     out = cap_weekly_ramp_by_sport({"run": 150.0}, {"run": 100.0})
     assert out["run"] == 110.0  # +10% max

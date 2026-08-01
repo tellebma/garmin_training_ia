@@ -12,8 +12,9 @@ from typing import Any, cast
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.banister import (
     BanisterState,
+    cold_start_state,
     compute_banister_history,
-    estimate_initial_ctl_from_profile,
+    is_cold_start,
 )
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
@@ -29,7 +30,7 @@ from garmin_sync.coach.training_days import (
     select_training_days_observed,
     training_days_count,
 )
-from garmin_sync.coach.tss import compute_tss
+from garmin_sync.coach.tss import compute_tss, resolve_fc_max_bpm
 from garmin_sync.supabase_client import get_admin_client
 
 log = logging.getLogger(__name__)
@@ -781,12 +782,18 @@ def _build_week_sessions(
 
 
 def _compute_tss_by_date(
-    activities: list[dict[str, Any]], profile: dict[str, Any]
+    activities: list[dict[str, Any]], profile: dict[str, Any], *, today: date
 ) -> dict[date, float]:
-    """Aggregate per-day TSS from a list of activity rows."""
+    """Aggregate per-day TSS from a list of activity rows.
+
+    La FCmax passe par ``resolve_fc_max_bpm`` (#120/#134) : valeur profil si
+    renseignée, sinon max des ``hr_max`` observés sur 90 j. Sans ce fallback,
+    ``fc_max_bpm`` NULL en prod faisait retomber tout le calcul sur le tier
+    « durée x 50 » et le CTL du planner divergeait du reste du système.
+    """
     tss_by_date: dict[date, float] = {}
     ftp = profile.get("ftp_watts")
-    fc_max = profile.get("fc_max_bpm")
+    fc_max = resolve_fc_max_bpm(profile.get("fc_max_bpm"), activities, today=today)
     for a in activities:
         tss = compute_tss(
             duration_s=a.get("duration_s", 0),
@@ -809,9 +816,9 @@ def _load_today_banister_state(
 ) -> tuple[dict[date, float], BanisterState, ActivityReview, list[dict[str, Any]]]:
     """Load last 180 days of activities, derive tss_by_date and today's CTL/ATL/TSB.
 
-    Cold-start (<14 days of activities): skip the 180-day decay simulation and
-    use the profile estimate AS today's state directly. See cold-start regression
-    test for the rationale.
+    Cold-start (``is_cold_start``): skip the 180-day decay simulation and use the
+    shared ``cold_start_state`` (#134 — implémentation unique avec state.py) as
+    today's state directly. See cold-start regression test for the rationale.
 
     Returns (tss_by_date, banister_state, activity_review, activities).
     """
@@ -819,21 +826,20 @@ def _load_today_banister_state(
     activities = cast(
         DbRows,
         db.table("activities")
-        .select("start_time, sport, duration_s, power_avg, hr_avg, tss, elevation_gain_m")
+        .select("start_time, sport, duration_s, power_avg, hr_avg, hr_max, tss, elevation_gain_m")
         .eq("user_id", user_id)
         .gte("start_time", history_start.isoformat())
         .execute()
         .data
         or [],
     )
-    tss_by_date = _compute_tss_by_date(activities, profile)
+    tss_by_date = _compute_tss_by_date(activities, profile, today=today)
     activity_review = build_activity_review(activities, today=today)
 
-    if len(tss_by_date) < 14:
-        init_ctl = estimate_initial_ctl_from_profile(profile.get("hours_per_week"))
+    if is_cold_start(tss_by_date):
         return (
             tss_by_date,
-            BanisterState(ctl=init_ctl, atl=init_ctl, tsb=0.0),
+            cold_start_state(profile.get("hours_per_week")),
             activity_review,
             activities,
         )
@@ -1190,7 +1196,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
                 "tsb_initial": round(today_state.tsb, 2),
                 "status": "active",
                 "params": {
-                    "cold_start": len(tss_by_date) < 14,
+                    "cold_start": is_cold_start(tss_by_date),
                     "first_week_tss_multiplier": first_week_tss_multiplier,
                     "activity_review_signals": [i.name for i in activity_review.insights],
                     "prep_start_date": anchor.isoformat(),
