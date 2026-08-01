@@ -46,7 +46,7 @@ def record_llm_usage(
 ) -> None:
     try:
         db = get_admin_client()
-        row = {
+        row: dict[str, str | int | float | None] = {
             "user_id": user_id,
             "feature": feature,
             "model": model,
@@ -71,7 +71,7 @@ def maybe_alert_generation_failure_rate(now: datetime | None = None) -> bool:
     sur 24 h dépasse le seuil. Best-effort, jamais bloquant. Retourne True si
     une alerte a été émise.
     """
-    global _last_failure_rate_alert_at  # noqa: PLW0603 — throttle par process
+    global _last_failure_rate_alert_at
     try:
         current = now or datetime.now(UTC)
         if (
@@ -91,7 +91,7 @@ def maybe_alert_generation_failure_rate(now: datetime | None = None) -> bool:
         )
         rows = resp.data if isinstance(resp.data, list) else []
         total = len(rows)
-        failed = sum(1 for r in rows if r.get("status") == "failed")
+        failed = sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "failed")
         if total < _FAILURE_RATE_MIN_SAMPLES or failed / total < _FAILURE_RATE_THRESHOLD:
             return False
 

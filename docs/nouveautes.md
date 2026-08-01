@@ -1,5 +1,14 @@
 # Nouveautés
 
+## 1.16.0 — 2026-08-01
+
+- Les séances deviennent exploitables : les zones affichent des valeurs chiffrées (bpm, watts,
+  allure) dès que ta FC max, ton FTP, ta VMA ou ton CSS sont connus — plus de « Z2 » sans repère.
+- La natation est enfin écrite comme au bord du bassin : distances en mètres, séries avec départ
+  (« 8 × 100 m départ 1'50 »), échauffement, éducatifs et retour au calme.
+- Quand la génération d'une séance échoue plusieurs fois, l'app te le dit clairement et te
+  propose un bouton pour la relancer — fini les cases vides sans explication.
+
 ## 1.15.0 — 2026-07-30
 
 - Partage tes sorties en story : sur la fiche d'une activité, la section « Partager en story »

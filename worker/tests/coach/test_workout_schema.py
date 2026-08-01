@@ -29,6 +29,25 @@ def _plain_workout() -> Workout:
     )
 
 
+@pytest.mark.parametrize("target_min", [167, 170, 174])
+def test_long_ride_envelope_remains_satisfiable(target_min):
+    """Cas d'échec observés en prod (issue #124) : longues sorties vélo 167-174 min.
+    Un workout construit exactement sur les bornes de l'enveloppe doit passer la
+    validation — sinon l'enveloppe est insatisfiable et le LLM ne peut que perdre."""
+    session = {"session_type": "long", "sport": "bike", "target_duration_s": target_min * 60}
+    env = envelope_for_session(session)
+    main_s = env.target_s - env.warmup_max_s - env.cooldown_max_s
+    workout = Workout(
+        warmup=IntervalBlock(duration_s=env.warmup_max_s, target=IntervalTarget(label="Z1", rpe=2)),
+        main=[IntervalBlock(duration_s=main_s, target=IntervalTarget(label="Z2", rpe=4))],
+        cooldown=IntervalBlock(
+            duration_s=env.cooldown_max_s, target=IntervalTarget(label="Z1", rpe=2)
+        ),
+        summary_md="ok",
+    )
+    assert validate_workout_for_session(workout, session) is workout
+
+
 def test_block_accepts_optional_distance_m():
     b = IntervalBlock(duration_s=95, distance_m=100, target=IntervalTarget(label="Z4", rpe=8))
     assert b.distance_m == 100

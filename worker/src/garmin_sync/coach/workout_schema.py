@@ -42,7 +42,7 @@ class IntervalBlock(BaseModel):
     duration_s: int = Field(ge=1)
     target: IntervalTarget
     notes: str | None = None
-    # Distance optionnelle par bloc — essentielle en natation (« 8×100 m » et non
+    # Distance optionnelle par bloc — essentielle en natation (« 8x100 m » et non
     # « 2160 secondes »), utile ailleurs. La durée reste la référence temporelle.
     distance_m: int | None = Field(default=None, ge=1)
 
@@ -133,7 +133,9 @@ def _positive_number(value: object) -> float | None:
     return None
 
 
-def _target_updates(target: IntervalTarget, athlete: dict[str, object], sport: str) -> dict[str, object]:
+def _target_updates(
+    target: IntervalTarget, athlete: dict[str, object], sport: str
+) -> dict[str, object]:
     """Bornes chiffrées manquantes pour une cible, sans écraser celles du LLM."""
     updates: dict[str, object] = {}
     fc_max = _positive_number(athlete.get("fc_max_bpm"))
@@ -185,9 +187,7 @@ def _enrich_main_block(block: MainBlock, athlete: dict[str, object], sport: str)
     return _enrich_block(block, athlete, sport)
 
 
-def enrich_workout_targets(
-    workout: Workout, *, athlete: dict[str, object], sport: str
-) -> Workout:
+def enrich_workout_targets(workout: Workout, *, athlete: dict[str, object], sport: str) -> Workout:
     """Nouveau workout avec bornes chiffrées (FC/W/allure) dérivées du profil.
 
     Ne remplit que les champs laissés à None par le LLM ; sans donnée profil,

@@ -76,7 +76,8 @@ Règles :
   12min retour calme.
 - Séance "recovery" : Z1 seulement, durée courte, échauffement intégré ou minimal.
 - Séance "endurance" : un bloc principal Z2-Z3 majoritaire.
-- Séance "long" : un seul gros bloc continu (pas d'intervalles).
+- Séance "long" : corps de séance continu en endurance (1 à 3 blocs successifs
+  sans récupération entre eux, pas d'intervalles) — un échauffement court suffit.
 - Séance "intervals" : des sets répétés (work + rest).
 - Séance "threshold" : 2-4 sets de 6-10min à intensité seuil (Z4), récupération 2-5min.
 - Séance "pma" : répétitions de 1 à 3min à 110-130% du seuil (Z4-Z5), récupération
@@ -88,7 +89,7 @@ Règles :
 - technical_focus : 1 phrase FR sur l'aspect technique spécifique au sport.
 """
 
-# Un coach écrit « 8×100 m départ 1'50 », jamais « 2160 secondes » (issue #125).
+# Un coach écrit « 8x100 m départ 1'50 », jamais « 2160 secondes » (issue #125).
 _SWIM_PROMPT_GUIDANCE = """Consignes natation (impératives) :
 - Renseigne distance_m (en mètres, multiples de 25) pour chaque bloc : échauffement,
   éducatifs, séries, retour au calme.

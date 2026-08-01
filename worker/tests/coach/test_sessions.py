@@ -184,7 +184,7 @@ def test_ensure_sessions_records_usage_on_total_failure(
 def test_ensure_sessions_checks_failure_rate_alert_on_failure(
     mock_db,
     mock_gen,
-    mock_record,  # noqa: ARG001
+    mock_record,
     _mock_flag,  # noqa: PT019
     failure_rate_alert_mock,
 ):
@@ -491,7 +491,7 @@ def test_regenerate_session_updates_existing(
 def test_regenerate_session_success_resets_failure_counter(
     mock_db,
     mock_gen,
-    mock_record,  # noqa: ARG001
+    mock_record,
     _mock_flag,  # noqa: PT019
 ):
     """La relance manuelle est LA porte de sortie d'une séance abandonnée
