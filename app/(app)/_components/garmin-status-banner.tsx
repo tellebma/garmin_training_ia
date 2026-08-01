@@ -4,6 +4,10 @@ import { cn } from '@/lib/utils'
 interface GarminStatusBannerProps {
   status: string | null
   errorMessage?: string | null
+  /** Last known-good activities sync timestamp, used for the freshness banner (#126). */
+  lastActivitiesSyncAt?: string | null
+  /** Injectable "now" for deterministic tests; defaults to `new Date()`. */
+  now?: Date
   className?: string
 }
 
@@ -14,7 +18,17 @@ interface BannerContent {
   variant: 'warning' | 'error'
 }
 
-function getBannerContent(status: string | null): BannerContent | null {
+// Mirrors GARMIN_SYNC_STALE_DAYS in worker/src/garmin_sync/coach/cron.py — keep
+// both in sync if the threshold changes (see PR description for the rationale).
+const GARMIN_SYNC_STALE_DAYS = 3
+
+function daysSinceSync(iso: string | null | undefined, now: Date): number | null {
+  if (!iso) return null
+  const diffMs = now.getTime() - new Date(iso).getTime()
+  return Math.floor(diffMs / 86_400_000)
+}
+
+function getBannerContent(status: string | null, daysStale: number | null): BannerContent | null {
   if (status === 'garmin_no_display_name') {
     return {
       variant: 'warning',
@@ -48,15 +62,29 @@ function getBannerContent(status: string | null): BannerContent | null {
         "L'API Garmin a temporairement limité les requêtes. La prochaine synchronisation automatique réessaiera demain matin (05:00 UTC).",
     }
   }
+  if (daysStale !== null && daysStale > GARMIN_SYNC_STALE_DAYS) {
+    return {
+      variant: 'warning',
+      title: 'Données Garmin non synchronisées',
+      description:
+        `Ta dernière synchronisation Garmin remonte à ${String(daysStale)} jours. ` +
+        'Ton plan et ton briefing peuvent donc reposer sur des données périmées ' +
+        "tant que la synchronisation n'a pas repris.",
+      steps: [{ label: 'Vérifie ta connexion Garmin', href: '/profile/garmin' }],
+    }
+  }
   return null
 }
 
 export function GarminStatusBanner({
   status,
   errorMessage,
+  lastActivitiesSyncAt,
+  now,
   className,
 }: Readonly<GarminStatusBannerProps>) {
-  const content = getBannerContent(status)
+  const daysStale = daysSinceSync(lastActivitiesSyncAt, now ?? new Date())
+  const content = getBannerContent(status, daysStale)
   if (!content) return null
 
   const colorClass =

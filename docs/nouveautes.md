@@ -13,6 +13,12 @@
 - Avoir échangé deux disciplines dans la semaine (ex. nagé au lieu de pédaler) n'influence
   plus ta note de forme du jour : c'est une information d'assiduité affichée à part, pas
   un signe de fatigue.
+- Un bandeau apparaît désormais sur « Aujourd'hui » dès que ta synchronisation Garmin est en
+  panne depuis plusieurs jours, pour que tu saches que ton plan et ton briefing peuvent
+  s'appuyer sur des données périmées tant qu'elle n'a pas repris.
+- Si ta synchronisation reste en panne trop longtemps, ton plan n'est plus régénéré
+  automatiquement sur des données obsolètes — le coach attend que tes données soient à
+  nouveau fraîches.
 
 ## 1.15.0 — 2026-07-30
 
