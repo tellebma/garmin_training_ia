@@ -47,7 +47,7 @@ def test_settings_openai_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     s = get_settings()
     # gpt-4o-mini échouait sur 34 % des générations (issue #124) : le défaut est
     # un modèle actuel, toujours surchargeable via OPENAI_MODEL.
-    assert s.openai_model == "gpt-5.4-mini"
+    assert s.openai_model == "gpt-5.6-luna"
     assert s.openai_timeout_s == 30
 
 
