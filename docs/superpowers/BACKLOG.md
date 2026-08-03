@@ -84,7 +84,7 @@ sortie, le modèle raisonnant davantage).
 | gpt-5.6-terra | 2,00 | 12,00 | 22,9 |
 | gpt-5.6-sol | 5,00 | 30,00 | 57,2 |
 
-**V1 livrée** — défaut `OPENAI_MODEL` = `gpt-5.6-luna` (~3,75× moins cher que `gpt-5.4-mini`,
+**V1 livrée** (PR #152) — défaut `OPENAI_MODEL` = `gpt-5.6-luna` (~3,75× moins cher que `gpt-5.4-mini`,
 génération de modèle plus récente, contexte 1,05 M) et `llm_pricing.py` complété avec les
 familles 5.6 / 5 / 5.4 + test de régression garantissant que le défaut est toujours tarifé
 (un modèle absent de la table faisait silencieusement remonter des coûts à 0 dans la console
