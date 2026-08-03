@@ -67,6 +67,38 @@ UNRAID (sans quoi rien de tout ceci ne tourne), lancer le backfill TSS
 (`python -m garmin_sync.coach.backfill_tss --recompute-all`) **avant** toute régénération de
 plan, et reconnecter le compte Garmin dont le token a expiré.
 
+## Coût LLM — bascule sur gpt-5.6-luna (2026-08-03)
+
+Comparaison des tarifs OpenAI à partir de la consommation réelle (`llm_usage`, 3 372 tokens
+d'entrée / 1 343 de sortie par génération). Le lot C de l'audit (issue #124) avait remplacé
+`gpt-4o-mini` par `gpt-5.4-mini` pour supprimer ~34 % de rejets d'enveloppe, au prix d'un
+coût par génération **×6,5** (0,13 ¢ → 0,86 ¢ : +5× sur le tarif, +2,3× sur les tokens de
+sortie, le modèle raisonnant davantage).
+
+| Modèle | $/1M in | $/1M out | $/1 000 générations |
+|---|---:|---:|---:|
+| gpt-4o-mini | 0,15 | 0,60 | 1,31 |
+| **gpt-5.6-luna** | **0,20** | **1,20** | **2,29** |
+| gpt-5-mini | 0,25 | 2,00 | 3,53 |
+| gpt-5.4-mini | 0,75 | 4,50 | 8,57 |
+| gpt-5.6-terra | 2,00 | 12,00 | 22,9 |
+| gpt-5.6-sol | 5,00 | 30,00 | 57,2 |
+
+**V1 livrée** (PR #152) — défaut `OPENAI_MODEL` = `gpt-5.6-luna` (~3,75× moins cher que `gpt-5.4-mini`,
+génération de modèle plus récente, contexte 1,05 M) et `llm_pricing.py` complété avec les
+familles 5.6 / 5 / 5.4 + test de régression garantissant que le défaut est toujours tarifé
+(un modèle absent de la table faisait silencieusement remonter des coûts à 0 dans la console
+admin). Tarifs vérifiés le 2026-08-03.
+
+**Suites — items *Todo* distincts** :
+
+- Surveiller le taux de rejet d'enveloppe sur les premières générations luna ; retour arrière
+  immédiat par `OPENAI_MODEL=gpt-5.4-mini` (variable d'env, pas de redéploiement).
+- Modéliser le *cached input* (~10 % du tarif input) : le prompt système est stable, l'écart
+  de sur-comptage grandit avec le volume.
+- Évaluer le Batch API (−50 %) pour la régénération de plans du cron 05:00 UTC, asynchrone
+  par nature.
+
 ## EPICs issus des retours owner (2026-06-21)
 
 Trois EPICs regroupent les retours de l'owner du 21/06/2026. Les items détaillés

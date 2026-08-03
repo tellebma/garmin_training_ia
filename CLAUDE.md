@@ -14,7 +14,7 @@ avant course **août-septembre 2026**.
 | **E-Auth refactor** | ✅ Livré (magic-link → email/password + allowlist) |
 | **Race profile v2** | ✅ Livré (multi-leg + dénivelé par segment) |
 | **E4 — Engine planning (algo Banister)** | ✅ Livré (TSS, CTL/ATL/TSB, phases, endpoint, cron) |
-| **E5 — Génération séances (LLM)** | ✅ Livré (OpenAI GPT-4o-mini, JSONB workout, FR markdown) |
+| **E5 — Génération séances (LLM)** | ✅ Livré (OpenAI gpt-5.6-luna, JSONB workout, FR markdown) |
 | E6 — Briefing quotidien + ajustement | À planifier |
 | **E7 — Dashboard frontend** | ✅ Livré (5 pages + Banister chart + history/stats) |
 | E8 — Parcours géolocalisés | À planifier |
