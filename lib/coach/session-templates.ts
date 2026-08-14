@@ -27,6 +27,14 @@ const SPORT_LABEL: Record<Sport, string> = {
   rest: 'Repos',
 }
 
+// Le sport d'une séance vient de la base et peut sortir des templates (jour de
+// course multisport) : on retombe sur la valeur brute plutôt que « undefined ».
+const SPORT_LABEL_LOOSE: Partial<Record<string, string>> = SPORT_LABEL
+
+function sportHeading(sport: Sport): string {
+  return SPORT_LABEL_LOOSE[sport] ?? sport
+}
+
 const TYPE_LABEL: Record<SessionType, string> = {
   endurance: 'Endurance',
   threshold: 'Seuil',
@@ -107,7 +115,9 @@ export function workoutToMarkdown(w: Workout, sport: Sport, type: SessionType): 
     isIntervalSet(block) ? renderSet(block, sport) : renderBlock(block, sport)
   )
   const lines: string[] = [
-    `## ${SPORT_LABEL[sport]} — ${TYPE_LABEL[type]}`,
+    // Le sport vient de la base : une valeur hors templates (jour de course
+    // multisport) doit s'afficher telle quelle plutôt que « undefined ».
+    `## ${sportHeading(sport)} — ${TYPE_LABEL[type]}`,
     '',
     '### Échauffement',
     renderBlock(w.warmup, sport),

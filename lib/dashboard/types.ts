@@ -1,4 +1,17 @@
-export type Sport = 'swim' | 'bike' | 'run' | 'brick' | 'rest' | 'race'
+// Aligné sur le check `planned_sessions_sport_check` (migration
+// 20260801130000_planned_sessions_multisport) : le jour de course d'un
+// multisport porte la discipline parente ('triathlon'/'duathlon'/'aquathlon').
+// 'race' reste toléré pour les sports d'activités Garmin historiques.
+export type Sport =
+  | 'swim'
+  | 'bike'
+  | 'run'
+  | 'brick'
+  | 'rest'
+  | 'race'
+  | 'triathlon'
+  | 'duathlon'
+  | 'aquathlon'
 
 export type SessionType =
   | 'endurance'
