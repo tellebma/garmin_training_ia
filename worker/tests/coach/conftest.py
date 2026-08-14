@@ -37,6 +37,8 @@ def owner_week() -> OwnerWeek:
         *,
         strengths: dict[str, int] | None = None,
         weekly_elevation: dict[str, int] | None = None,
+        gradient: dict[str, float] | None = None,
+        race_dplus: dict[str, int] | None = None,
         progress: float = 1.0,
     ) -> list[dict[str, Any]]:
         today = date.today()
@@ -56,6 +58,8 @@ def owner_week() -> OwnerWeek:
                 sport="triathlon",
                 time_shares={"swim": 0.15, "bike": 0.55, "run": 0.30},
                 legs=OWNER_LEGS,
+                dplus_by_sport=race_dplus,
+                gradient_m_per_km=gradient,
             ),
             weekly_elevation_by_sport=weekly_elevation or {},
             progress=progress,

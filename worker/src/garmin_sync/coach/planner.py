@@ -65,6 +65,9 @@ class RaceTarget:
     # La course enchaîne un segment vélo puis un segment course à pied : le plan
     # doit alors contenir des séances d'enchaînement (#154).
     has_bike_run_transition: bool = False
+    # Exigence de terrain par discipline (m de D+ par km) : le plan doit la viser
+    # en build/peak, indépendamment de la progression du D+ hebdo (#156).
+    gradient_m_per_km: dict[str, float] | None = None
     # Segments bruts + profil de performance : le jour J en dérive son temps
     # estimé, son TSS et son déroulé (issue #157). Absents -> case vide, comme avant.
     legs: list[dict[str, Any]] | None = None
@@ -565,6 +568,85 @@ def cap_session_elevation_gradients(sessions: list[dict[str, Any]]) -> int:
             sum(targets),
         )
     return clipped_total
+
+
+# Spécificité terrain (#156) : phases où le plan doit VISER le gradient de la
+# course, et montée en charge de cette exigence au fil du build.
+_GRADIENT_FLOOR_PHASES = frozenset({"build", "peak"})
+_GRADIENT_FLOOR_START_RATIO = 0.6
+# Une séance ne demande jamais plus de 150 % du dénivelé TOTAL de la course :
+# s'entraîner au-dessus de l'épreuve reste de la surdistance, pas une expédition.
+_GRADIENT_FLOOR_MAX_RACE_SHARE = 1.5
+
+
+def race_gradient_m_per_km(legs: list[dict[str, Any]]) -> dict[str, float]:
+    """Exigence de terrain de la course, en mètres de D+ par kilomètre.
+
+    Le D+ TOTAL d'un segment ne dit rien de sa difficulté : 200 m sur 8 km
+    (25 m/km) est une course de côte, 200 m sur 90 km est plat. La cible hebdo
+    de dénivelé, elle, progresse vers le total — d'où des séances à 6 m/km
+    prescrites pour une épreuve qui en demande 25 (bug prod du plan owner).
+    """
+    distance: dict[str, float] = {}
+    gain: dict[str, float] = {}
+    for leg in legs:
+        disc = str(leg.get("discipline") or "unknown")
+        distance[disc] = distance.get(disc, 0.0) + float(leg.get("distance_km") or 0)
+        gain[disc] = gain.get(disc, 0.0) + float(leg.get("elevation_gain_m") or 0)
+    return {d: gain[d] / km for d, km in distance.items() if km > 0 and gain.get(d, 0) > 0}
+
+
+def _specific_session_key(session: dict[str, Any]) -> tuple[float, int]:
+    """Tri des séances porteuses de terrain : poids D+ d'abord, durée ensuite."""
+    weight = _ELEVATION_SESSION_WEIGHT.get(str(session.get("session_type") or ""), 0.0)
+    return weight, int(session.get("target_duration_s") or 0)
+
+
+def apply_race_gradient_floor(
+    sessions: list[dict[str, Any]],
+    *,
+    gradient_by_sport: dict[str, float],
+    race_dplus_by_sport: dict[str, int] | None = None,
+    phase: Phase,
+    progress: float = 1.0,
+) -> None:
+    """En build/peak, la séance porteuse de chaque discipline atteint le gradient de course.
+
+    Une seule séance par discipline est concernée — la plus « spécifique » (la
+    sortie longue en général) : le reste de la semaine garde le terrain issu de
+    la progression hebdomadaire, on ne transforme pas tout le plan en montagne.
+    Le plancher est borné trois fois : par ``session_elevation_cap_m`` (#158),
+    par 150 % du D+ total de l'épreuve, et il monte progressivement (60 % en
+    début de build, 100 % en fin de build et en peak).
+    """
+    if phase not in _GRADIENT_FLOOR_PHASES or not gradient_by_sport:
+        return
+    ratio = min(1.0, _GRADIENT_FLOOR_START_RATIO + (1 - _GRADIENT_FLOOR_START_RATIO) * progress)
+    by_sport: dict[str, list[dict[str, Any]]] = {}
+    for s in sessions:
+        if s.get("session_type") == "race" or not s.get("target_elevation_gain_m"):
+            continue
+        by_sport.setdefault(str(s.get("sport") or ""), []).append(s)
+
+    for sport, group in by_sport.items():
+        gradient_km = gradient_by_sport.get(sport, 0.0)
+        if gradient_km <= 0:
+            continue
+        # m/km -> m/h via la vitesse de référence de la discipline : les plafonds
+        # de gradient (#158) sont eux aussi exprimés en m/h.
+        target_m_per_h = gradient_km * RACE_SPEED_KMH.get(sport, RACE_SPEED_DEFAULT_KMH) * ratio
+        session = max(group, key=_specific_session_key)
+        duration_s = int(session.get("target_duration_s") or 0)
+        race_total = (race_dplus_by_sport or {}).get(sport)
+        ceilings = [
+            round(target_m_per_h * duration_s / 3600),
+            session_elevation_cap_m(sport, duration_s),
+        ]
+        if race_total:
+            ceilings.append(round(race_total * _GRADIENT_FLOOR_MAX_RACE_SHARE))
+        floor = min(ceilings)
+        if floor > int(session["target_elevation_gain_m"]):
+            session["target_elevation_gain_m"] = floor
 
 
 _FIRST_WEEK_STRONG_DELOAD_SIGNALS = {"return_after_break", "load_spike", "hard_sessions_density"}
@@ -1163,6 +1245,16 @@ def _build_week_sessions(
     # rend réalisable (plafond de gradient + report sur les séances qui ont de
     # la marge) sans toucher au volume hebdo visé (#158).
     cap_session_elevation_gradients(sessions)
+    # ... puis on s'assure que la séance la plus spécifique de chaque discipline
+    # atteint bien l'exigence de terrain de l'épreuve (#156). Appliqué APRÈS le
+    # plafond : le plancher de spécificité en tient compte, il ne le viole pas.
+    apply_race_gradient_floor(
+        sessions,
+        gradient_by_sport=race.gradient_m_per_km or {},
+        race_dplus_by_sport=race.dplus_by_sport,
+        phase=phase,
+        progress=progress,
+    )
     return sessions
 
 
@@ -1534,6 +1626,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
             time_shares=race_time_shares,
             dplus_by_sport=race_dplus_by_sport,
             has_bike_run_transition=race_has_bike_run_transition(race.get("legs") or []),
+            gradient_m_per_km=race_gradient_m_per_km(race.get("legs") or []),
             legs=race.get("legs") or [],
             # Niveaux EFFECTIFS (historique 90 j), pas déclarés : le temps estimé
             # du jour J doit refléter l'athlète tel qu'il s'entraîne réellement.

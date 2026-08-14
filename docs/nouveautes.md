@@ -2,6 +2,15 @@
 
 ## 1.18.0 — 2026-08-14
 
+- Ton plan contient enfin des séances de qualité dans **chaque** discipline, chaque semaine :
+  un niveau débutant ne supprime plus l'intensité, il en change la dose (côtes courtes 6×1' au
+  niveau 1, seuil 4×3' au niveau 2, 3×10' réservé aux niveaux avancés).
+- La phase de base n'est plus une traversée du désert : une séance « Côtes & accélérations »
+  y est programmée chaque semaine, à tous les niveaux.
+- Ta discipline la plus faible reçoit maintenant de la qualité, et plus seulement du volume
+  lent : elle est servie en premier sur les meilleurs créneaux de la semaine.
+- Le dénivelé de tes séances de course à pied vise l'exigence réelle de ton épreuve en phases
+  build et peak : une course à 25 m de D+ par km ne se prépare plus avec des sorties à 6 m/km.
 - L'historique affiche le dénivelé de chaque sortie, à côté du TSS — visible aussi sur la
   dernière activité de « Aujourd'hui ».
 - La carte « Où je m'entraîne » ne noie plus tout dans du rouge : tes routes sont désormais
