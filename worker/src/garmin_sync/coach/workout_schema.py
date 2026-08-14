@@ -187,6 +187,18 @@ def _enrich_main_block(block: MainBlock, athlete: dict[str, object], sport: str)
     return _enrich_block(block, athlete, sport)
 
 
+def enrich_block_targets(
+    block: IntervalBlock, *, athlete: dict[str, object], sport: str
+) -> IntervalBlock:
+    """Bornes chiffrées d'UN bloc, pour la discipline de ce bloc.
+
+    Le jour de course enchaîne plusieurs disciplines dans un même workout et doit
+    donc enrichir bloc par bloc, là où ``enrich_workout_targets`` suppose une
+    séance mono-sport (issue #157).
+    """
+    return _enrich_block(block, athlete, sport)
+
+
 def enrich_workout_targets(workout: Workout, *, athlete: dict[str, object], sport: str) -> Workout:
     """Nouveau workout avec bornes chiffrées (FC/W/allure) dérivées du profil.
 
