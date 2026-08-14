@@ -1,3 +1,9 @@
+## [1.17.0](https://github.com/tellebma/garmin_training_ia/compare/v1.16.0...v1.17.0) (2026-08-14)
+
+### Features
+
+* **coach:** donne un contenu au jour de course ([#174](https://github.com/tellebma/garmin_training_ia/issues/174)) ([fad4998](https://github.com/tellebma/garmin_training_ia/commit/fad49980e31e61ff7e36f04de8469179d2e65ad2)), closes [#157](https://github.com/tellebma/garmin_training_ia/issues/157) [#158](https://github.com/tellebma/garmin_training_ia/issues/158) [#157](https://github.com/tellebma/garmin_training_ia/issues/157)
+
 ## [1.16.0](https://github.com/tellebma/garmin_training_ia/compare/v1.15.8...v1.16.0) (2026-08-14)
 
 ### Features
