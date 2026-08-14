@@ -476,7 +476,7 @@ wheels = [
 
 [[package]]
 name = "garmin-sync"
-version = "1.15.8"
+version = "1.17.1"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },

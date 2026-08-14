@@ -315,19 +315,18 @@ def _pick_session_type(
     types_for_phase: list[str],
     used_types: list[str],
     long_day_idx: int | None = None,
-    sport_used_count: int = 0,
 ) -> str:
-    """Pick a session type respecting priority slots and avoiding back-to-back hard sessions.
+    """Type de séance d'un jour NON réservé à la qualité (long, récup, endurance).
 
-    ``types_for_phase`` est la liste de la DISCIPLINE du jour (plafond d'intensité
-    par sport, cf. #121) ; ``used_types`` reste l'historique global de la semaine
-    pour éviter deux séances dures d'affilée, tous sports confondus.
+    Les séances de qualité sont placées en amont par ``_assign_quality_days`` :
+    elles ne se décident plus au fil de l'eau. L'ancienne heuristique (« le
+    premier créneau d'un sport prend un type dur ») dépendait de l'ordre des
+    jours et laissait les disciplines servies tard sans aucune intensité.
 
-    ``sport_used_count`` (séances déjà posées pour CE sport cette semaine) sert la
-    garantie de séance de qualité : le premier créneau éligible d'un sport prend
-    un type dur si son niveau y donne droit — sans quoi l'index de rotation
-    global retombait presque toujours sur "endurance" pour un sport n'ayant
-    qu'un ou deux créneaux, et les semaines build/peak restaient sans intensité.
+    ``types_for_phase`` est la liste de la DISCIPLINE du jour (plafond
+    d'intensité par sport, cf. #121) ; ``used_types`` reste l'historique global
+    de la semaine pour éviter deux séances dures d'affilée, tous sports
+    confondus.
     """
     priority = _placement_priority_for_day(day_idx, long_day_idx)
     if priority == 0 and "long" in types_for_phase:
@@ -341,10 +340,7 @@ def _pick_session_type(
         candidates = [t for t in candidates if t not in _HARD_SESSION_TYPES]
     if not candidates:
         return "endurance"
-    hard = [t for t in candidates if t in _HARD_SESSION_TYPES]
-    if sport_used_count == 0 and hard:
-        return hard[0]
-    soft = [t for t in candidates if t not in _HARD_SESSION_TYPES]
+    soft = [t for t in candidates if t not in _QUALITY_SESSION_TYPES]
     pool = soft or candidates
     return pool[len(used_types) % len(pool)]
 
@@ -731,6 +727,136 @@ def _training_day_session(
     }
 
 
+@dataclass(frozen=True)
+class _DaySlot:
+    """Un jour d'entraînement de la semaine, avant décision du type de séance."""
+
+    offset: int  # position chronologique dans la semaine (0-6)
+    weekday: int  # index de jour de semaine (lundi=0), pour les règles de placement
+    sport: str
+
+
+# Créneaux que `_placement_priority_for_day` réserve à la récupération : une
+# séance de qualité n'y est posée qu'en dernier recours.
+_RECOVERY_DAY_IDX = (0, 3)
+_EXTRA_QUALITY_PHASES = frozenset({"build", "peak"})
+# Niveau au-dessous duquel une discipline est considérée comme le point faible
+# de l'athlète (cohérent avec `level_label_for_score` : <= 2 = beginner).
+_WEAK_LEVEL = 2
+# Nombre de séances d'une discipline à partir duquel une 2e séance de qualité
+# reste raisonnable dans la semaine.
+_MIN_SESSIONS_FOR_EXTRA_QUALITY = 3
+
+
+def _quality_types_available(types_for_phase: list[str]) -> list[str]:
+    """Types de qualité accessibles à cette discipline, du plus exigeant au plus léger.
+
+    L'ordre vient de `pick_session_types_for_phase` : premier = le plus
+    structurant de la phase (seuil en build, PMA en peak), dernier = le plus
+    léger (`strides`).
+    """
+    return [t for t in types_for_phase if t in _QUALITY_SESSION_TYPES]
+
+
+def _quality_quota(*, level: int, phase: Phase, sessions: int) -> int:
+    """Nombre de séances de qualité dues à une discipline cette semaine.
+
+    Une par discipline (#155). Le point faible en reçoit une SECONDE en
+    build/peak dès que son volume le permet : son surplus de volume (+25 % via
+    ``distribute_weekly_tss_by_sport``) ne doit pas être exclusivement du
+    kilomètre lent (#156). Cette séance supplémentaire est toujours la plus
+    légère accessible — on ajoute de la qualité, pas de la traumatologie.
+    """
+    if sessions <= 0:
+        return 0
+    extra = (
+        level <= _WEAK_LEVEL
+        and phase in _EXTRA_QUALITY_PHASES
+        and sessions >= _MIN_SESSIONS_FOR_EXTRA_QUALITY
+    )
+    return min(sessions, 1 + int(extra))
+
+
+def _pick_quality_slot(
+    slots: list[_DaySlot], claimed: dict[int, str], long_day_idx: int | None
+) -> int | None:
+    """Meilleur créneau libre pour une séance de qualité (offset), ou None.
+
+    Trois niveaux de préférence, du plus au moins souhaitable : hors créneau de
+    récupération et à distance des séances dures déjà posées ; à distance
+    seulement ; n'importe quel jour libre. Le jour de la sortie longue n'est
+    jamais pris.
+    """
+    hard_offsets = [o for o, t in claimed.items() if t in _HARD_SESSION_TYPES]
+    free = [s for s in slots if s.offset not in claimed and s.weekday != long_day_idx]
+    spaced = [s for s in free if all(abs(s.offset - o) > 1 for o in hard_offsets)]
+    prime = [s for s in spaced if s.weekday not in _RECOVERY_DAY_IDX]
+    for tier in (prime, spaced, free):
+        if tier:
+            return tier[0].offset
+    return None
+
+
+def _assign_quality_days(
+    *,
+    slots: list[_DaySlot],
+    types_by_sport: dict[str, list[str]],
+    strengths: dict[str, int],
+    phase: Phase,
+    long_day_idx: int | None,
+) -> dict[int, str]:
+    """Réserve les créneaux de qualité AVANT le remplissage : offset -> type.
+
+    Les disciplines sont servies de la plus faible à la plus forte : le point
+    faible prend le meilleur créneau, alors qu'il était jusqu'ici le seul à
+    n'avoir aucune intensité du tout (#156).
+    """
+    slots_by_sport: dict[str, list[_DaySlot]] = {}
+    for slot in slots:
+        slots_by_sport.setdefault(slot.sport, []).append(slot)
+
+    claimed: dict[int, str] = {}
+    order = sorted(slots_by_sport, key=lambda s: (strengths.get(s, 3), -len(slots_by_sport[s]), s))
+    for sport in order:
+        quality_types = _quality_types_available(types_by_sport.get(sport, []))
+        if not quality_types:
+            continue
+        quota = _quality_quota(
+            level=strengths.get(sport, 3), phase=phase, sessions=len(slots_by_sport[sport])
+        )
+        for rank in range(quota):
+            offset = _pick_quality_slot(slots_by_sport[sport], claimed, long_day_idx)
+            if offset is None:
+                break
+            # 1re séance : le type le plus structurant accessible. Les suivantes
+            # (point faible) : le plus léger, pour ajouter du stimulus sans risque.
+            claimed[offset] = quality_types[0] if rank == 0 else quality_types[-1]
+    return claimed
+
+
+def _week_day_slots(
+    *,
+    week_start: date,
+    training_idx: set[int],
+    sport_by_day: dict[int, str],
+    is_last_week: bool,
+    race_date: date,
+) -> list[_DaySlot]:
+    """Jours d'entraînement de la semaine, en ordre chronologique."""
+    slots: list[_DaySlot] = []
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_idx = day.weekday()
+        if is_last_week and day == race_date:
+            continue
+        if day_idx not in training_idx:
+            continue
+        slots.append(
+            _DaySlot(offset=offset, weekday=day_idx, sport=sport_by_day.get(day_idx, "run"))
+        )
+    return slots
+
+
 def _build_training_day_plan(
     *,
     week_start: date,
@@ -740,39 +866,49 @@ def _build_training_day_plan(
     is_last_week: bool,
     race_date: date,
     long_day_idx: int | None = None,
+    strengths: dict[str, int] | None = None,
+    phase: Phase = "build",
 ) -> dict[int, tuple[str, str]]:
-    """Single-pass day plan: weekday index -> (sport, session_type).
+    """Day plan: weekday index -> (sport, session_type).
 
-    Walks the 7 days in order so `_pick_session_type`'s used_types history is
-    consistent with the emission loop. Only days selected as training days
-    (and not the race day) get an entry. Both the weight tallies and the emitted
-    sessions derive from this map, so they can never diverge.
+    Deux passes : les créneaux de qualité sont d'abord RÉSERVÉS par discipline
+    (`_assign_quality_days`, du point faible vers le point fort), puis les jours
+    restants sont remplis chronologiquement (long / récup / endurance) — l'ordre
+    de parcours ne décide plus qui a droit à de l'intensité.
+
+    Both the weight tallies and the emitted sessions derive from this map, so
+    they can never diverge.
 
     ``types_by_sport`` porte le plafond d'intensité PAR discipline (#121) : le
     type du jour est tiré de la liste du sport assigné à ce jour — un niveau 1
     en course n'interdit plus le seuil en vélo.
     """
+    slots = _week_day_slots(
+        week_start=week_start,
+        training_idx=training_idx,
+        sport_by_day=sport_by_day,
+        is_last_week=is_last_week,
+        race_date=race_date,
+    )
+    quality_by_offset = _assign_quality_days(
+        slots=slots,
+        types_by_sport=types_by_sport,
+        strengths=strengths or {},
+        phase=phase,
+        long_day_idx=long_day_idx,
+    )
+
     plan: dict[int, tuple[str, str]] = {}
     used_types: list[str] = []
-    sport_counts: dict[str, int] = {}
-    for offset in range(7):
-        day = week_start + timedelta(days=offset)
-        day_idx = day.weekday()
-        if is_last_week and day == race_date:
-            continue
-        if day_idx not in training_idx:
-            continue
-        sport = sport_by_day.get(day_idx, "run")
-        stype = _pick_session_type(
-            day_idx=day_idx,
-            types_for_phase=types_by_sport.get(sport, ["endurance"]),
+    for slot in slots:
+        stype = quality_by_offset.get(slot.offset) or _pick_session_type(
+            day_idx=slot.weekday,
+            types_for_phase=types_by_sport.get(slot.sport, ["endurance"]),
             used_types=used_types,
             long_day_idx=long_day_idx,
-            sport_used_count=sport_counts.get(sport, 0),
         )
         used_types.append(stype)
-        sport_counts[sport] = sport_counts.get(sport, 0) + 1
-        plan[day_idx] = (sport, stype)
+        plan[slot.weekday] = (slot.sport, stype)
     return plan
 
 
@@ -992,6 +1128,8 @@ def _build_week_sessions(
         is_last_week=is_last_week,
         race_date=race.day,
         long_day_idx=long_day_idx,
+        strengths=sports_strengths,
+        phase=phase,
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
     sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
