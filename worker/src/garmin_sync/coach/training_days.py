@@ -145,12 +145,20 @@ def long_session_day(
     return max(training_idx)
 
 
+BRICK = "brick"
+
+# Le brick (vélo->CAP) charge les jambes comme une séance de course : il obéit
+# aux mêmes règles d'espacement et compte dans le même plafond d'impact.
+IMPACT_SPORTS = frozenset({"run", BRICK})
+
+
 def allocate_sport_sessions(
     *,
     count: int,
     time_shares: dict[str, float],
     strengths: dict[str, int],
     run_cap_value: int | None = None,
+    with_brick: bool = False,
 ) -> dict[str, int]:
     """Nombre de séances par sport, piloté par l'ENJEU de course (#130).
 
@@ -164,10 +172,25 @@ def allocate_sport_sessions(
     de jours le permet ; sinon les plus gros enjeux sont servis d'abord.
     ``run_cap_value`` borne les jours de course (impact traumatisant), le
     surplus est reporté sur la discipline non-run la plus pondérée.
+
+    ``with_brick`` (#154) réserve UNE séance d'enchaînement quand la course
+    enchaîne vélo puis course à pied. Elle se SUBSTITUE au volume (l'allocation
+    se fait sur ``count - 1``), n'est prise que s'il reste assez de jours pour
+    que chaque discipline garde sa séance, et consomme un jour du plafond
+    d'impact ``run_cap_value``.
     """
     sports = [s for s in time_shares if time_shares[s] > 0] or list(time_shares)
     if count <= 0 or not sports:
         return {}
+    if with_brick and count > len(sports):
+        counts = allocate_sport_sessions(
+            count=count - 1,
+            time_shares=time_shares,
+            strengths=strengths,
+            run_cap_value=max(1, run_cap_value - 1) if run_cap_value is not None else None,
+        )
+        counts[BRICK] = 1
+        return counts
     weights = {
         s: max(0.01, time_shares[s]) * (1 + 0.10 * (3 - strengths.get(s, 3))) for s in sports
     }
@@ -206,8 +229,9 @@ def assign_sports(
     """Place les séances de chaque sport sur les jours d'entraînement.
 
     Règles : la discipline dominante (le plus de séances = le plus gros enjeu)
-    prend le jour de la séance longue ; jamais deux jours "run" consécutifs ;
-    on alterne au maximum (le sport le plus « en retard » passe en premier).
+    prend le jour de la séance longue ; jamais deux jours à impact consécutifs
+    (``IMPACT_SPORTS`` : run et brick, qui chargent les mêmes appuis) ; on
+    alterne au maximum (le sport le plus « en retard » passe en premier).
     """
     days = sorted(training_idx)
     remaining = {s: c for s, c in sport_counts.items() if c > 0}
@@ -226,13 +250,17 @@ def assign_sports(
             prev = assignment[day]
             continue
         candidates = [s for s in remaining if remaining[s] > 0]
-        allowed = [s for s in candidates if not (s == "run" and prev == "run")]
+        allowed = [s for s in candidates if not (s in IMPACT_SPORTS and prev in IMPACT_SPORTS)]
         if not allowed:
-            # Plus que du run après un run : on substitue le meilleur non-run
-            # (surplus reporté, comme l'ancien comportement).
-            non_run = [s for s in sport_counts if s != "run"]
-            allowed = non_run or candidates or ["run"]
-        pick = max(allowed, key=lambda s: remaining.get(s, 0))
+            # Plus que de l'impact après un jour d'impact : on substitue le
+            # meilleur sport sans impact (surplus reporté, comme avant).
+            non_impact = [s for s in sport_counts if s not in IMPACT_SPORTS]
+            allowed = non_impact or candidates or ["run"]
+        # À égalité de séances restantes, les disciplines à impact passent en
+        # premier : servies en dernier elles se retrouvent coincées derrière un
+        # autre jour d'impact et sont purement perdues (le brick disparaissait
+        # du plan alors qu'il avait bien été alloué).
+        pick = max(allowed, key=lambda s: (remaining.get(s, 0), s in IMPACT_SPORTS))
         if remaining.get(pick, 0) > 0:
             remaining[pick] -= 1
         assignment[day] = pick

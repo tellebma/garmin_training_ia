@@ -188,3 +188,80 @@ def test_allocate_sessions_fewer_days_than_sports_keeps_biggest_stakes():
     )
     assert sum(counts.values()) == 2
     assert "bike" in counts  # l'enjeu dominant n'est jamais sacrifié
+
+
+def test_allocate_sessions_reserves_one_brick_for_chained_race():
+    """#154 : un triathlon doit recevoir une séance d'enchaînement par semaine."""
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=5,
+        time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        strengths={"swim": 2, "bike": 4, "run": 1},
+        run_cap_value=run_cap("intermediate"),
+        with_brick=True,
+    )
+    assert counts["brick"] == 1
+    assert sum(counts.values()) == 5
+    # Le brick se substitue au volume : chaque discipline garde sa séance.
+    for sport in ("swim", "bike", "run"):
+        assert counts[sport] >= 1
+
+
+def test_allocate_sessions_no_brick_by_default():
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=5,
+        time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        strengths={"swim": 3, "bike": 3, "run": 3},
+    )
+    assert "brick" not in counts
+
+
+def test_allocate_sessions_skips_brick_when_days_only_cover_the_disciplines():
+    """3 jours pour 3 disciplines : pas de place pour un enchaînement en plus."""
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=3,
+        time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
+        strengths={"swim": 3, "bike": 3, "run": 3},
+        with_brick=True,
+    )
+    assert "brick" not in counts
+    assert sum(counts.values()) == 3
+
+
+def test_allocate_sessions_brick_counts_toward_the_run_impact_cap():
+    """Le brick charge les jambes comme un run : il entre dans le plafond d'impact."""
+    from garmin_sync.coach.training_days import allocate_sport_sessions
+
+    counts = allocate_sport_sessions(
+        count=6,
+        time_shares={"swim": 0.10, "bike": 0.30, "run": 0.60},
+        strengths={"swim": 3, "bike": 3, "run": 1},
+        run_cap_value=2,
+        with_brick=True,
+    )
+    assert counts["run"] + counts["brick"] <= 2
+    assert sum(counts.values()) == 6
+
+
+def test_assign_sports_falls_back_to_non_impact_rather_than_chaining_impact():
+    """Reste du run/brick après un jour d'impact : on reporte sur le non-impact."""
+    days = [0, 1, 2, 3]
+    assignment = assign_sports(training_idx=days, sport_counts={"bike": 1, "run": 2, "brick": 1})
+    ordered = [assignment[d] for d in days]
+    for a, b in pairwise(ordered):
+        assert not ({a, b} <= {"run", "brick"})
+
+
+def test_assign_sports_never_chains_brick_and_run():
+    days = [0, 1, 2, 3, 4]
+    assignment = assign_sports(
+        training_idx=days, sport_counts={"swim": 1, "bike": 2, "run": 1, "brick": 1}
+    )
+    ordered = [assignment[d] for d in days]
+    for a, b in pairwise(ordered):
+        assert not ({a, b} <= {"run", "brick"})

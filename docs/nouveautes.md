@@ -8,6 +8,10 @@
 - Le dénivelé de la semaine n'est plus empilé sur une seule sortie : chaque séance reste sous un
   plafond de mètres de D+ par heure réaliste, et le surplus part sur les autres séances de la
   semaine — fini les 1900 m de D+ à avaler en 2 h de vélo.
+- Ton plan contient enfin des enchaînements : si ta course enchaîne le vélo puis la course à
+  pied, une séance « brick » (vélo puis CAP sans coupure, transition décrite) est programmée
+  chaque semaine en phases build et peak — elle remplace du volume vélo/CAP, elle ne s'y
+  ajoute pas.
 
 ## 1.15.5 — 2026-08-01
 

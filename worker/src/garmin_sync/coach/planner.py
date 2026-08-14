@@ -8,6 +8,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from typing import Any, cast
 
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
@@ -54,6 +55,9 @@ class RaceTarget:
     sport: str
     time_shares: dict[str, float] | None = None
     dplus_by_sport: dict[str, int] | None = None
+    # La course enchaîne un segment vélo puis un segment course à pied : le plan
+    # doit alors contenir des séances d'enchaînement (#154).
+    has_bike_run_transition: bool = False
 
 
 @dataclass(frozen=True)
@@ -580,6 +584,54 @@ def estimate_race_time_shares(legs: list[dict[str, Any]]) -> dict[str, float]:
     return {s: h / total for s, h in hours.items()}
 
 
+# Séances d'enchaînement (#154) : phases où un brick a sa place, et types
+# autorisés (les seuls que ``_TSS_PER_HOUR`` connaît pour le brick).
+_BRICK_PHASES = frozenset({"build", "peak"})
+_BRICK_SESSION_TYPES = ["endurance", "long"]
+# Disciplines dont le brick consomme le volume : il s'y substitue, il ne s'ajoute pas.
+_BRICK_SOURCE_SPORTS = ("bike", "run")
+# Poids du brick dans ce budget vélo + CAP : une sortie vélo pleine PLUS la
+# course qui l'enchaîne, donc plus qu'une séance ordinaire du même budget.
+_BRICK_TSS_WEIGHT = 1.5
+
+
+def race_has_bike_run_transition(legs: list[dict[str, Any]]) -> bool:
+    """La course enchaîne-t-elle un segment vélo puis un segment course à pied ?
+
+    C'est la transition que le brick prépare (triathlon, duathlon). Un
+    aquathlon (natation -> course) répond False : les tables TSS/heure et la
+    vitesse de référence du brick décrivent un vélo -> CAP, pas un swim -> run.
+    """
+    disciplines = [str(leg.get("discipline") or "") for leg in legs]
+    return any(first == "bike" and second == "run" for first, second in pairwise(disciplines))
+
+
+def _tss_with_brick_share(
+    tss_by_sport: dict[str, float], sport_counts: dict[str, int]
+) -> dict[str, float]:
+    """Donne au brick sa part du budget hebdo, PRISE sur le vélo et la CAP.
+
+    Sans cette redistribution le brick hériterait d'un TSS nul (il n'est pas une
+    discipline de la course, donc absent de ``distribute_weekly_tss_by_sport``).
+    Vélo et CAP sont réduits au prorata de leur charge : le budget hebdo total
+    est conservé, le brick se substitue au volume au lieu de s'y ajouter.
+    """
+    n_brick = sport_counts.get("brick", 0)
+    if n_brick <= 0:
+        return tss_by_sport
+    pool = sum(tss_by_sport.get(s, 0.0) for s in _BRICK_SOURCE_SPORTS)
+    n_source = sum(sport_counts.get(s, 0) for s in _BRICK_SOURCE_SPORTS)
+    brick_weight = n_brick * _BRICK_TSS_WEIGHT
+    if pool <= 0 or n_source <= 0:
+        return tss_by_sport
+    brick_ratio = brick_weight / (n_source + brick_weight)
+    out = dict(tss_by_sport)
+    for sport in _BRICK_SOURCE_SPORTS:
+        out[sport] = round(tss_by_sport.get(sport, 0.0) * (1 - brick_ratio), 2)
+    out["brick"] = round(pool * brick_ratio, 2)
+    return out
+
+
 def compute_elevation_per_sport(legs: list[dict[str, Any]]) -> dict[str, int]:
     """Sum the race's total D+ per sport from its legs.
 
@@ -884,12 +936,19 @@ def _build_week_sessions(
     # Cap course PAR discipline (#129) : c'est le niveau run — pas le niveau
     # global — qui borne l'impact traumatisant de la course a pied.
     run_level = level_label_for_score(sports_strengths.get("run", 3))
+    # Enchaînement vélo->CAP (#154) : réservé aux phases build/peak d'une course
+    # à transition — jamais en taper (semaine de course) ni en base.
+    with_brick = race.has_bike_run_transition and phase in _BRICK_PHASES
     sport_counts = allocate_sport_sessions(
         count=count,
         time_shares=shares,
         strengths=sports_strengths,
         run_cap_value=run_cap(run_level) if "run" in sports_in_race else None,
+        with_brick=with_brick,
     )
+    if "brick" in sport_counts:
+        types_by_sport["brick"] = _BRICK_SESSION_TYPES
+        tss_by_sport = _tss_with_brick_share(tss_by_sport, sport_counts)
     sport_by_day = assign_sports(
         training_idx=sorted(training_idx), sport_counts=sport_counts, long_day_idx=long_day_idx
     )
@@ -1279,6 +1338,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
             sport=race_sport,
             time_shares=race_time_shares,
             dplus_by_sport=race_dplus_by_sport,
+            has_bike_run_transition=race_has_bike_run_transition(race["legs"]),
         ),
         observed=ObservedHabits(
             weekday_counts=observed_weekday_counts,

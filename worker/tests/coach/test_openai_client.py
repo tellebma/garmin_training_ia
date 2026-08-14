@@ -317,6 +317,36 @@ def test_prompt_includes_swim_structure_guidance(mock_get_client):
 
 
 @patch("garmin_sync.coach.openai_client._get_client")
+def test_prompt_includes_brick_bike_then_run_guidance(mock_get_client):
+    """#154 : une séance brick doit demander un contenu vélo->CAP explicite."""
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+    session = {**_endurance_session(), "sport": "brick"}
+    generate_workout_for_session(
+        session=session, athlete=_athlete_full(), race_context=_race_context()
+    )
+    user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
+    assert "enchaînement" in user_msg.lower()
+    assert "transition" in user_msg.lower()
+    # Les deux repères physiologiques utiles à un vélo->CAP sont donnés.
+    assert "FTP" in user_msg
+    assert "VMA" in user_msg
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
+def test_prompt_omits_brick_guidance_for_other_sports(mock_get_client):
+    mock_client = MagicMock()
+    mock_get_client.return_value = mock_client
+    mock_client.beta.chat.completions.parse.return_value = _resp(_workout_dict(300, 3000, 300))
+    generate_workout_for_session(
+        session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
+    )
+    user_msg = mock_client.beta.chat.completions.parse.call_args.kwargs["messages"][1]["content"]
+    assert "Consignes enchaînement" not in user_msg
+
+
+@patch("garmin_sync.coach.openai_client._get_client")
 def test_prompt_omits_swim_guidance_for_other_sports(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client

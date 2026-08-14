@@ -99,6 +99,17 @@ _SWIM_PROMPT_GUIDANCE = """Consignes natation (impératives) :
 - Précise le départ des séries dans notes (ex : « départ toutes les 1'50 »).
 - N'exprime jamais l'allure en km/h : pense en secondes par 100 m."""
 
+# Le brick prépare LA transition de la course : sans consigne explicite, le
+# modèle en fait une sortie vélo ordinaire (issue #154).
+_BRICK_PROMPT_GUIDANCE = """Consignes enchaînement vélo->CAP (impératives) :
+- La séance est UN enchaînement : bloc vélo d'abord, puis course à pied enchaînée
+  immédiatement après, sans coupure — c'est la transition de la course qu'on prépare.
+- Répartis environ 70 à 80 % de la durée sur le vélo, le reste en course à pied
+  (au moins 15 min de course).
+- Décris la transition dans notes : poser le vélo et partir courir en moins de 2 min.
+- Les premières minutes de course se font sur des jambes lourdes : allure contrôlée,
+  cadence de foulée haute, pas de recherche de vitesse."""
+
 
 @lru_cache(maxsize=1)
 def _get_client() -> OpenAI:
@@ -123,9 +134,10 @@ def _athlete_lines(*, athlete: dict[str, Any], sport: str) -> list[str]:
         "Athlète :",
         f"- FC max : {fc} bpm" if fc else "- FC max : non connue",
     ]
-    if sport == "bike":
+    # Le brick est un vélo->CAP : il a besoin des repères des DEUX disciplines.
+    if sport in ("bike", "brick"):
         lines.append(f"- FTP : {ftp} W" if ftp else "- FTP : non connue")
-    if sport == "run":
+    if sport in ("run", "brick"):
         lines.append(f"- VMA : {vma} km/h" if vma else "- VMA : non connue")
     if sport == "swim":
         lines.append(f"- CSS : {css} s/100m" if css else "- CSS : non connue")
@@ -189,6 +201,8 @@ def _build_user_prompt(
         lines.extend(["", f"Contexte coach : {session['coach_context']}"])
     if session["sport"] == "swim":
         lines.extend(["", _SWIM_PROMPT_GUIDANCE])
+    elif session["sport"] == "brick":
+        lines.extend(["", _BRICK_PROMPT_GUIDANCE])
     lines.extend(["", describe_session_envelope(session)])
     return "\n".join(lines)
 
