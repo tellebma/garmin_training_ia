@@ -487,6 +487,33 @@ def compute_base_weekly_tss(*, ctl: float, hours_per_week: float | None) -> floa
     return float(min(measured, cap))
 
 
+# Fraîcheur mesurée : seuils de TSB (= CTL - ATL) au-delà desquels la semaine EN
+# COURS passe en décharge. -25 = surmenage fonctionnel installé, -35 = surmenage
+# non fonctionnel (prod : tsb_initial -30,85 avec trois signaux d'alerte actifs).
+TSB_DELOAD_THRESHOLD = -25.0
+TSB_STRONG_DELOAD_THRESHOLD = -35.0
+TSB_STRONG_DELOAD_MULTIPLIER = 0.60
+
+
+def tsb_load_multiplier(tsb: float | None) -> float:
+    """Rabais de charge dicté par la fatigue mesurée (TSB), 1.0 si l'athlète est frais.
+
+    ``atl`` et ``tsb`` étaient calculés, écrits dans ``training_plans``… et jamais
+    relus pour dimensionner une semaine (#167) : un athlète à TSB -31 recevait la
+    même charge qu'un athlète reposé, et le plan continuait de monter à 13 jours de
+    sa course. Sous ``TSB_DELOAD_THRESHOLD`` la semaine courante passe en décharge
+    (même taux que le deload de cycle) ; sous ``TSB_STRONG_DELOAD_THRESHOLD`` la
+    réduction est plus franche.
+    """
+    if tsb is None:
+        return 1.0
+    if tsb <= TSB_STRONG_DELOAD_THRESHOLD:
+        return TSB_STRONG_DELOAD_MULTIPLIER
+    if tsb <= TSB_DELOAD_THRESHOLD:
+        return DELOAD_RAMP_RATE
+    return 1.0
+
+
 # Minimum per-sport race elevation gain (m) below which we don't bother training
 # hills. A 50m run race or a 200m bike race is flat enough that "spécificité
 # terrain" doesn't justify dedicated hill sessions.
@@ -1520,6 +1547,28 @@ def _ramp_ceilings(prev_tss_by_sport: dict[str, float] | None) -> dict[str, floa
     }
 
 
+def _week_load_adjustment(
+    offset: int,
+    *,
+    reprise_offset: int,
+    reprise_multiplier: float,
+    current_offset: int,
+    tsb_multiplier: float,
+) -> float:
+    """Rabais appliqué à UNE semaine : reprise de préparation et/ou fatigue mesurée.
+
+    Les deux disent « allège », jamais « allège deux fois » : on retient le plus
+    fort, pas leur produit (0,85 x 0,60 sortirait une semaine à 0,51x qu'aucun des
+    deux signaux n'a demandée).
+    """
+    adjustments = [1.0]
+    if offset == reprise_offset:
+        adjustments.append(reprise_multiplier)
+    if offset == current_offset:
+        adjustments.append(tsb_multiplier)
+    return min(adjustments)
+
+
 def _week_tss_budget(
     *,
     base_weekly: float,
@@ -1561,9 +1610,13 @@ def _build_all_week_sessions(
     cible, sports, modulation de charge — sans que l'aval ait à savoir si c'est
     une préparation de course ou un cycle d'entretien (cf. ``_PlanGrid``).
 
-    ``grid.current_offset`` est la semaine qui contient `today` dans la grille
-    ancrée (#123) : c'est elle — et non plus l'offset 0, potentiellement passé —
-    qui reçoit le multiplicateur prudent de première semaine.
+    ``grid.reprise_offset`` est la semaine qui contient le DÉBUT DE PRÉPARATION
+    ancré (#123) : c'est elle qui porte le rabais prudent de reprise. L'ancrer sur
+    ``current_offset`` le faisait glisser d'une semaine à chaque régénération, et
+    la forme du plan changeait chaque lundi (#167).
+
+    ``grid.current_offset`` reste la semaine qui contient `today` : c'est elle — et
+    elle seule — que la fatigue MESURÉE (TSB) peut passer en décharge.
     """
     phases = grid.phases
     week_start = grid.week_start
@@ -1579,6 +1632,7 @@ def _build_all_week_sessions(
         ctl=today_state.ctl, hours_per_week=profile.get("hours_per_week")
     )
     hours_cap = weekly_tss_cap_from_hours(profile.get("hours_per_week"))
+    tsb_multiplier = tsb_load_multiplier(today_state.tsb)
     for i, (offset, phase) in enumerate(phases):
         # Cible D+ par semaine : progression ancrée vers un pic en fin de build,
         # partant du D+ réellement encaissé, réduite en taper (#131).
@@ -1588,7 +1642,13 @@ def _build_all_week_sessions(
             phases=phases,
             observed_weekly_dplus=observed.weekly_dplus,
         )
-        adjustment = first_week_tss_multiplier if offset == grid.current_offset else 1.0
+        adjustment = _week_load_adjustment(
+            offset,
+            reprise_offset=grid.reprise_offset,
+            reprise_multiplier=first_week_tss_multiplier,
+            current_offset=grid.current_offset,
+            tsb_multiplier=tsb_multiplier,
+        )
         weekly_tss = _week_tss_budget(
             base_weekly=base_weekly,
             multiplier=load_multipliers[i],
@@ -1869,6 +1929,9 @@ class _PlanGrid:
     end_date: date
     target: TrainingTarget
     sports: list[str]
+    # Semaine qui contient le début de préparation ancré : elle seule porte le
+    # rabais prudent de reprise (#167). Sans ancre (cycle E27), c'est la première.
+    reprise_offset: int = 0
     load: LoadShape = NO_LOAD_SHAPE
 
 
@@ -1908,6 +1971,10 @@ def _race_grid(
         anchor=anchor,
         end_date=race_date,
         sports=sports_in_race,
+        # Rabais de reprise ancré sur la DATE de début de prep, pas sur la semaine
+        # courante (#167) : sinon il glisse d'une semaine à chaque régénération et
+        # la forme du plan change chaque lundi pour le même athlète et la même course.
+        reprise_offset=min(weeks_count - 1, max(0, (anchor - week_start).days // 7)),
         target=TrainingTarget(
             race_day=race_date,
             sport=_race_day_sport(race),
@@ -2163,8 +2230,10 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
                     "cold_start": is_cold_start(tss_by_date),
                     "first_week_tss_multiplier": first_week_tss_multiplier,
                     "activity_review_signals": [i.name for i in activity_review.insights],
+                    "tsb_load_multiplier": tsb_load_multiplier(today_state.tsb),
                     "prep_start_date": anchor.isoformat(),
                     "current_week_offset": current_offset,
+                    "reprise_week_offset": grid.reprise_offset,
                     "declared_hours_per_week": profile.get("hours_per_week"),
                     "planned_hours_reference_week": planned_hours_reference_week,
                     # Mode EFFECTIF : dit quel moteur a produit ce plan, y compris

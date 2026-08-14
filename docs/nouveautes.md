@@ -81,6 +81,10 @@
   faire gonfler le total (jusqu'à 2,5× sur le vélo). Le plan répartit désormais vraiment son
   budget, et si une sortie longue n'est pas finançable, elle est allégée ou retirée plutôt que
   de faire exploser la semaine.
+- Ta fatigue compte enfin dans le dimensionnement : quand ta forme (TSB) est très négative, la
+  semaine en cours passe automatiquement en décharge au lieu de continuer à monter.
+- Ton plan ne change plus de tête chaque lundi : l'allègement de reprise est calé sur la date de
+  début de préparation, il ne glisse plus d'une semaine à chaque régénération.
 
 ## 1.17.1 — 2026-08-14
 
