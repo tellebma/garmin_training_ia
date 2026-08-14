@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // tests/unit/components/activity-row.test.tsx
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { ActivityRow } from '@/app/(app)/_components/activity-row'
 import type { ActivityRowDto } from '@/lib/dashboard/types'
 
@@ -16,6 +16,10 @@ const base: ActivityRowDto = {
   tss: 80,
   hr_avg: 140,
 }
+
+afterEach(() => {
+  cleanup()
+})
 
 describe('ActivityRow route thumbnail', () => {
   it('shows a route thumbnail when route_polyline has points', () => {
@@ -49,5 +53,17 @@ describe('ActivityRow route thumbnail', () => {
   it('always renders the sport icon when route_polyline is absent', () => {
     const { container } = render(<ActivityRow activity={{ ...base }} />)
     expect(container.querySelector('[aria-label]')).not.toBeNull()
+  })
+
+  it('shows the elevation gain on the row', () => {
+    render(<ActivityRow activity={{ ...base, elevation_gain_m: 1238 }} />)
+    expect(screen.getByText('1238 m')).toBeTruthy()
+  })
+
+  it('hides the elevation gain when the activity is flat or has none', () => {
+    const { rerender } = render(<ActivityRow activity={{ ...base, elevation_gain_m: 0 }} />)
+    expect(screen.queryByTitle('Dénivelé positif')).toBeNull()
+    rerender(<ActivityRow activity={{ ...base, elevation_gain_m: null }} />)
+    expect(screen.queryByTitle('Dénivelé positif')).toBeNull()
   })
 })
