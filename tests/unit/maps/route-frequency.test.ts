@@ -34,7 +34,7 @@ describe('resamplePolyline', () => {
       Math.cos((45.5 * Math.PI) / 180)
     )
     // 10 km at 100 m spacing → 100 steps + the original first point.
-    expect(dense.length).toBe(101)
+    expect(dense).toHaveLength(101)
     expect(dense[0]).toEqual([4, 45.5])
     expect(dense.at(-1)?.[0]).toBeCloseTo(4 + 10 * KM_LNG, 6)
   })
