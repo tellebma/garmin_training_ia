@@ -1,3 +1,9 @@
+## [1.15.8](https://github.com/tellebma/garmin_training_ia/compare/v1.15.7...v1.15.8) (2026-08-14)
+
+### Bug Fixes
+
+* **coach:** borne le gradient de D+ par séance ([#158](https://github.com/tellebma/garmin_training_ia/issues/158)) ([#162](https://github.com/tellebma/garmin_training_ia/issues/162)) ([16a1d05](https://github.com/tellebma/garmin_training_ia/commit/16a1d056f87ece472f5e4304b9ee99493b38a85a)), closes [#131](https://github.com/tellebma/garmin_training_ia/issues/131) [#151](https://github.com/tellebma/garmin_training_ia/issues/151)
+
 ## [1.15.7](https://github.com/tellebma/garmin_training_ia/compare/v1.15.6...v1.15.7) (2026-08-14)
 
 ### Bug Fixes
