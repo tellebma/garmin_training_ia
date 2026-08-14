@@ -1,5 +1,5 @@
 // app/(app)/_components/activity-row.tsx
-import { Activity as ActivityIcon } from 'lucide-react'
+import { Activity as ActivityIcon, Mountain } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SPORT_ICON, SPORT_LABEL } from './sport-icon'
 import { RouteThumbnail } from './maps/route-thumbnail'
@@ -47,7 +47,17 @@ export function ActivityRow({ activity, className }: Readonly<ActivityRowProps>)
         <p className="text-foreground font-medium">
           {formatDuration(activity.duration_s)} · {formatDistanceFromMeters(activity.distance_m)}
         </p>
-        <p className="text-muted-foreground mt-0.5">{formatTSS(activity.tss)}</p>
+        <p className="text-muted-foreground mt-0.5 flex items-center justify-end gap-2">
+          <span>{formatTSS(activity.tss)}</span>
+          {/* Le D+ ne s'affiche que là où il veut dire quelque chose : une nage
+              en bassin ou une sortie plate n'ont pas à porter un « 0 m ». */}
+          {activity.elevation_gain_m && activity.elevation_gain_m > 0 ? (
+            <span className="flex items-center gap-0.5" title="Dénivelé positif">
+              <Mountain size={12} aria-hidden />
+              {String(Math.round(activity.elevation_gain_m))} m
+            </span>
+          ) : null}
+        </p>
       </div>
     </div>
   )

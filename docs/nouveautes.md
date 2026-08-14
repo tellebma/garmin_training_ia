@@ -2,6 +2,8 @@
 
 ## 1.18.0 — 2026-08-14
 
+- L'historique affiche le dénivelé de chaque sortie, à côté du TSS — visible aussi sur la
+  dernière activité de « Aujourd'hui ».
 - Les séances détaillées sont enfin lisibles : échauffement, séries et retour au calme sont
   mis en forme, avec la zone, l'allure ou les watts, la durée de nage et la consigne de récup
   qui restaient invisibles jusque-là.
