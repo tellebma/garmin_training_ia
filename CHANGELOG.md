@@ -1,3 +1,13 @@
+## [1.17.1](https://github.com/tellebma/garmin_training_ia/compare/v1.17.0...v1.17.1) (2026-08-14)
+
+### Bug Fixes
+
+* **coach:** corrige deux données fausses en entrée du moteur (Body Battery, enchaînements) ([#196](https://github.com/tellebma/garmin_training_ia/issues/196)) ([e48cce7](https://github.com/tellebma/garmin_training_ia/commit/e48cce75d413d41ba04abe30188e2790543be364)), closes [#170](https://github.com/tellebma/garmin_training_ia/issues/170) [#169](https://github.com/tellebma/garmin_training_ia/issues/169)
+
+### Documentation
+
+* **nouveautes:** aligne les entrées sur les versions publiées ([#198](https://github.com/tellebma/garmin_training_ia/issues/198)) ([7ea5af3](https://github.com/tellebma/garmin_training_ia/commit/7ea5af3236b75ed71e50c7bca660f1ce2a796402))
+
 ## [1.17.0](https://github.com/tellebma/garmin_training_ia/compare/v1.16.0...v1.17.0) (2026-08-14)
 
 ### Features
