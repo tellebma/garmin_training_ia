@@ -1,17 +1,29 @@
 # Nouveautés
 
+## 1.17.0 — 2026-08-14
+
+- Le jour de course n'est plus une case vide : il affiche ton temps estimé segment par segment,
+  les transitions, l'allure visée sur chaque partie et des repères de nutrition — le tout calculé
+  depuis les distances et le dénivelé que tu as saisis.
+
 ## 1.16.0 — 2026-08-14
 
-- La semaine de ta course s'affiche à nouveau dans le plan : le jour J d'un triathlon (ou
-  duathlon / aquathlon) apparaît comme une séance « Jour de course » au lieu de faire planter
-  la page sur un écran blanc.
-- Le dénivelé de la semaine n'est plus empilé sur une seule sortie : chaque séance reste sous un
-  plafond de mètres de D+ par heure réaliste, et le surplus part sur les autres séances de la
-  semaine — fini les 1900 m de D+ à avaler en 2 h de vélo.
 - Ton plan contient enfin des enchaînements : si ta course enchaîne le vélo puis la course à
   pied, une séance « brick » (vélo puis CAP sans coupure, transition décrite) est programmée
   chaque semaine en phases build et peak — elle remplace du volume vélo/CAP, elle ne s'y
   ajoute pas.
+
+## 1.15.8 — 2026-08-14
+
+- Le dénivelé de la semaine n'est plus empilé sur une seule sortie : chaque séance reste sous un
+  plafond de mètres de D+ par heure réaliste, et le surplus part sur les autres séances de la
+  semaine — fini les 1900 m de D+ à avaler en 2 h de vélo.
+
+## 1.15.7 — 2026-08-14
+
+- La semaine de ta course s'affiche à nouveau dans le plan : le jour J d'un triathlon (ou
+  duathlon / aquathlon) apparaît comme une séance « Jour de course » au lieu de faire planter
+  la page sur un écran blanc.
 
 ## 1.15.5 — 2026-08-01
 
