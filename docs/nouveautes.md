@@ -1,5 +1,11 @@
 # Nouveautés
 
+## 1.17.1 — 2026-08-14
+
+- Ta Body Battery n'est plus lue à l'envers : le coach compare désormais le pic de ta journée
+  à ta ligne de base, au lieu du niveau de fin de soirée — fini les « Body Battery sous ta
+  moyenne » quasi quotidiens qui plombaient ta note de forme.
+
 ## 1.17.0 — 2026-08-14
 
 - Le jour de course n'est plus une case vide : il affiche ton temps estimé segment par segment,
