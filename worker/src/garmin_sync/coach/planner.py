@@ -441,6 +441,102 @@ _ELEVATION_SESSION_WEIGHT: dict[str, float] = {
     "rest": 0.0,
 }
 
+# Plafond de gradient (mètres de D+ par heure) admissible pour UNE séance (#158).
+#
+# Le poids « long » (2.0) empilait la cible hebdo sur la sortie longue : 1920 m
+# sur 2 h de vélo en prod (~960 m/h), plus raide que la course préparée
+# (~700 m/h sur sa partie vélo). Les valeurs ci-dessous sont calées sur
+# l'exigence réelle d'une épreuve montagneuse — le plan peut viser le gradient
+# de la course, pas le dépasser franchement — et sur ce qu'un amateur tient sur
+# la durée COMPLÈTE d'une séance (montées + plat + descentes, pas la seule
+# vitesse ascensionnelle d'un col).
+ELEVATION_GRADIENT_CAP_M_PER_H: dict[str, float] = {
+    "bike": 700.0,
+    "run": 500.0,
+    "brick": 600.0,
+}
+_ELEVATION_GRADIENT_CAP_DEFAULT = 500.0
+
+# Contrainte DB : target_elevation_gain_m <= 5000 m par séance.
+_ELEVATION_SESSION_MAX_M = 5000
+
+
+def session_elevation_cap_m(sport: str, duration_s: int) -> int:
+    """D+ maximal admissible pour une séance de ``duration_s`` dans ce sport."""
+    gradient = ELEVATION_GRADIENT_CAP_M_PER_H.get(sport, _ELEVATION_GRADIENT_CAP_DEFAULT)
+    return min(_ELEVATION_SESSION_MAX_M, round(gradient * max(0, duration_s) / 3600))
+
+
+def _redistribute_elevation(targets: list[int], caps: list[int]) -> tuple[list[int], int]:
+    """Borne chaque cible par son plafond, reporte le surplus, écrête le reste.
+
+    Retourne ``(cibles bornées, mètres écrêtés)``. Le report est proportionnel à
+    la marge restante de chaque séance : le volume hebdo de D+ est conservé tant
+    qu'il rentre quelque part, seule sa répartition change.
+    """
+    allotted = [min(t, c) for t, c in zip(targets, caps, strict=True)]
+    surplus = sum(targets) - sum(allotted)
+    if surplus <= 0:
+        return allotted, 0
+
+    headroom = [c - a for c, a in zip(caps, allotted, strict=True)]
+    total_headroom = sum(headroom)
+    take = min(surplus, total_headroom)
+    if take <= 0:
+        return allotted, surplus
+
+    placed = 0
+    for i, room in enumerate(headroom):
+        if room <= 0:
+            continue
+        add = min(room, take * room // total_headroom)
+        allotted[i] += add
+        placed += add
+    # Reliquat d'arrondi (< nombre de séances) : sur la plus grosse marge d'abord.
+    remainder = take - placed
+    for i in sorted(range(len(allotted)), key=lambda j: caps[j] - allotted[j], reverse=True):
+        if remainder <= 0:
+            break
+        add = min(caps[i] - allotted[i], remainder)
+        allotted[i] += add
+        remainder -= add
+    return allotted, surplus - take + remainder
+
+
+def cap_session_elevation_gradients(sessions: list[dict[str, Any]]) -> int:
+    """Rend la répartition hebdo du D+ réalisable séance par séance (#158).
+
+    Aucune séance ne dépasse ``ELEVATION_GRADIENT_CAP_M_PER_H`` pour son sport ;
+    le surplus part sur les autres séances DU MÊME SPORT qui ont de la marge, et
+    n'est écrêté qu'en dernier recours. Retourne le total (m) écrêté — une
+    semaine trop pentue pour être répartie est tracée, jamais silencieuse.
+    """
+    by_sport: dict[str, list[dict[str, Any]]] = {}
+    for s in sessions:
+        if not s.get("target_elevation_gain_m"):
+            continue
+        by_sport.setdefault(str(s.get("sport") or ""), []).append(s)
+
+    clipped_total = 0
+    for sport, group in by_sport.items():
+        caps = [session_elevation_cap_m(sport, int(s.get("target_duration_s") or 0)) for s in group]
+        targets = [int(s["target_elevation_gain_m"]) for s in group]
+        allotted, clipped = _redistribute_elevation(targets, caps)
+        for session, value in zip(group, allotted, strict=True):
+            session["target_elevation_gain_m"] = value if value > 0 else None
+        if clipped <= 0:
+            continue
+        clipped_total += clipped
+        log.warning(
+            "elevation gradient cap: %d m écrêtés en %s (%d séance(s), cible hebdo %d m)",
+            clipped,
+            sport,
+            len(group),
+            sum(targets),
+        )
+    return clipped_total
+
+
 _FIRST_WEEK_STRONG_DELOAD_SIGNALS = {"return_after_break", "load_spike", "hard_sessions_density"}
 _FIRST_WEEK_LIGHT_DELOAD_SIGNALS = {"recent_long_session", "elevation_spike"}
 
@@ -838,6 +934,10 @@ def _build_week_sessions(
                 sport_elevation_weight_total=sport_elev_weight_total,
             )
         )
+    # Le poids « long » concentre la cible hebdo sur une seule sortie : on la
+    # rend réalisable (plafond de gradient + report sur les séances qui ont de
+    # la marge) sans toucher au volume hebdo visé (#158).
+    cap_session_elevation_gradients(sessions)
     return sessions
 
 

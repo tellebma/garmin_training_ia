@@ -5,6 +5,9 @@
 - La semaine de ta course s'affiche à nouveau dans le plan : le jour J d'un triathlon (ou
   duathlon / aquathlon) apparaît comme une séance « Jour de course » au lieu de faire planter
   la page sur un écran blanc.
+- Le dénivelé de la semaine n'est plus empilé sur une seule sortie : chaque séance reste sous un
+  plafond de mètres de D+ par heure réaliste, et le surplus part sur les autres séances de la
+  semaine — fini les 1900 m de D+ à avaler en 2 h de vélo.
 
 ## 1.15.5 — 2026-08-01
 
