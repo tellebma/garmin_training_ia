@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from garmin_sync.coach.sports import normalize_discipline
+from garmin_sync.coach.sports import CORE_DISCIPLINES, contributing_disciplines
 
 WINDOW_DAYS = 90
 MIN_ACTIVITIES_CONFIDENT = 6
@@ -21,7 +21,6 @@ _SUBWINDOW_DAYS = 30
 _LEVEL_MIN = 1
 _LEVEL_MAX = 5
 _DEFAULT_LEVEL = 3
-_CORE_DISCIPLINES = ("swim", "bike", "run")
 _LABELS = {"swim": "Natation", "bike": "Vélo", "run": "Course"}
 
 
@@ -77,18 +76,29 @@ def _activity_tss(row: dict[str, Any]) -> float:
 
 def _group_by_discipline(
     activities: list[dict[str, Any]], today: date
-) -> dict[str, list[tuple[date, float]]]:
+) -> tuple[dict[str, list[tuple[date, float]]], float]:
+    """Bucket in-window activities per discipline, plus the total TSS.
+
+    A brick feeds BOTH the bike and the run bucket (#169) — it genuinely trains
+    the two. The total is therefore accumulated separately, so that an activity
+    landing in two buckets is still counted once in the athlete's overall load
+    and does not dilute every ``tss_share``.
+    """
     start = today - timedelta(days=WINDOW_DAYS)
     grouped: dict[str, list[tuple[date, float]]] = {}
+    total_tss = 0.0
     for row in activities:
         d = _activity_date(row)
         if d is None or not (start <= d <= today):
             continue
-        disc = normalize_discipline(str(row.get("sport") or ""))
-        if disc is None:
+        disciplines = contributing_disciplines(str(row.get("sport") or ""))
+        if not disciplines:
             continue
-        grouped.setdefault(disc, []).append((d, _activity_tss(row)))
-    return grouped
+        tss = _activity_tss(row)
+        total_tss += tss
+        for disc in disciplines:
+            grouped.setdefault(disc, []).append((d, tss))
+    return grouped, total_tss
 
 
 def _signals(entries: list[tuple[date, float]], total_tss: float, today: date) -> dict[str, Any]:
@@ -144,11 +154,10 @@ def compute_discipline_levels(
     today: date | None = None,
 ) -> DisciplineLevels:
     today = today or date.today()
-    grouped = _group_by_discipline(activities, today)
-    total_tss = sum(t for entries in grouped.values() for _d, t in entries)
+    grouped, total_tss = _group_by_discipline(activities, today)
 
     disciplines: dict[str, DisciplineLevel] = {}
-    for disc in _CORE_DISCIPLINES:
+    for disc in CORE_DISCIPLINES:
         decl = int(declared.get(disc, _DEFAULT_LEVEL))
         signals = _signals(grouped.get(disc, []), total_tss, today)
         disciplines[disc] = _reconcile(disc, decl, signals)

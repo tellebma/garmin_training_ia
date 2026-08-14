@@ -1309,3 +1309,23 @@ def test_distribute_then_cap_run_never_exceeds_10pct_week_over_week() -> None:
         w1,
     )
     assert w2["run"] <= round(w1["run"] * 1.10, 2) + 0.01
+
+
+def test_observed_weekly_elevation_credits_brick_dplus_to_the_bike() -> None:
+    """#169: a multi_sport was dropped from the observed D+ entirely, so the
+    ramp restarted from a fraction of the race D+ despite real climbing done.
+
+    Its D+ is earned on the bike leg — crediting it to run too would double-count
+    it and inflate the run ramp toward injury.
+    """
+    from garmin_sync.coach.planner import observed_weekly_elevation_by_sport
+
+    today = date(2026, 8, 14)
+    activities = [
+        {"start_time": "2026-08-08T08:00:00Z", "sport": "multi_sport", "elevation_gain_m": 952},
+        {"start_time": "2026-08-01T08:00:00Z", "sport": "cycling", "elevation_gain_m": 1048},
+    ]
+    out = observed_weekly_elevation_by_sport(activities, today=today)
+    assert out["bike"] == 500  # (952 + 1048) / 4 semaines
+    assert "run" not in out
+    assert "brick" not in out

@@ -5,6 +5,10 @@
 - Ta Body Battery n'est plus lue à l'envers : le coach compare désormais le pic de ta journée
   à ta ligne de base, au lieu du niveau de fin de soirée — fini les « Body Battery sous ta
   moyenne » quasi quotidiens qui plombaient ta note de forme.
+- Tes enchaînements vélo-course comptent enfin pour ce qu'ils valent : charge pleine (et non
+  plus moitié, comme une rando), volume crédité au vélo et à la course, dénivelé pris en
+  compte — et ils ne sont plus signalés comme « autre sport que prévu » face à une sortie vélo
+  ou une séance de course planifiée.
 
 ## 1.17.0 — 2026-08-14
 

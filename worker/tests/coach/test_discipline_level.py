@@ -109,3 +109,41 @@ def test_load_effective_strengths_loads_activities_from_db_when_absent() -> None
     out = load_effective_strengths(db, "u1", {"swim": 2, "bike": 4, "run": 3}, today=today)
     assert out == {"swim": 2, "bike": 4, "run": 3}
     db.table.assert_called_with("activities")
+
+
+def test_brick_activities_count_toward_bike_and_run() -> None:
+    """#169: multi_sport/brick fell out of _group_by_discipline entirely, so the
+    most race-specific sessions were invisible to the level reconciliation."""
+    declared = {"swim": 3, "bike": 2, "run": 2}
+    bricks = [_act(days_ago=3 + int(i * 3.2), sport="multi_sport") for i in range(28)]
+    levels = compute_discipline_levels(declared, bricks, today=TODAY)
+
+    assert levels.disciplines["bike"].signals["activities_90d"] == 28
+    assert levels.disciplines["run"].signals["activities_90d"] == 28
+    assert levels.disciplines["swim"].signals["activities_90d"] == 0
+    assert levels.effective_strengths["bike"] == 3
+    assert levels.effective_strengths["run"] == 3
+
+
+def test_brick_tss_is_not_double_counted_in_the_tss_share() -> None:
+    """A brick feeds both bike and run buckets, but the athlete's total load
+    must still count each activity once — otherwise every tss_share is diluted."""
+    declared = {"swim": 3, "bike": 3, "run": 3}
+    activities = [_act(days_ago=d, sport="multi_sport", tss=100.0) for d in range(1, 11)]
+    levels = compute_discipline_levels(declared, activities, today=TODAY)
+
+    assert levels.disciplines["bike"].signals["tss_share"] == 1.0
+    assert levels.disciplines["run"].signals["tss_share"] == 1.0
+
+
+def test_brick_disciplines_stay_limited_to_the_three_core_ones() -> None:
+    declared = {"swim": 3, "bike": 3, "run": 3}
+    levels = compute_discipline_levels(declared, [_act(2, "brick")], today=TODAY)
+    assert set(levels.disciplines) == {"swim", "bike", "run"}
+
+
+def test_non_discipline_activities_stay_out_of_every_bucket() -> None:
+    declared = {"swim": 3, "bike": 3, "run": 3}
+    levels = compute_discipline_levels(declared, [_act(2, "hiking"), _act(4, "yoga")], today=TODAY)
+    for disc in ("swim", "bike", "run"):
+        assert levels.disciplines[disc].signals["activities_90d"] == 0

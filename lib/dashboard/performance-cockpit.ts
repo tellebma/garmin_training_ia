@@ -70,14 +70,36 @@ function dateKey(value: string): string {
   return value.slice(0, 10)
 }
 
+// Garmin étiquette un enchaînement `multi_sport` ou `transition` (#169) : sans
+// cet alias il tombait en 'other', invisible dans le cockpit et compté comme
+// séance manquée face au vélo planifié.
+const BRICK_SPORTS = new Set([
+  'brick',
+  'multi_sport',
+  'multisport',
+  'transition',
+  'triathlon',
+  'duathlon',
+])
+
 function normalizeSport(value: string): CockpitSport {
-  if (value === 'swim' || value === 'bike' || value === 'run' || value === 'brick') return value
+  if (BRICK_SPORTS.has(value)) return 'brick'
+  if (value === 'swim' || value === 'bike' || value === 'run') return value
   return 'other'
 }
 
 function sportsMatch(planned: string, actual: string): boolean {
   if (planned === actual) return true
-  return planned === 'brick' && (actual === 'bike' || actual === 'run' || actual === 'brick')
+  const plannedSport = normalizeSport(planned)
+  const actualSport = normalizeSport(actual)
+  if (plannedSport === 'other' || actualSport === 'other') return false
+  if (plannedSport === actualSport) return true
+  // Un enchaînement satisfait le vélo comme la course planifiés, et un
+  // enchaînement planifié se contente d'un vélo ou d'une course.
+  return (
+    (plannedSport === 'brick' && (actualSport === 'bike' || actualSport === 'run')) ||
+    (actualSport === 'brick' && (plannedSport === 'bike' || plannedSport === 'run'))
+  )
 }
 
 function isoWeekStart(date: Date): Date {

@@ -176,3 +176,17 @@ def test_cycling_without_power_falls_back_to_hrTSS() -> None:
     # LTHR = 162, IF = 144/162 ≈ 0.889 → TSS ≈ 79
     assert tss is not None
     assert 78 < tss < 80
+
+
+def test_brick_activity_counts_at_full_load() -> None:
+    """#169: a brick / multi_sport is race-specific work, not a hike — it must
+    not be discounted by NON_DISCIPLINE_LOAD_FACTOR."""
+    brick = compute_tss(
+        duration_s=3600,
+        sport="multi_sport",
+        power_avg=None,
+        hr_avg=153,
+        ftp_watts=None,
+        fc_max_bpm=170,
+    )
+    assert brick == 100.0
