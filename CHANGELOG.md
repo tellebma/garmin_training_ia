@@ -1,3 +1,19 @@
+## [1.15.7](https://github.com/tellebma/garmin_training_ia/compare/v1.15.6...v1.15.7) (2026-08-14)
+
+### Bug Fixes
+
+* **plan:** affiche le jour de course multisport sans casser la page ([#153](https://github.com/tellebma/garmin_training_ia/issues/153)) ([af8082b](https://github.com/tellebma/garmin_training_ia/commit/af8082bbb639d6f7334c32934e417973a1c08e20))
+
+### Documentation
+
+* **backlog:** consigne l'audit du coach 2026-08-01 et ses suites ([#150](https://github.com/tellebma/garmin_training_ia/issues/150)) ([ecd1217](https://github.com/tellebma/garmin_training_ia/commit/ecd12175e6b5c85aece8ca8373ac1e046416e3bb)), closes [120-#135](https://github.com/tellebma/120-/issues/135) [#136](https://github.com/tellebma/garmin_training_ia/issues/136) [#141](https://github.com/tellebma/garmin_training_ia/issues/141) [#144](https://github.com/tellebma/garmin_training_ia/issues/144) [#149](https://github.com/tellebma/garmin_training_ia/issues/149)
+* **backlog:** consigne l'audit spécificité course du 2026-08-14 ([#161](https://github.com/tellebma/garmin_training_ia/issues/161)) ([7f20c27](https://github.com/tellebma/garmin_training_ia/commit/7f20c27e0176ee0b9552d126542e8a34d2bccfcd)), closes [#154](https://github.com/tellebma/garmin_training_ia/issues/154) [#160](https://github.com/tellebma/garmin_training_ia/issues/160) [#164](https://github.com/tellebma/garmin_training_ia/issues/164) [#192](https://github.com/tellebma/garmin_training_ia/issues/192)
+* **nouveautes:** aligne la version de l'entrée sur la release réellement publiée ([#151](https://github.com/tellebma/garmin_training_ia/issues/151)) ([55f5723](https://github.com/tellebma/garmin_training_ia/commit/55f5723f68baf2ce8eaba1db03e1791620519f91))
+
+### Build
+
+* **deps:** ferme les advisories pnpm audit transitives (CI Dependencies audit) ([#194](https://github.com/tellebma/garmin_training_ia/issues/194)) ([3540402](https://github.com/tellebma/garmin_training_ia/commit/35404021fc7cbfe2daca0dd03c4df8ffdc66f995))
+
 ## [1.15.6](https://github.com/tellebma/garmin_training_ia/compare/v1.15.5...v1.15.6) (2026-08-01)
 
 ### Bug Fixes
