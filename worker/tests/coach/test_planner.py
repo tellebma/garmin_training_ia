@@ -1076,7 +1076,11 @@ def test_estimate_race_time_shares_sums_duplicate_legs() -> None:
 
 def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None:
     """Régression #130 : la répartition suit l'enjeu de course (temps estimé),
-    plus l'ordre chronologique des legs (swim, bike, run, swim en prod)."""
+    plus l'ordre chronologique des legs (swim, bike, run, swim en prod).
+
+    Budget vélo revu à la hausse depuis #164 : une sortie longue de 2 h 30 coûte
+    112,5 TSS et une séance au seuil 90 — la semaine doit pouvoir les payer, sinon
+    la longue est rétrogradée au lieu de faire déborder le budget."""
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
@@ -1088,7 +1092,7 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
-        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        tss_by_sport={"swim": 60.0, "bike": 240.0, "run": 90.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(

@@ -28,7 +28,7 @@ from garmin_sync.coach.cycles import (
     is_deload_week,
 )
 from garmin_sync.coach.discipline_level import load_effective_strengths
-from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
+from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds, duration_bounds_s
 from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.race_day import (
     CLIMB_HOURS_PER_1000M,
@@ -771,6 +771,309 @@ def _training_day_session(
     }
 
 
+# Écart toléré entre le budget hebdo et la charge réellement émise (#164).
+# Au-delà, la semaine est retaillée (séance rétrogradée puis retirée) : le
+# plancher de durée ne décide plus seul de la charge.
+LOAD_BUDGET_TOLERANCE = 0.10
+
+# Fourchette retenue pour un couple (sport, type, phase) sans bornes déclarées :
+# la durée y est libre, pas contrainte à zéro.
+_UNBOUNDED_DURATION_S = (0, 6 * 3600)
+
+# Sous ce reliquat (TSS), la semaine est considérée comme servie : inutile de
+# rallonger une séance de quelques secondes.
+_RESIDUAL_EPSILON_TSS = 0.1
+
+# Repli quand les planchers cumulés dépassent le budget : une séance descend d'un
+# cran d'exigence AVANT d'être retirée de la semaine. Une marche n'est retenue que
+# si elle allège vraiment le plancher (un sprint vélo coûte moins qu'une endurance).
+_LOAD_DOWNGRADE_LADDER: dict[str, tuple[str, ...]] = {
+    "long": ("endurance", "recovery"),
+    "threshold": ("endurance", "recovery"),
+    "intervals": ("endurance", "recovery"),
+    "pma": ("endurance", "recovery"),
+    "sprint": ("endurance", "recovery"),
+    "endurance": ("recovery",),
+    "recovery": (),
+}
+
+_NON_TRAINING_TYPES = frozenset({"rest", "race"})
+
+
+@dataclass
+class _LoadSlot:
+    """Une séance vue comme un intervalle de charge : bornes de durée + TSS/heure."""
+
+    session: dict[str, Any]
+    sport: str
+    weight: float
+    tss_per_hour: float
+    low_s: int
+    high_s: int
+    duration_s: int = 0
+
+    @property
+    def tss(self) -> float:
+        return self.duration_s / 3600 * self.tss_per_hour
+
+    @property
+    def floor_tss(self) -> float:
+        return self.low_s / 3600 * self.tss_per_hour
+
+
+def _floor_tss(sport: str, stype: str, phase: str) -> float | None:
+    """Charge minimale d'une séance (sport, type, phase), ou None si non bornée."""
+    bounds = duration_bounds_s(sport, stype, phase)
+    if bounds is None:
+        return None
+    return bounds[0] / 3600 * _tss_per_hour(sport, stype)
+
+
+def _load_slot(session: dict[str, Any]) -> _LoadSlot:
+    sport = str(session["sport"])
+    stype = str(session["session_type"])
+    low_s, high_s = duration_bounds_s(sport, stype, str(session["phase"])) or _UNBOUNDED_DURATION_S
+    return _LoadSlot(
+        session=session,
+        sport=sport,
+        weight=_SESSION_TYPE_WEIGHT.get(stype, 1.0),
+        tss_per_hour=_tss_per_hour(sport, stype),
+        low_s=low_s,
+        high_s=high_s,
+    )
+
+
+def _pin_slots(slots: list[_LoadSlot], indices: set[int], *, to_low: bool) -> float:
+    """Fige des séances sur une de leurs bornes ; retourne le TSS qu'elles consomment."""
+    used = 0.0
+    for i in indices:
+        slots[i].duration_s = slots[i].low_s if to_low else slots[i].high_s
+        used += slots[i].tss
+    return used
+
+
+def _fit_durations_to_budget(slots: list[_LoadSlot], budget: float) -> None:
+    """Répartit ``budget`` (TSS) sur les séances au prorata de leur poids.
+
+    Deuxième passe qui manquait (#164) : clamper séance par séance laissait le
+    total dériver du budget (plancher = hausse silencieuse). Ici, toute séance
+    qui bute sur une borne y est figée et son résidu — positif ou négatif — est
+    redistribué sur celles qui ont encore de la marge, jusqu'à convergence.
+    """
+    free = set(range(len(slots)))
+    remaining = budget
+    while free:
+        total_weight = sum(slots[i].weight for i in free) or 1.0
+        wanted = {
+            i: round(remaining * slots[i].weight / total_weight * 3600 / slots[i].tss_per_hour)
+            for i in free
+        }
+        below = {i for i in free if wanted[i] < slots[i].low_s}
+        pinned = below or {i for i in free if wanted[i] > slots[i].high_s}
+        if not pinned:
+            for i in free:
+                slots[i].duration_s = wanted[i]
+            return
+        remaining -= _pin_slots(slots, pinned, to_low=bool(below))
+        free -= pinned
+
+
+def _downgrade_slot(slot: _LoadSlot) -> bool:
+    """Descend la séance d'un cran d'exigence si cela allège vraiment son plancher."""
+    session = slot.session
+    sport = str(session["sport"])
+    phase = str(session["phase"])
+    for candidate in _LOAD_DOWNGRADE_LADDER.get(str(session["session_type"]), ()):
+        floor = _floor_tss(sport, candidate, phase)
+        if floor is None or floor >= slot.floor_tss:
+            continue
+        session["session_type"] = candidate
+        if _ELEVATION_SESSION_WEIGHT.get(candidate, 0.0) <= 0:
+            session["target_elevation_gain_m"] = None
+        return True
+    return False
+
+
+def _overflow_victim(slots: list[_LoadSlot]) -> _LoadSlot:
+    """Séance responsable du dépassement : la plus lourde parmi celles à leur plancher."""
+    at_floor = [slot for slot in slots if slot.duration_s <= slot.low_s]
+    return max(at_floor or slots, key=lambda slot: slot.tss)
+
+
+def _load_overflow(
+    slots: list[_LoadSlot],
+    *,
+    budget_total: float,
+    tolerance: float,
+    sport_ceilings: dict[str, float],
+) -> list[_LoadSlot]:
+    """Séances à alléger, ou liste vide si la semaine tient dans ses limites.
+
+    Deux limites, de nature différente : le cap de progression PAR SPORT est un
+    garde-fou de sécurité (jamais franchi), le budget hebdo une cible (tolérance).
+    La répartition par discipline, elle, reste une préférence : un sport peut
+    déborder de sa part si les autres n'ont pas su consommer la leur.
+    """
+    emitted: dict[str, float] = {}
+    for slot in slots:
+        emitted[slot.sport] = emitted.get(slot.sport, 0.0) + slot.tss
+    for sport, ceiling in sport_ceilings.items():
+        if emitted.get(sport, 0.0) > ceiling + _RESIDUAL_EPSILON_TSS:
+            return [slot for slot in slots if slot.sport == sport]
+    if sum(emitted.values()) > budget_total * (1 + tolerance):
+        return slots
+    return []
+
+
+def _apply_slot(slot: _LoadSlot) -> None:
+    slot.session["target_duration_s"] = slot.duration_s
+    slot.session["target_tss"] = round(slot.tss, 2)
+
+
+def _fit_sports_to_budgets(
+    active_by_sport: dict[str, list[dict[str, Any]]], tss_by_sport: dict[str, float]
+) -> list[_LoadSlot]:
+    """Première passe : chaque sport répartit SON budget sur SES séances."""
+    slots: list[_LoadSlot] = []
+    for sport, group in active_by_sport.items():
+        group_slots = [_load_slot(session) for session in group]
+        _fit_durations_to_budget(group_slots, tss_by_sport.get(sport) or 0.0)
+        slots.extend(group_slots)
+    return slots
+
+
+def _growth_limits(slots: list[_LoadSlot], sport_ceilings: dict[str, float]) -> dict[int, int]:
+    """Durée maximale atteignable par chaque séance lors de la passe de résidu.
+
+    C'est sa borne haute, bornée par le cap de progression de son sport : le
+    reliquat d'une discipline saturée ne doit pas faire franchir à une autre son
+    ``WEEKLY_RAMP_CAP``, mesuré sur le TSS déjà émis (#164).
+    """
+    emitted: dict[str, float] = {}
+    weights: dict[str, float] = {}
+    for slot in slots:
+        emitted[slot.sport] = emitted.get(slot.sport, 0.0) + slot.tss
+        weights[slot.sport] = weights.get(slot.sport, 0.0) + slot.weight
+    limits: dict[int, int] = {}
+    for slot in slots:
+        ceiling = sport_ceilings.get(slot.sport)
+        if ceiling is None:
+            limits[id(slot)] = slot.high_s
+            continue
+        share = max(0.0, ceiling - emitted[slot.sport]) * slot.weight / (weights[slot.sport] or 1.0)
+        limits[id(slot)] = min(
+            slot.high_s, slot.duration_s + round(share * 3600 / slot.tss_per_hour)
+        )
+    return limits
+
+
+def _spread_week_residual(
+    slots: list[_LoadSlot], budget_total: float, sport_ceilings: dict[str, float]
+) -> None:
+    """Reverse le résidu de budget sur les séances qui ont encore de la marge.
+
+    Une discipline saturée — une seule séance de natation, plafonnée à 60 min —
+    ne doit pas faire perdre sa part à la semaine entière : le reliquat part sur
+    les séances non saturées, au prorata de leurs poids, par tours successifs
+    jusqu'à ce que tout soit placé ou que plus rien ne puisse grandir. Rien n'est
+    jamais REPRIS : cette passe ne fait qu'allonger.
+    """
+    residual = budget_total - sum(slot.tss for slot in slots)
+    while residual > _RESIDUAL_EPSILON_TSS:
+        limits = _growth_limits(slots, sport_ceilings)
+        headroom = [slot for slot in slots if limits[id(slot)] > slot.duration_s]
+        total_weight = sum(slot.weight for slot in headroom)
+        if total_weight <= 0:
+            return
+        placed = 0.0
+        for slot in headroom:
+            share = residual * slot.weight / total_weight
+            grown = min(limits[id(slot)], slot.duration_s + round(share * 3600 / slot.tss_per_hour))
+            placed += (grown - slot.duration_s) / 3600 * slot.tss_per_hour
+            slot.duration_s = grown
+        if placed <= _RESIDUAL_EPSILON_TSS:
+            return
+        residual -= placed
+
+
+def fit_week_load_to_budget(
+    sessions: list[dict[str, Any]],
+    tss_by_sport: dict[str, float],
+    *,
+    sport_ceilings: dict[str, float] | None = None,
+    tolerance: float = LOAD_BUDGET_TOLERANCE,
+) -> list[int]:
+    """Renormalise la charge émise sur le budget hebdo (#164).
+
+    Trois temps : le budget de chaque sport est réparti sur ses séances en
+    respectant leurs bornes de durée ; le résidu de la semaine (part d'un sport
+    saturé ou sans séance) est reversé aux séances non saturées, sans faire
+    franchir à un sport son ``sport_ceilings`` (cap de progression sur TSS émis) ;
+    et si les planchers de durée maintiennent la semaine au-dessus de son budget,
+    la séance la plus coûteuse descend d'un cran puis, en dernier recours, quitte
+    la semaine. Émettre 2,5x le budget n'est plus une option.
+
+    Retourne les index des séances devenues intenables, à convertir en repos par
+    l'appelant (le budget ne payait plus aucune version acceptable de la séance).
+    """
+    ceilings = sport_ceilings or {}
+    active_by_sport, race_tss = _group_trainable_sessions(sessions)
+    # Le jour de course consomme sa part du budget de la semaine : il ne laisse
+    # pas un résidu à réinjecter dans les séances de taper qui l'entourent.
+    budget_total = sum(v for v in tss_by_sport.values() if v > 0) - race_tss
+
+    dropped: list[dict[str, Any]] = []
+    remaining_sessions = sum(len(group) for group in active_by_sport.values())
+    while True:
+        kept = _fit_sports_to_budgets(active_by_sport, tss_by_sport)
+        _spread_week_residual(kept, budget_total, ceilings)
+        overflowing = _load_overflow(
+            kept, budget_total=budget_total, tolerance=tolerance, sport_ceilings=ceilings
+        )
+        if not overflowing:
+            break
+        victim = _overflow_victim(overflowing)
+        if _downgrade_slot(victim):
+            continue
+        if remaining_sessions <= 1:
+            break
+        group = active_by_sport[victim.sport]
+        active_by_sport[victim.sport] = [s for s in group if s is not victim.session]
+        dropped.append(victim.session)
+        remaining_sessions -= 1
+
+    for slot in kept:
+        _apply_slot(slot)
+    dropped_ids = {id(session) for session in dropped}
+    return sorted(i for i, s in enumerate(sessions) if id(s) in dropped_ids)
+
+
+def _group_trainable_sessions(
+    sessions: Sequence[dict[str, Any]],
+) -> tuple[dict[str, list[dict[str, Any]]], float]:
+    """Sépare les séances d'entraînement (groupées par sport) du jour de course."""
+    by_sport: dict[str, list[dict[str, Any]]] = {}
+    race_tss = 0.0
+    for session in sessions:
+        stype = session.get("session_type")
+        if stype == "race":
+            race_tss += float(session.get("target_tss") or 0.0)
+        elif stype != "rest":
+            by_sport.setdefault(str(session.get("sport") or ""), []).append(session)
+    return by_sport, race_tss
+
+
+def emitted_tss_by_sport(sessions: Sequence[dict[str, Any]]) -> dict[str, float]:
+    """TSS réellement émis par sport sur une semaine (repos et jour J exclus)."""
+    out: dict[str, float] = {}
+    for session in sessions:
+        if session.get("session_type") in _NON_TRAINING_TYPES:
+            continue
+        sport = str(session.get("sport") or "")
+        out[sport] = round(out.get(sport, 0.0) + float(session.get("target_tss") or 0.0), 2)
+    return out
+
+
 def _build_training_day_plan(
     *,
     week_start: date,
@@ -996,6 +1299,7 @@ def _build_week_sessions(
     weekly_elevation_by_sport: dict[str, int] | None = None,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
     allowed_types: list[str] | None = None,
+    sport_ceilings: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions.
 
@@ -1100,6 +1404,13 @@ def _build_week_sessions(
                 sport_elevation_weight_total=sport_elev_weight_total,
             )
         )
+    # Deuxième passe (#164) : les durées viennent d'être clampées séance par
+    # séance, donc le total a dérivé du budget. On le renormalise avant de
+    # toucher au D+ (une séance rétrogradée ou retirée n'a plus de cible de D+).
+    for idx in fit_week_load_to_budget(sessions, tss_by_sport, sport_ceilings=sport_ceilings):
+        sessions[idx] = _rest_day_session(
+            day=date.fromisoformat(sessions[idx]["date"]), phase=slot.phase, week_offset=slot.offset
+        )
     # Le poids « long » concentre la cible hebdo sur une seule sortie : on la
     # rend réalisable (plafond de gradient + report sur les séances qui ont de
     # la marge) sans toucher au volume hebdo visé (#158).
@@ -1185,28 +1496,53 @@ def _load_today_banister_state(
     return tss_by_date, states[-1], activity_review, activities
 
 
+@dataclass(frozen=True)
+class _PlanWeeks:
+    """Séances de tout le plan, plus le budget de charge retenu par semaine.
+
+    Le budget est exposé pour être VÉRIFIABLE : c'est la grandeur que le clamp de
+    durée contredisait sans que rien ne le mesure (#164). Le test de propriété la
+    compare au TSS réellement émis, semaine par semaine.
+    """
+
+    sessions: list[dict[str, Any]]
+    budget_by_offset: dict[int, float]
+
+
+def _ramp_ceilings(prev_tss_by_sport: dict[str, float] | None) -> dict[str, float]:
+    """Plafond de TSS émis par sport pour la semaine, dérivé de la semaine précédente."""
+    if not prev_tss_by_sport:
+        return {}
+    return {
+        sport: tss * WEEKLY_RAMP_CAP.get(sport, 1.20)
+        for sport, tss in prev_tss_by_sport.items()
+        if tss > 0
+    }
+
+
 def _week_tss_budget(
     *,
     base_weekly: float,
+    multiplier: float,
     week_day: date,
     recovery: RecoveryWindow | None,
     hours_cap: float,
-    first_week_multiplier: float,
+    adjustment: float,
 ) -> float:
     """Budget de charge d'une semaine, une fois tous ses plafonds appliqués.
 
     L'ordre compte : la récupération plafonne avant les heures dispo (elle n'est
     pas une option de plus dans la courbe, elle écrase ce que le mode voudrait
-    charger), et le multiplicateur prudent de reprise s'applique en dernier.
+    charger), et le rabais de reprise (``adjustment``) s'applique en dernier.
     """
-    weekly_tss = base_weekly
+    weekly_tss = base_weekly * multiplier
     if recovery is not None:
         weekly_tss *= recovery.week_load_multiplier(week_day)
     if hours_cap > 0:
         # Le ramp converge vers le budget déclaré mais ne le dépasse pas :
         # les heures dispo restent un plafond de faisabilité (#128).
         weekly_tss = min(weekly_tss, float(hours_cap))
-    return weekly_tss * first_week_multiplier
+    return weekly_tss * adjustment
 
 
 def _build_all_week_sessions(
@@ -1218,7 +1554,7 @@ def _build_all_week_sessions(
     effective_strengths: dict[str, int],
     available_days: list[str],
     observed: ObservedHabits = NO_OBSERVED_HABITS,
-) -> list[dict[str, Any]]:
+) -> _PlanWeeks:
     """Build planned sessions for all weeks of the plan.
 
     ``grid`` porte tout ce qui vient du découpage temporel — phases, semaines,
@@ -1234,6 +1570,7 @@ def _build_all_week_sessions(
     target = grid.target
     load = grid.load
     all_sessions: list[dict[str, Any]] = []
+    budget_by_offset: dict[int, float] = {}
     prev_tss_by_sport: dict[str, float] | None = None
     load_multipliers = load.multipliers
     if load_multipliers is None:
@@ -1251,14 +1588,14 @@ def _build_all_week_sessions(
             phases=phases,
             observed_weekly_dplus=observed.weekly_dplus,
         )
+        adjustment = first_week_tss_multiplier if offset == grid.current_offset else 1.0
         weekly_tss = _week_tss_budget(
-            base_weekly=base_weekly * load_multipliers[i],
+            base_weekly=base_weekly,
+            multiplier=load_multipliers[i],
             week_day=week_start + timedelta(weeks=offset),
             recovery=load.recovery,
             hours_cap=hours_cap,
-            first_week_multiplier=(
-                first_week_tss_multiplier if offset == grid.current_offset else 1.0
-            ),
+            adjustment=adjustment,
         )
         progress = _progress_for_offset(offset, phases)
         tss_by_sport = distribute_weekly_tss_by_sport(
@@ -1268,13 +1605,14 @@ def _build_all_week_sessions(
             progress=progress,
         )
         tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
+        # La semaine allégée est celle que le mode déclare (cycle E27) ou, à défaut,
+        # celle de la courbe course. Elle n'est jamais la référence de la suivante.
         is_reduction_week = (
             offset in load.reduction_offsets
             if load.reduction_offsets is not None
             else (phase == "taper" or (offset + 1) % 4 == 0)
         )
-        if not is_reduction_week:
-            prev_tss_by_sport = tss_by_sport
+        budget_by_offset[offset] = round(sum(tss_by_sport.values()), 2)
         is_last = offset == grid.weeks_count - 1
         sessions = _build_week_sessions(
             slot=WeekSlot(
@@ -1300,9 +1638,17 @@ def _build_all_week_sessions(
                 and load.recovery.covers_week(week_start + timedelta(weeks=offset))
                 else None
             ),
+            sport_ceilings=_ramp_ceilings(prev_tss_by_sport),
         )
+        # Le cap de progression se lit sur le TSS RÉELLEMENT ÉMIS (#164) : appliqué
+        # au budget théorique il protégeait une grandeur qui ne pilotait plus la
+        # sortie. Une semaine volontairement allégée (deload, taper, fatigue) n'est
+        # jamais la référence de la suivante, sinon un épisode ponctuel écraserait
+        # tout le reste du plan.
+        if not (is_reduction_week or adjustment < 1.0):
+            prev_tss_by_sport = emitted_tss_by_sport(sessions)
         all_sessions.extend(sessions)
-    return all_sessions
+    return _PlanWeeks(sessions=all_sessions, budget_by_offset=budget_by_offset)
 
 
 def _workout_carry_key(session: dict[str, Any]) -> tuple[Any, ...]:
@@ -1735,7 +2081,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     )
     anchor, weeks_count, week_start = grid.anchor, grid.weeks_count, grid.week_start
     current_offset = grid.current_offset
-    all_sessions = _build_all_week_sessions(
+    plan_weeks = _build_all_week_sessions(
         grid=grid,
         today_state=today_state,
         profile=profile,
@@ -1753,7 +2099,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     # the past (race offset not a whole number of weeks), those days are already
     # gone and would only ever show up as empty, never-generated sessions.
     today_iso = today.isoformat()
-    all_sessions = [s for s in all_sessions if s["date"] >= today_iso]
+    all_sessions = [s for s in plan_weeks.sessions if s["date"] >= today_iso]
 
     # Reuse workouts already generated (and already billed) for identical upcoming
     # sessions, instead of re-paying the LLM for the same generations every week.

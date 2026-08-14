@@ -77,6 +77,10 @@
   le retour sur ta dernière séance et la revue de tes 7 derniers jours — plus une carte muette.
 - Le panneau Récupération affiche tes chiffres (valeur récente contre moyenne 28 jours) et
   ne dit plus l'inverse de la vérité quand ta FC de repos ou ton stress baissent.
+- Ta semaine ne dépasse plus la charge prévue : jusqu'ici la durée minimale d'une séance pouvait
+  faire gonfler le total (jusqu'à 2,5× sur le vélo). Le plan répartit désormais vraiment son
+  budget, et si une sortie longue n'est pas finançable, elle est allégée ou retirée plutôt que
+  de faire exploser la semaine.
 
 ## 1.17.1 — 2026-08-14
 
