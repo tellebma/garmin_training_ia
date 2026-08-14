@@ -140,3 +140,45 @@ def test_session_feedback_serializes_payload():
     payload = feedback.to_dict()
     assert payload["activity_date"] == "2026-05-20"
     assert payload["verdict"] == "well_executed"
+
+
+def test_session_feedback_brick_satisfies_a_planned_bike():
+    """#169: doing an enchaînement instead of the planned bike is not a
+    divergence — the athlete did the bike plus more."""
+    feedback = build_session_feedback(
+        activity=_activity(sport="multi_sport"),
+        planned_session=_planned(sport="bike"),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "well_executed"
+
+
+def test_session_feedback_brick_satisfies_a_planned_run():
+    feedback = build_session_feedback(
+        activity=_activity(sport="brick"),
+        planned_session=_planned(sport="run"),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "well_executed"
+
+
+def test_session_feedback_brick_does_not_satisfy_a_planned_swim():
+    feedback = build_session_feedback(
+        activity=_activity(sport="transition"),
+        planned_session=_planned(sport="swim"),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "sport_mismatch"
+
+
+def test_session_feedback_planned_brick_accepts_brick_variants():
+    feedback = build_session_feedback(
+        activity=_activity(sport="multi_sport"),
+        planned_session=_planned(sport="brick"),
+    )
+
+    assert feedback is not None
+    assert feedback.verdict == "well_executed"

@@ -27,7 +27,13 @@ import { ActivityRow } from '../_components/activity-row'
 import { BanisterChart } from '../_components/charts/banister-chart'
 import { SyncTimingsCard } from '../_components/sync-timings-card'
 import { BriefingCardSkeleton } from '../_components/skeletons/briefing-card-skeleton'
-import type { ActivityRowDto, BanisterPoint, PlannedSession, RaceGoal } from '@/lib/dashboard/types'
+import type {
+  ActivityRowDto,
+  BanisterPoint,
+  DailyMetricsDto,
+  PlannedSession,
+  RaceGoal,
+} from '@/lib/dashboard/types'
 
 export const revalidate = 0
 
@@ -148,7 +154,9 @@ export default async function TodayPage() {
       .maybeSingle(),
     supabase
       .from('daily_metrics')
-      .select('date, body_battery_high, body_battery_low, stress_avg, resting_hr')
+      .select(
+        'date, body_battery_high, body_battery_low, body_battery_current, stress_avg, resting_hr'
+      )
       .eq('user_id', userId)
       .order('date', { ascending: false })
       .limit(1)
@@ -198,7 +206,8 @@ export default async function TodayPage() {
   ])
 
   const session = sessionRes.data as PlannedSession | null
-  const daily = dailyRes.data
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const daily = dailyRes.data as DailyMetricsDto | null
   const sleep = sleepRes.data
   const hrv = hrvRes.data
   const banister = (banisterRes.data ?? []) as BanisterPoint[]
@@ -216,7 +225,11 @@ export default async function TodayPage() {
 
   const sleepValue = sleep?.sleep_score ? String(sleep.sleep_score) : '—'
   const hrvValue = hrv?.hrv_rmssd ? `${String(Math.round(Number(hrv.hrv_rmssd)))} ms` : '—'
-  const batteryValue = daily?.body_battery_high ? String(daily.body_battery_high) : '—'
+  // La tuile montre le niveau courant (bodyBatteryMostRecentValue), pas le pic
+  // du jour : `body_battery_high` sert aux baselines, pas à l'affichage (#170).
+  // Fallback sur le pic tant que l'historique n'est pas rétro-rempli.
+  const batteryLevel = daily?.body_battery_current ?? daily?.body_battery_high
+  const batteryValue = batteryLevel ? String(batteryLevel) : '—'
 
   return (
     <div className="space-y-6">

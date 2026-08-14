@@ -27,7 +27,7 @@ from garmin_sync.coach.race_day import (
     RACE_SPEED_KMH,
     build_race_day_session,
 )
-from garmin_sync.coach.sports import normalize_discipline
+from garmin_sync.coach.sports import elevation_discipline
 from garmin_sync.coach.training_days import (
     allocate_sport_sessions,
     assign_sports,
@@ -787,6 +787,10 @@ def observed_weekly_elevation_by_sport(
     Sert de point de départ à la progression de dénivelé (#131) : l'athlète qui
     encaisse déjà 2000 m/sem ne doit pas se voir prescrire 500 m — puis être
     alerté « elevation_spike » dans le même briefing.
+
+    Le D+ d'un enchaînement est crédité au vélo (``elevation_discipline``, #169) :
+    l'ignorer faisait repartir la rampe d'une fraction du D+ de course alors que
+    l'athlète avait déjà encaissé le dénivelé sur le terrain.
     """
     start = today - timedelta(days=window_days)
     totals: dict[str, float] = {}
@@ -794,7 +798,7 @@ def observed_weekly_elevation_by_sport(
         d = _activity_day(a.get("start_time"))
         if d is None or not (start <= d <= today):
             continue
-        disc = normalize_discipline(str(a.get("sport") or ""))
+        disc = elevation_discipline(str(a.get("sport") or ""))
         if disc is None:
             continue
         totals[disc] = totals.get(disc, 0.0) + float(a.get("elevation_gain_m") or 0)

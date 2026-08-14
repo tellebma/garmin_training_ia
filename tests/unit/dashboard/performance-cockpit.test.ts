@@ -167,4 +167,53 @@ describe('computePerformanceCockpit', () => {
     expect(result.coachSignal.tone).toBe('watch')
     expect(result.coachSignal.title).toBe('Effort ressenti élevé')
   })
+  it('accepts a Garmin multi_sport activity as the planned bike session (#169)', () => {
+    const result = computePerformanceCockpit({
+      activities: [activity({ id: 'brick-1', sport: 'multi_sport', duration_s: 3600, tss: 55 })],
+      plannedSessions: [planned({ sport: 'bike' })],
+      feedback: [],
+      days: 7,
+      reference,
+    })
+
+    expect(result.completedSessions).toBe(1)
+    expect(result.missedSessions).toBe(0)
+    expect(result.adherencePercent).toBe(100)
+  })
+
+  it('accepts a multi_sport activity as the planned run session (#169)', () => {
+    const result = computePerformanceCockpit({
+      activities: [activity({ id: 'brick-2', sport: 'transition' })],
+      plannedSessions: [planned({ sport: 'run' })],
+      feedback: [],
+      days: 7,
+      reference,
+    })
+
+    expect(result.adherencePercent).toBe(100)
+  })
+
+  it('does not accept a brick activity as the planned swim session', () => {
+    const result = computePerformanceCockpit({
+      activities: [activity({ id: 'brick-3', sport: 'multi_sport' })],
+      plannedSessions: [planned({ sport: 'swim' })],
+      feedback: [],
+      days: 7,
+      reference,
+    })
+
+    expect(result.missedSessions).toBe(1)
+  })
+
+  it('does not match unrelated non-discipline sports with each other', () => {
+    const result = computePerformanceCockpit({
+      activities: [activity({ id: 'yoga-1', sport: 'yoga' })],
+      plannedSessions: [planned({ sport: 'race' })],
+      feedback: [],
+      days: 7,
+      reference,
+    })
+
+    expect(result.missedSessions).toBe(1)
+  })
 })

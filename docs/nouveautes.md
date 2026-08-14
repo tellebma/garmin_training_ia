@@ -1,5 +1,15 @@
 # Nouveautés
 
+## 1.17.1 — 2026-08-14
+
+- Ta Body Battery n'est plus lue à l'envers : le coach compare désormais le pic de ta journée
+  à ta ligne de base, au lieu du niveau de fin de soirée — fini les « Body Battery sous ta
+  moyenne » quasi quotidiens qui plombaient ta note de forme.
+- Tes enchaînements vélo-course comptent enfin pour ce qu'ils valent : charge pleine (et non
+  plus moitié, comme une rando), volume crédité au vélo et à la course, dénivelé pris en
+  compte — et ils ne sont plus signalés comme « autre sport que prévu » face à une sortie vélo
+  ou une séance de course planifiée.
+
 ## 1.17.0 — 2026-08-14
 
 - Le jour de course n'est plus une case vide : il affiche ton temps estimé segment par segment,
@@ -44,10 +54,6 @@
 - Si ta synchronisation reste en panne trop longtemps, ton plan n'est plus régénéré
   automatiquement sur des données obsolètes — le coach attend que tes données soient à
   nouveau fraîches.
-- Le jour de course n'est plus une case vide : il affiche ton temps estimé, segment par
-  segment, avec l'allure cible, le dénivelé et les transitions chronométrées.
-- Le jour J vient aussi avec son plan de nutrition et d'hydratation, calibré sur la durée
-  de ton épreuve, et compte enfin dans ta charge d'entraînement.
 
 ## 1.15.0 — 2026-07-30
 

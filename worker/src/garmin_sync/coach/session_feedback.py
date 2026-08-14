@@ -6,13 +6,18 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
-from garmin_sync.coach.sports import DISCIPLINE_SPORTS
+from garmin_sync.coach.sports import BRICK_SPORTS, DISCIPLINE_SPORTS, contributing_disciplines
 
 FeedbackSeverity = Literal["positive", "watch", "risk"]
 
+# Sports acceptés face à une séance planifiée. Un enchaînement satisfait aussi
+# bien un vélo qu'une course planifiés (#169) : l'athlète a fait la séance prévue
+# PLUS la spécificité de la transition — le classer en sport_mismatch revient à
+# sanctionner la séance la plus utile de sa préparation. L'inverse n'est pas vrai :
+# un vélo seul ne satisfait pas un enchaînement planifié.
 _EQUIVALENT_SPORTS: dict[str, set[str]] = {
-    **DISCIPLINE_SPORTS,
-    "brick": {"brick", "multi_sport", "transition"},
+    planned: sports | {b for b in BRICK_SPORTS if planned in contributing_disciplines(b)}
+    for planned, sports in DISCIPLINE_SPORTS.items()
 }
 
 

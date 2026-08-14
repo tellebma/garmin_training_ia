@@ -80,6 +80,7 @@ export interface DailyMetricsDto {
   date: string
   body_battery_high: number | null
   body_battery_low: number | null
+  body_battery_current: number | null
   stress_avg: number | null
   resting_hr: number | null
 }
