@@ -1,11 +1,8 @@
-import { formatTargetForSport } from '@/lib/dashboard/format'
-import {
-  isIntervalSet,
-  type IntervalBlock,
-  type IntervalSet,
-  type IntervalTarget,
-  type Workout,
-} from '@/lib/coach/workout-types'
+// Formatage des séances : convertit un `Workout` (JSONB produit par le worker) en
+// libellés lisibles. Le rendu lui-même est du JSX (`WorkoutDetail`) — il n'y a plus
+// d'aller-retour par du markdown, qui perdait des informations en chemin (issue #187).
+import { formatDistanceFromMeters, formatTargetForSport } from '@/lib/dashboard/format'
+import type { IntervalBlock, IntervalSet, IntervalTarget } from '@/lib/coach/workout-types'
 
 export type Sport = 'swim' | 'bike' | 'run' | 'brick' | 'rest'
 export type SessionType =
@@ -19,35 +16,7 @@ export type SessionType =
   | 'race'
   | 'rest'
 
-const SPORT_LABEL: Record<Sport, string> = {
-  swim: 'Natation',
-  bike: 'Vélo',
-  run: 'Course',
-  brick: 'Enchaînement vélo→CAP',
-  rest: 'Repos',
-}
-
-// Le sport d'une séance vient de la base et peut sortir des templates (jour de
-// course multisport) : on retombe sur la valeur brute plutôt que « undefined ».
-const SPORT_LABEL_LOOSE: Partial<Record<string, string>> = SPORT_LABEL
-
-function sportHeading(sport: Sport): string {
-  return SPORT_LABEL_LOOSE[sport] ?? sport
-}
-
-const TYPE_LABEL: Record<SessionType, string> = {
-  endurance: 'Endurance',
-  threshold: 'Seuil',
-  intervals: 'Fractionné',
-  pma: 'PMA',
-  sprint: 'Sprint',
-  long: 'Sortie longue',
-  recovery: 'Récupération',
-  race: 'Course',
-  rest: 'Repos',
-}
-
-function fmtDuration(s: number): string {
+export function fmtDuration(s: number): string {
   if (s < 60) return `${String(s)}s`
   const m = Math.round(s / 60)
   if (m < 60) return `${String(m)}min`
@@ -57,21 +26,51 @@ function fmtDuration(s: number): string {
 }
 
 // 103 s -> "1'43" (format allure/départ natation).
-function fmtSecondsAsMinSec(s: number): string {
+export function fmtSecondsAsMinSec(s: number): string {
   const m = Math.floor(s / 60)
   const sec = Math.round(s % 60)
   return `${String(m)}'${String(sec).padStart(2, '0')}`
 }
 
-// Natation : la distance prime sur la durée (« 400 m », pas « 8min »).
-function fmtQuantity(b: IntervalBlock, sport: Sport): string {
-  if (sport === 'swim' && b.distance_m) {
-    return `${String(b.distance_m)} m`
-  }
-  return fmtDuration(b.duration_s)
+// Au bord du bassin on compte en minutes'secondes, pas en « 6min ».
+function fmtClock(s: number, sport: Sport): string {
+  return sport === 'swim' && s < 3600 ? fmtSecondsAsMinSec(s) : fmtDuration(s)
 }
 
-function fmtTarget(t: IntervalTarget, sport: Sport): string {
+function fmtDistance(meters: number, sport: Sport): string {
+  if (sport === 'swim' || meters < 1000) return `${String(meters)} m`
+  return formatDistanceFromMeters(meters)
+}
+
+export interface BlockQuantity {
+  // Grandeur principale : la distance en natation et sur un segment de course,
+  // la durée partout ailleurs.
+  main: string
+  // L'autre grandeur, quand elle est connue — masquer la durée en natation
+  // rendait invisible toute incohérence distance/durée (issue #187).
+  secondary: string | null
+}
+
+export function fmtQuantity(b: IntervalBlock, sport: Sport): BlockQuantity {
+  const distance = b.distance_m ? fmtDistance(b.distance_m, sport) : null
+  const duration = b.duration_s > 0 ? fmtClock(b.duration_s, sport) : null
+  // En natation la distance prime (« 400 m »), ailleurs c'est la durée.
+  if (distance && (sport === 'swim' || !duration)) {
+    return { main: distance, secondary: duration }
+  }
+  if (duration) return { main: duration, secondary: distance }
+  return { main: '—', secondary: null }
+}
+
+export interface BlockTarget {
+  // Zone d'intensité — le markdown la perdait dès qu'une valeur chiffrée existait.
+  zone: string
+  // Valeur chiffrée (bpm, watts, allure) quand le profil permet de la calculer.
+  detail: string | null
+  rpe: number | null
+}
+
+function targetDetail(t: IntervalTarget, sport: Sport): string | null {
   if (sport === 'swim' && t.pace_per_100m_low_s && t.pace_per_100m_high_s) {
     return `${fmtSecondsAsMinSec(t.pace_per_100m_low_s)}–${fmtSecondsAsMinSec(t.pace_per_100m_high_s)} /100m`
   }
@@ -82,56 +81,36 @@ function fmtTarget(t: IntervalTarget, sport: Sport): string {
     return `${String(t.watts_low)}-${String(t.watts_high)} W`
   }
   if ((sport === 'run' || sport === 'swim') && t.pace_low_kmh && t.pace_high_kmh) {
-    return formatTargetForSport(sport, {
+    const formatted = formatTargetForSport(sport, {
       pace_low_kmh: t.pace_low_kmh,
       pace_high_kmh: t.pace_high_kmh,
     })
+    return formatted === '—' ? null : formatted
   }
-  return t.label
+  return null
 }
 
-function renderBlock(b: IntervalBlock, sport: Sport, indent = ''): string {
-  const lines = [`${indent}- ${fmtQuantity(b, sport)} @ ${fmtTarget(b.target, sport)}`]
-  if (b.notes) lines.push(`${indent}  *${b.notes}*`)
-  return lines.join('\n')
-}
-
-function renderSet(s: IntervalSet, sport: Sport): string {
-  const repsLabel = `${String(s.reps)} × `
-  const workLine = `- ${repsLabel}${fmtQuantity(s.work, sport)} @ ${fmtTarget(s.work.target, sport)}`
-  // Natation en séries sur distance : convention bord de bassin « départ toutes
-  // les X » (temps de nage + récup) plutôt qu'une ligne Récup séparée.
-  const restLine =
-    sport === 'swim' && s.work.distance_m
-      ? `  départ ${fmtSecondsAsMinSec(s.work.duration_s + s.rest.duration_s)}`
-      : `  Récup ${fmtDuration(s.rest.duration_s)} @ ${fmtTarget(s.rest.target, sport)}`
-  const lines = [workLine, restLine]
-  if (s.work.notes) lines.push(`  *${s.work.notes}*`)
-  return lines.join('\n')
-}
-
-export function workoutToMarkdown(w: Workout, sport: Sport, type: SessionType): string {
-  const mainLines = w.main.map((block) =>
-    isIntervalSet(block) ? renderSet(block, sport) : renderBlock(block, sport)
-  )
-  const lines: string[] = [
-    // Le sport vient de la base : une valeur hors templates (jour de course
-    // multisport) doit s'afficher telle quelle plutôt que « undefined ».
-    `## ${sportHeading(sport)} — ${TYPE_LABEL[type]}`,
-    '',
-    '### Échauffement',
-    renderBlock(w.warmup, sport),
-    '',
-    '### Corps de séance',
-    ...mainLines,
-    '',
-    '### Retour calme',
-    renderBlock(w.cooldown, sport),
-    '',
-    `*${w.summary_md}*`,
-  ]
-  if (w.technical_focus) {
-    lines.push('', `> Focus technique : ${w.technical_focus}`)
+export function fmtTarget(t: IntervalTarget, sport: Sport): BlockTarget {
+  return {
+    zone: t.label,
+    detail: targetDetail(t, sport),
+    rpe: Number.isFinite(t.rpe) && t.rpe > 0 ? t.rpe : null,
   }
-  return lines.join('\n')
+}
+
+// Natation en séries sur distance : convention bord de bassin « départ toutes les
+// X » (temps de nage + récup) plutôt qu'une ligne Récup séparée.
+export function fmtDeparture(s: IntervalSet, sport: Sport): string | null {
+  if (sport !== 'swim' || !s.work.distance_m) return null
+  return `départ ${fmtSecondsAsMinSec(s.work.duration_s + s.rest.duration_s)}`
+}
+
+// Un résumé peut tenir sur plusieurs lignes (jour de course : objectif, allure,
+// nutrition, transitions) — chaque ligne devient un paragraphe.
+export function summaryLines(summary: string | null | undefined): string[] {
+  if (!summary) return []
+  return summary
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
 }

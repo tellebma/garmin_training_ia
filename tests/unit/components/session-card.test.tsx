@@ -7,8 +7,10 @@ import type { PlannedSession } from '@/lib/dashboard/types'
 vi.mock('@/app/(app)/_components/regenerate-session-button', () => ({
   RegenerateSessionButton: () => <div data-testid="regenerate" />,
 }))
-vi.mock('@/lib/coach/session-templates', () => ({
-  workoutToMarkdown: () => 'WORKOUT_MARKDOWN',
+// Le rendu détaillé a son propre test (workout-detail.test.tsx) et exige un
+// vrai `Workout` : ici on ne vérifie que son branchement.
+vi.mock('@/app/(app)/_components/workout-detail', () => ({
+  WorkoutDetail: () => <div data-testid="workout-detail" />,
 }))
 
 afterEach(() => {

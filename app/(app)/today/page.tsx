@@ -12,10 +12,10 @@ import { getDailyBriefing } from '@/app/actions/briefing'
 import { ensureGeneratedSessions } from '@/app/actions/sessions'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
-import { workoutToMarkdown } from '@/lib/coach/session-templates'
 import type { Sport as CoachSport } from '@/lib/coach/session-templates'
 import type { Workout } from '@/lib/coach/workout-types'
 import { BriefingCard } from '../_components/briefing-card'
+import { WorkoutDetail } from '../_components/workout-detail'
 import { ChartCard } from '../_components/chart-card'
 import { EmptyState } from '../_components/empty-state'
 import { GarminStatusBanner } from '../_components/garmin-status-banner'
@@ -47,16 +47,10 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function renderWorkoutMarkdown(session: PlannedSession): React.ReactNode {
+function renderWorkoutDetail(session: PlannedSession): React.ReactNode {
   if (session.workout) {
     return (
-      <pre className="rounded-md border p-4 text-sm whitespace-pre-wrap">
-        {workoutToMarkdown(
-          session.workout as Workout,
-          session.sport as CoachSport,
-          session.session_type
-        )}
-      </pre>
+      <WorkoutDetail workout={session.workout as Workout} sport={session.sport as CoachSport} />
     )
   }
   if (isGenerationAbandoned(session)) {
@@ -87,7 +81,7 @@ function renderSessionSection(session: PlannedSession | null): React.ReactNode {
     return (
       <div className="space-y-3">
         <SessionCard session={session} />
-        {renderWorkoutMarkdown(session)}
+        {renderWorkoutDetail(session)}
       </div>
     )
   }

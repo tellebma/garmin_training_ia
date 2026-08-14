@@ -3,11 +3,11 @@ import { Clock, Mountain, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SportIcon, sportLabelFor, SESSION_TYPE_LABEL } from './sport-icon'
 import { formatDuration, formatTSS } from '@/lib/dashboard/format'
-import { workoutToMarkdown } from '@/lib/coach/session-templates'
 import type { Sport as CoachSport } from '@/lib/coach/session-templates'
 import type { Workout } from '@/lib/coach/workout-types'
 import type { PlannedSession } from '@/lib/dashboard/types'
 import { RegenerateSessionButton } from './regenerate-session-button'
+import { WorkoutDetail } from './workout-detail'
 
 // Miroir de MAX_GENERATION_FAILURES côté worker (coach/sessions.py) : au-delà,
 // le cron n'essaiera plus jamais — seule la relance manuelle peut débloquer.
@@ -85,9 +85,7 @@ export function SessionCard({
         <div className="space-y-2">
           <details className="text-sm">
             <summary className="cursor-pointer font-medium">Voir la séance détaillée</summary>
-            <pre className="mt-2 rounded border p-3 text-xs whitespace-pre-wrap">
-              {workoutToMarkdown(workout, session.sport as CoachSport, session.session_type)}
-            </pre>
+            <WorkoutDetail workout={workout} sport={session.sport as CoachSport} className="mt-2" />
           </details>
           <RegenerateSessionButton sessionId={session.id} />
         </div>
