@@ -1,3 +1,9 @@
+## [1.16.0](https://github.com/tellebma/garmin_training_ia/compare/v1.15.8...v1.16.0) (2026-08-14)
+
+### Features
+
+* **coach:** planifie des séances d'enchaînement (brick) pour les courses à transition ([#163](https://github.com/tellebma/garmin_training_ia/issues/163)) ([a24bdd4](https://github.com/tellebma/garmin_training_ia/commit/a24bdd4a7ee408d0f11ae956ccfc1cc514797166)), closes [#154](https://github.com/tellebma/garmin_training_ia/issues/154)
+
 ## [1.15.8](https://github.com/tellebma/garmin_training_ia/compare/v1.15.7...v1.15.8) (2026-08-14)
 
 ### Bug Fixes
