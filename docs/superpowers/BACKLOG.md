@@ -98,6 +98,74 @@ admin). Tarifs vérifiés le 2026-08-03.
   de sur-comptage grandit avec le volume.
 - Évaluer le Batch API (−50 %) pour la régénération de plans du cron 05:00 UTC, asynchrone
   par nature.
+## Audit spécificité course 2026-08-14 — 7 constats (retour owner « je ne me retrouve pas dans les demandes du coach »)
+
+Contexte : plan actif de l'owner pour le **Triathlon de la Madelaine** du 2026-08-22
+(1,4 km natation / 47 km vélo — 2000 m D+ / 8 km course à pied — 200 m D+). Sur les
+41 séances planifiées, le plan reste générique : la course est un triathlon très typé
+montagne, l'entraînement ne l'exprime presque pas. Le D+ vélo est bien capté (sorties
+longues à 1920 m et 1739 m) — c'est le seul axe réellement spécifique.
+
+### P0 — Aucune séance d'enchaînement (brick) n'est jamais planifiée
+
+- `allocate_sport_sessions` / `assign_sports` (`worker/src/garmin_sync/coach/training_days.py`)
+  ne répartissent que les disciplines présentes dans les `legs` de la course : `brick`
+  n'est jamais candidat, alors que `planner.py` porte déjà ses tables TSS/heure
+  (`("brick", "endurance") = 65.0`), sa vitesse de référence et son seuil de D+.
+- Constat prod : **0 brick sur 41 séances** d'une prépa triathlon dont l'épreuve enchaîne
+  8 km de course après 2000 m de D+ à vélo.
+- **Critère** : au moins une séance d'enchaînement par semaine en phase build/peak dès que
+  la course comporte ≥ 2 disciplines successives, avec un contenu vélo→CAP explicite.
+
+### P0 — Volume de qualité quasi nul dans le plan généré
+
+- Sur les 41 séances : 1 seule `threshold`, 0 `intervals`, 0 `pma`, 0 `sprint` ; tout le
+  reste est `endurance` / `recovery` / `rest`.
+- L'audit du 2026-08-01 avait débloqué l'attribution d'intensité (#121), mais la
+  répartition réelle reste écrasée par l'endurance — le plan ne ressemble pas à une prépa.
+- **Critère** : sur une semaine build, au moins une séance de qualité par discipline
+  prioritaire, et une répartition intensité/endurance vérifiable en test.
+
+### P1 — La discipline faible déclarée n'est pas travaillée
+
+- Profil owner : `sports_strengths = {run: 1, swim: 2, bike: 4}`. Le run — point faible
+  explicite — ne reçoit que de l'`endurance` et de la `recovery`, jamais de qualité.
+- Le D+ ciblé en course à pied (40 à 116 m) reste sous l'exigence réelle de l'épreuve
+  (200 m sur 8 km).
+- **Critère** : le biais point-faible de `allocate_sport_sessions` se traduit aussi en
+  *nature* de séance, pas seulement en nombre ; la cible D+ course à pied atteint le
+  niveau de l'épreuve en phase build/peak.
+
+### P1 — Le jour J n'a aucun contenu
+
+- La séance `race` est créée sans `target_duration_s`, sans `target_tss` et sans `workout`
+  (`_race_day_session`, `planner.py:260`) : l'athlète n'a ni estimation de temps, ni pacing
+  par segment, ni plan nutrition, ni consigne de transition.
+- **Critère** : le jour de course affiche une durée estimée, un déroulé par segment et des
+  consignes course (pacing, nutrition, transitions), cohérents avec les `legs` saisis.
+
+### P1 — Le D+ hebdomadaire est concentré au-delà du réalisable
+
+- `_ELEVATION_SESSION_WEIGHT` (`long: 2.0`) empile l'essentiel du D+ de la semaine sur une
+  seule sortie : 1920 m sur 2 h le 2026-08-08, soit ~960 m/h, plus raide que la course
+  elle-même (~700 m/h estimés sur la partie vélo).
+- **Critère** : un plafond de gradient (m de D+ par heure, par sport) borne la cible d'une
+  séance ; le surplus est réparti sur les autres séances de la semaine ou écrêté.
+
+### P2 — La natation n'est jamais spécifique à l'épreuve
+
+- 9 séances de natation, toutes `endurance` / `recovery` : rien qui prépare 1,4 km en eau
+  libre (départ groupé, sighting, allure de course, combinaison).
+- **Critère** : au moins une séance « format course » avant l'échéance quand la course
+  comporte un leg natation en eau libre.
+
+### P2 — Une fenêtre de préparation très courte n'est pas signalée
+
+- `prep_start_date = 2026-08-02` pour une course le 2026-08-22 : 3 semaines, phases
+  base → build → taper compressées. Aucun message ne prévient que le plan ne peut pas
+  produire de progression sur une telle fenêtre.
+- **Critère** : quand la fenêtre est inférieure au minimum utile, l'app l'explique et
+  bascule sur un objectif réaliste (affûtage / maintien) au lieu de simuler une prépa.
 
 ## EPICs issus des retours owner (2026-06-21)
 
