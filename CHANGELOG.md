@@ -1,3 +1,9 @@
+## [1.18.0](https://github.com/tellebma/garmin_training_ia/compare/v1.17.2...v1.18.0) (2026-08-14)
+
+### Features
+
+* **history:** affiche le dénivelé de chaque activité ([#203](https://github.com/tellebma/garmin_training_ia/issues/203)) ([c679fa9](https://github.com/tellebma/garmin_training_ia/commit/c679fa9a45d9d14a8f105d4e18ec7685976372d3))
+
 ## [1.17.2](https://github.com/tellebma/garmin_training_ia/compare/v1.17.1...v1.17.2) (2026-08-14)
 
 ### Bug Fixes
