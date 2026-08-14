@@ -11,6 +11,10 @@
 
 ## 1.15.5 — 2026-08-01
 
+- Ton plan contient enfin des enchaînements : si ta course enchaîne le vélo puis la course à
+  pied, une séance « brick » (vélo puis CAP sans coupure, transition décrite) est programmée
+  chaque semaine en phases build et peak — elle remplace du volume vélo/CAP, elle ne s'y
+  ajoute pas.
 - Les séances deviennent exploitables : les zones affichent des valeurs chiffrées (bpm, watts,
   allure) dès que ta FC max, ton FTP, ta VMA ou ton CSS sont connus — plus de « Z2 » sans repère.
 - La natation est enfin écrite comme au bord du bassin : distances en mètres, séries avec départ
