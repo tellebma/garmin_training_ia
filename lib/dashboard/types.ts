@@ -19,6 +19,7 @@ export type SessionType =
   | 'intervals'
   | 'pma'
   | 'sprint'
+  | 'strides'
   | 'long'
   | 'recovery'
   | 'race'

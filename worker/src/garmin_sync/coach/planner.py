@@ -20,6 +20,7 @@ from garmin_sync.coach.banister import (
 )
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
+from garmin_sync.coach.intensity_dose import STRIDES, hard_types_for_level
 from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.race_day import (
     CLIMB_HOURS_PER_1000M,
@@ -137,19 +138,13 @@ def distribute_weekly_tss_by_sport(
     return {s: round(weekly_tss * w / total_w, 2) for s, w in weights.items()}
 
 
-_HARD_TYPES_BY_LEVEL: dict[int, set[str]] = {
-    1: set(),
-    2: set(),
-    3: {"threshold", "sprint"},
-    4: {"threshold", "sprint", "pma"},
-    5: {"threshold", "sprint", "pma"},
-}
-
-# Types dont l'accès dépend du niveau athlète (filtrés par _HARD_TYPES_BY_LEVEL).
+# Types dont l'accès dépend du niveau athlète : dérivé de `intensity_dose`, seule
+# source de vérité du dosage. Le niveau ne SUPPRIME plus l'intensité (#165), il en
+# change la nature et la dose — tout niveau garde au minimum `strides`.
 # "intervals" reste dans le schéma/caps pour compatibilité (séances déjà en DB) mais
 # n'apparaît plus dans aucune liste `base` ci-dessous — gardé ici uniquement pour ne
 # jamais le laisser passer si une future liste `base` le réintroduit par erreur.
-_FILTERABLE_HARD_TYPES = {"threshold", "intervals", "sprint", "pma"}
+_FILTERABLE_HARD_TYPES = {"threshold", "intervals", "sprint", "pma", STRIDES}
 
 
 def pick_session_types_for_phase(
@@ -157,25 +152,33 @@ def pick_session_types_for_phase(
 ) -> list[str]:
     """Return the canonical set of session types for a given phase.
 
-    `max_level` (1-5) borne l'intensité : un niveau faible retire les types durs
-    (threshold/pma/sprint) au profit d'endurance/recovery.
+    `max_level` (1-5) module l'intensité ACCESSIBLE : un niveau faible n'a pas
+    accès au seuil long ni à la PMA, mais garde toujours un type de qualité
+    léger (``strides`` : côtes courtes / accélérations). Le dosage exact — durée
+    de répétition, nombre, récupération, zone — vit dans `intensity_dose` et
+    part dans le prompt LLM.
+
+    L'ordre de la liste porte une intention : le premier type de qualité est le
+    plus exigeant accessible, c'est celui que `_assign_quality_days` réserve.
 
     `progress` (0..1, cf. `_progress_for_offset`) gate `pma` à la 2e moitié de la
     phase build (progress >= 0.5) — trop tôt dans le plan, pma n'apparaît pas
     encore. Par défaut 1.0 pour rester rétro-compatible avec les appels existants.
     """
     if phase == "base":
-        base = ["endurance", "long", "recovery"]
+        # La base n'est plus une traversée du désert : un rappel de vitesse
+        # hebdomadaire y a toute sa place, à tous les niveaux (#165).
+        base = ["endurance", "long", "recovery", STRIDES]
     elif phase == "build":
-        base = ["endurance", "threshold", "long"]
+        base = ["endurance", "threshold", "long", STRIDES]
         if progress >= 0.5:
             base.append("pma")
     elif phase == "peak":
-        base = ["pma", "sprint", "endurance", "long"]
+        base = ["pma", "sprint", "endurance", "long", STRIDES]
     else:  # taper
-        base = ["endurance", "recovery", "sprint"]
+        base = ["endurance", "recovery", "sprint", STRIDES]
 
-    allowed_hard = _HARD_TYPES_BY_LEVEL.get(max_level, {"threshold", "sprint", "pma"})
+    allowed_hard = hard_types_for_level(max_level)
     filtered = [t for t in base if t not in _FILTERABLE_HARD_TYPES or t in allowed_hard]
     return filtered or ["endurance"]
 
@@ -295,7 +298,14 @@ def _rest_day_session(*, day: date, phase: Phase, week_offset: int) -> dict[str,
     }
 
 
+# Séances qui appellent 48 h de récupération : deux d'affilée est une faute de
+# placement. `strides` n'en fait volontairement PAS partie — des répétitions
+# courtes avec récupération complète ne saturent pas l'athlète et peuvent
+# voisiner une autre séance sans l'hypothéquer.
 _HARD_SESSION_TYPES = {"threshold", "intervals", "pma", "sprint"}
+# Tout ce qui compte comme « séance de qualité » : ce que le plan doit garantir
+# à chaque discipline chaque semaine (#155).
+_QUALITY_SESSION_TYPES = _HARD_SESSION_TYPES | {STRIDES}
 _LONG_RECOVERY_TYPES = {"long", "recovery"}
 
 
@@ -347,6 +357,7 @@ _SESSION_TYPE_WEIGHT: dict[str, float] = {
     "intervals": 1.2,
     "pma": 1.2,
     "sprint": 0.9,
+    STRIDES: 0.9,
     "endurance": 1.0,
     "recovery": 0.5,
 }
@@ -367,6 +378,9 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("bike", "intervals"): 82.0,
     ("bike", "pma"): 88.0,
     ("bike", "sprint"): 65.0,
+    # Répétitions courtes + récupération complète : au-dessus de l'endurance,
+    # bien en dessous d'un bloc de seuil continu.
+    ("bike", STRIDES): 55.0,
     ("bike", "recovery"): 22.0,
     ("run", "endurance"): 48.0,
     ("run", "long"): 52.0,
@@ -374,6 +388,7 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("run", "intervals"): 90.0,
     ("run", "pma"): 95.0,
     ("run", "sprint"): 70.0,
+    ("run", STRIDES): 62.0,
     ("run", "recovery"): 30.0,
     ("swim", "endurance"): 50.0,
     ("swim", "long"): 55.0,
@@ -381,6 +396,7 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("swim", "intervals"): 85.0,
     ("swim", "pma"): 88.0,
     ("swim", "sprint"): 68.0,
+    ("swim", STRIDES): 60.0,
     ("swim", "recovery"): 35.0,
     ("brick", "endurance"): 65.0,
     ("brick", "long"): 65.0,
@@ -445,6 +461,9 @@ _ELEVATION_SESSION_WEIGHT: dict[str, float] = {
     "long": 2.0,
     "endurance": 1.0,
     "threshold": 0.3,
+    # Les côtes courtes SONT du dénivelé : c'est même la façon la plus dense
+    # d'en encaisser quand la course est pentue (#156).
+    STRIDES: 0.8,
     "intervals": 0.0,
     "pma": 0.0,
     "sprint": 0.0,

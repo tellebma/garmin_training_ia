@@ -864,6 +864,9 @@ def test_build_week_caps_training_days_when_all_available() -> None:
 def test_build_week_clamps_bike_endurance_duration() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
+    # 4 jours dispo (et non 3) depuis #165 : un créneau de la semaine est
+    # désormais réservé à la qualité (côtes courtes accessibles dès la phase
+    # base), il faut donc un jour de plus pour qu'une endurance subsiste.
     sessions = _build_week_sessions(
         week_offset=0,
         phase="base",
@@ -871,7 +874,7 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
         sports_in_race=["bike"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         tss_by_sport={"bike": 120.0},
-        available_days=["mon", "wed", "fri"],
+        available_days=["mon", "wed", "fri", "sat"],
         hours_per_week=6,
         is_last_week=False,
         race=RaceTarget(day=date(2026, 9, 1), sport="bike"),

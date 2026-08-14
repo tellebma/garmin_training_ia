@@ -53,6 +53,7 @@ export const SESSION_TYPE_LABEL: Record<SessionType, string> = {
   intervals: 'Intervalles',
   pma: 'PMA',
   sprint: 'Sprint',
+  strides: 'Côtes & accélérations',
   long: 'Sortie longue',
   recovery: 'Récupération',
   race: 'Course',

@@ -231,6 +231,9 @@ _CAPS_BY_TYPE: dict[str, StructureCaps] = {
     "intervals": StructureCaps(25 * 60, 15 * 60, 0.50, 40 * 60),
     "pma": StructureCaps(20 * 60, 15 * 60, 0.35, 30 * 60),
     "sprint": StructureCaps(15 * 60, 10 * 60, 0.25, 25 * 60),
+    # Côtes courtes / accélérations : l'échauffement compte, mais le corps de
+    # séance (répétitions + récupérations) doit rester majoritaire.
+    "strides": StructureCaps(20 * 60, 10 * 60, 0.45, 25 * 60),
 }
 _DEFAULT_CAPS = StructureCaps(20 * 60, 15 * 60, 0.55, 25 * 60)
 

@@ -5,17 +5,69 @@ import pytest
 from garmin_sync.coach.openai_client import (
     OpenAIError,
     _athlete_lines,
+    _build_user_prompt,
     generate_workout_for_session,
 )
 
+_RACE_CTX = {"weeks_to_race": 6, "discipline": "triathlon", "total_elevation_gain_m": 800}
 
-def test_athlete_lines_warns_low_level_intensity():
+
+def _dose_session(sport: str, session_type: str) -> dict:
+    return {
+        "sport": sport,
+        "session_type": session_type,
+        "phase": "build",
+        "target_duration_s": 45 * 60,
+        "target_tss": 55,
+    }
+
+
+def test_prompt_carries_the_dose_prescribed_for_this_discipline_level():
+    """#165 : sans dosage explicite, « threshold » redevient un 3x10' générique."""
+    prompt = _build_user_prompt(
+        _dose_session("run", "threshold"),
+        {"sports_strengths": {"swim": 2, "bike": 4, "run": 2}},
+        _RACE_CTX,
+    )
+    assert "Dosage imposé (niveau 2/5" in prompt
+    assert "3'00" in prompt  # 4 à 5 x 3', pas 3 x 10'
+
+
+def test_prompt_dose_scales_with_the_level_of_that_discipline():
+    strong = _build_user_prompt(
+        _dose_session("bike", "threshold"),
+        {"sports_strengths": {"swim": 2, "bike": 5, "run": 1}},
+        _RACE_CTX,
+    )
+    assert "10'00" in strong
+
+
+def test_prompt_has_no_dose_line_for_an_endurance_session():
+    prompt = _build_user_prompt(
+        _dose_session("run", "endurance"),
+        {"sports_strengths": {"swim": 2, "bike": 4, "run": 1}},
+        _RACE_CTX,
+    )
+    assert "Dosage imposé" not in prompt
+
+
+def test_prompt_has_no_dose_line_without_a_level_for_that_sport():
+    prompt = _build_user_prompt(_dose_session("brick", "endurance"), {}, _RACE_CTX)
+    assert "Dosage imposé" not in prompt
+
+
+def test_athlete_lines_flags_weak_disciplines_without_banning_intensity():
+    """#165 : la consigne « limite l'intensité » doublait l'interdiction du
+    planner. Le point faible est toujours signalé, mais pour faire RESPECTER le
+    dosage prescrit, plus pour supprimer la qualité."""
     lines = _athlete_lines(
         athlete={"sports_strengths": {"swim": 1, "bike": 3, "run": 2}}, sport="run"
     )
     text = "\n".join(lines)
     assert "1-5" in text
-    assert "intensité" in text.lower()
+    assert "swim, run" in text
+    assert "dosage" in text.lower()
+    assert "pas d'intervalles seuil durs" not in text
 
 
 def test_athlete_lines_no_intensity_warning_when_all_strong():
