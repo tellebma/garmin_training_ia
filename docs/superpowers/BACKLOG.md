@@ -167,6 +167,42 @@ longues à 1920 m et 1739 m) — c'est le seul axe réellement spécifique.
 - **Critère** : quand la fenêtre est inférieure au minimum utile, l'app l'explique et
   bascule sur un objectif réaliste (affûtage / maintien) au lieu de simuler une prépa.
 
+## Audits transverses 2026-08-14 — 28 constats (retours, programme, gestion des séances)
+
+Trois audits menés en parallèle sur le code confronté aux données de prod, en réponse au même
+retour owner. Le diagnostic est convergent : **le moteur calcule beaucoup de choses justes, puis
+rien ne vérifie ce qui sort**. Trois ruptures, chacune démontrée sur des données réelles.
+
+1. **Entre le budget calculé et la charge émise.** Budget hebdo de 284 TSS (après ramp cap),
+   plan émis à 367 — dont 202 en vélo pour un budget de 81. Le clamp de durée re-dérive le TSS
+   depuis la durée clampée, et les planchers de `duration_bounds` fabriquent jusqu'à 2,5× la
+   charge prescrite. Les trois ramp caps (10/15/20 %) sont franchis simultanément, sans qu'aucun
+   test ne le voie.
+2. **Entre la physiologie et les messages.** Les 4 ancres (FCmax, VMA, FTP, CSS) sont NULL et non
+   résolues côté génération ; `activities.tss` vaut encore `durée × 50` ; `body_battery_high`
+   reçoit la dernière valeur du jour au lieu du maximum. Le coach affirme des choses sur
+   l'*effort* en ne mesurant que des *heures*.
+3. **Entre ce qui est calculé et ce qui est affiché.** 34 % des jours sont des jours de repos et
+   la carte de briefing y masque six blocs pourtant calculés et stockés ; le panneau Récupération
+   inverse le sens du stress et de la FC de repos ; le markdown des séances s'affiche brut.
+
+S'y ajoute une **rupture d'intention** : les `legs` de la course ne sont jamais transmis au
+générateur, les vitesses de course sont des constantes de barème (épreuve estimée à 3 h 50 contre
+~5 h réelles), et l'intensité est structurellement interdite dans les disciplines faibles.
+
+**Issues créées** (toutes *Todo*, EPIC Coaching sur le Project #4) :
+
+| Thème | P0 | P1 | P2 |
+|---|---|---|---|
+| Planner — charge et périodisation | #164 clamp vs budget, #165 intensité interdite, #166 grille jour de semaine, #167 TSB ignoré | #182 taper amputé, #183 vitesses non calibrées, #184 plafond 45 TSS/h, #185 jours sans espacement | #188 offsets écrasés, #189 périodisation courte, #190 semaine de référence |
+| Génération de séances | #168 durées vs allures | #172 ancres non résolues, #173 fatigue gravée sur 7 jours, #175 workout jamais rafraîchi, #176 ajustement condamnant, #186 épreuve non transmise | — |
+| Retours à l'athlète | #170 body battery, #171 readiness = volume | #177 briefing figé, #178 coach au futur, #179 jour de repos muet, #180 libellés inversés, #181 ajustement repos→repos | #192 rôle des séances |
+| Données et charge | #169 multi-sport à moitié tarif | #187 markdown brut | #191 deux échelles de TSS |
+
+**Ordre recommandé** : #170 et #169 d'abord (données fausses en entrée de tout le reste), puis
+#164 et #167 (boucler la charge), puis #165 avec #155/#156, puis le lot front #179/#180/#187 qui
+a le meilleur rapport valeur/effort.
+
 ## EPICs issus des retours owner (2026-06-21)
 
 Trois EPICs regroupent les retours de l'owner du 21/06/2026. Les items détaillés
