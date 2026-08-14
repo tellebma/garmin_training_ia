@@ -1,4 +1,4 @@
--- 20260814120000_planned_sessions_strides.sql
+-- 20260814130000_planned_sessions_strides.sql
 -- Audit qualité #165 : le niveau déclaré (1 ou 2) interdisait TOUTE séance de
 -- qualité, dans toutes les phases. Le planner module désormais le DOSAGE au lieu
 -- de fermer l'accès, et introduit un type de qualité léger accessible à tous les
