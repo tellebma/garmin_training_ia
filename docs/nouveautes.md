@@ -1,5 +1,15 @@
 # Nouveautés
 
+## 1.18.0 — 2026-08-14
+
+- Les séances détaillées sont enfin lisibles : échauffement, séries et retour au calme sont
+  mis en forme, avec la zone, l'allure ou les watts, la durée de nage et la consigne de récup
+  qui restaient invisibles jusque-là.
+- Un jour de repos, le briefing te dit tout : ta note de forme, la recommandation du coach,
+  le retour sur ta dernière séance et la revue de tes 7 derniers jours — plus une carte muette.
+- Le panneau Récupération affiche tes chiffres (valeur récente contre moyenne 28 jours) et
+  ne dit plus l'inverse de la vérité quand ta FC de repos ou ton stress baissent.
+
 ## 1.17.1 — 2026-08-14
 
 - Ta Body Battery n'est plus lue à l'envers : le coach compare désormais le pic de ta journée
@@ -34,13 +44,6 @@
 - La semaine de ta course s'affiche à nouveau dans le plan : le jour J d'un triathlon (ou
   duathlon / aquathlon) apparaît comme une séance « Jour de course » au lieu de faire planter
   la page sur un écran blanc.
-- Les séances détaillées sont enfin lisibles : échauffement, séries et retour au calme sont
-  mis en forme, avec la zone, l'allure ou les watts, la durée de nage et la consigne de récup
-  qui restaient invisibles jusque-là.
-- Un jour de repos, le briefing te dit tout : ta note de forme, la recommandation du coach,
-  le retour sur ta dernière séance et la revue de tes 7 derniers jours — plus une carte muette.
-- Le panneau Récupération affiche tes chiffres (valeur récente contre moyenne 28 jours) et
-  ne dit plus l'inverse de la vérité quand ta FC de repos ou ton stress baissent.
 
 ## 1.15.5 — 2026-08-01
 
