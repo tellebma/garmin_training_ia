@@ -1,10 +1,13 @@
 # Nouveautés
 
-## 1.15.5 — 2026-08-01
+## 1.16.0 — 2026-08-14
 
 - La semaine de ta course s'affiche à nouveau dans le plan : le jour J d'un triathlon (ou
   duathlon / aquathlon) apparaît comme une séance « Jour de course » au lieu de faire planter
   la page sur un écran blanc.
+
+## 1.15.5 — 2026-08-01
+
 - Les séances deviennent exploitables : les zones affichent des valeurs chiffrées (bpm, watts,
   allure) dès que ta FC max, ton FTP, ta VMA ou ton CSS sont connus — plus de « Z2 » sans repère.
 - La natation est enfin écrite comme au bord du bassin : distances en mètres, séries avec départ
