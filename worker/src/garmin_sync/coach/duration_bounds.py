@@ -67,6 +67,13 @@ _BOUNDS_MIN: dict[tuple[str, str, str], tuple[int, int]] = {
     ("run", "pma", "build"): (40, 55),
     ("run", "pma", "peak"): (35, 50),
     ("run", "sprint", "peak"): (25, 35),
+    # enchaînement vélo->CAP (#154) : une sortie vélo puis 15 à 30 min de course
+    ("brick", "endurance", "base"): (60, 120),
+    ("brick", "endurance", "build"): (70, 150),
+    ("brick", "endurance", "peak"): (60, 120),
+    ("brick", "long", "base"): (90, 150),
+    ("brick", "long", "build"): (100, 180),
+    ("brick", "long", "peak"): (90, 150),
 }
 
 
