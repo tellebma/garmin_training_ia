@@ -174,15 +174,19 @@ describe('BriefingCard', () => {
 })
 
 describe('BriefingCard rest day', () => {
-  it('hides the readiness badge and activity review on a rest day', () => {
+  it('surfaces score, recommendation, feedback and activity review on a rest day (issue #179)', () => {
     const briefing: DailyBriefing = {
       date: '2026-06-22',
-      readiness_score: 88,
-      status: 'ready',
-      explanation_md: 'Tous les signaux sont au vert. Profite de cette journée de repos.',
+      readiness_score: 32,
+      status: 'rest_advised',
+      explanation_md: 'Charge récente très élevée, la journée de repos tombe bien.',
       factors: [],
       planned_session: { sport: 'rest', session_type: 'rest' },
-      suggested_session: null,
+      suggested_session: {
+        sport: 'run',
+        session_type: 'endurance',
+        note: 'Adaptation à masquer un jour de repos.',
+      },
       activity_review: {
         lookback_days: 90,
         activities_7d: 4,
@@ -202,33 +206,55 @@ describe('BriefingCard rest day', () => {
           },
         ],
       },
-      last_session_feedback: null,
+      last_session_feedback: {
+        activity_date: '2026-06-21',
+        sport: 'bike',
+        planned_sport: 'bike',
+        planned_session_type: 'long',
+        verdict: 'too_intense',
+        severity: 'watch',
+        message: 'La sortie du matin était plus dure que prévu.',
+        readiness_impact: -6,
+      },
       coach_recommendation: {
         action: 'rest',
-        title: 'Repos',
-        rationale: 'Journée de récupération planifiée.',
-        instruction: 'Repose-toi.',
+        title: 'Repos à respecter',
+        rationale: 'Ta charge des 7 derniers jours est nettement au-dessus de ta normale.',
+        instruction: "Ne t'entraîne pas aujourd'hui.",
       },
       next_session_adjustment: {
-        status: 'none',
-        action: 'maintain',
-        title: '',
-        rationale: '',
-        instruction: '',
-        target_session: null,
-        suggested_session_type: null,
+        status: 'suggested',
+        action: 'replace_with_recovery',
+        title: 'Alléger la prochaine séance',
+        rationale: 'r',
+        instruction: 'i',
+        target_session: {
+          id: 'session-9',
+          sport: 'run',
+          session_type: 'intervals',
+          target_duration_s: 3600,
+          target_tss: 75,
+        },
+        suggested_session_type: 'recovery',
       },
       is_rest_day: true,
     }
 
     render(<BriefingCard briefing={briefing} />)
 
-    // rest block is shown
-    expect(screen.getByText('Jour de repos')).toBeTruthy()
-    // readiness badge and activity review are hidden on a rest day
-    expect(screen.queryByText(/88\/100/)).toBeNull()
-    expect(screen.queryByText('Revue des activités')).toBeNull()
-    expect(screen.queryByText('La charge hebdo monte vite.')).toBeNull()
+    // Le contenu calculé par le worker est bien restitué (issue #179).
+    expect(screen.getByText(/Repos conseillé · 32\/100/)).toBeTruthy()
+    expect(screen.getByText('Repos à respecter')).toBeTruthy()
+    expect(screen.getByText(/nettement au-dessus de ta normale/)).toBeTruthy()
+    expect(screen.getByText('Retour post-séance')).toBeTruthy()
+    expect(screen.getByText('La sortie du matin était plus dure que prévu.')).toBeTruthy()
+    expect(screen.getByText('Revue des activités')).toBeTruthy()
+    expect(screen.getByText('La charge hebdo monte vite.')).toBeTruthy()
+
+    // Seule l'adaptation de séance reste masquée un jour de repos.
+    expect(screen.queryByText('Alléger la prochaine séance')).toBeNull()
+    expect(screen.queryByText('Adaptation proposée')).toBeNull()
+    expect(screen.queryByText('Adaptation à masquer un jour de repos.')).toBeNull()
   })
 })
 

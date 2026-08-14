@@ -66,38 +66,28 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
         <h2 className="text-foreground text-sm font-semibold tracking-wide uppercase">
           Briefing du jour
         </h2>
-        {!is_rest_day && (
-          <span
-            className={cn(
-              'rounded-full px-2 py-0.5 text-xs font-medium',
-              STATUS_BADGE_CLASSES[status]
-            )}
-          >
-            {STATUS_LABEL[status]} · {String(readiness_score)}/100
-          </span>
-        )}
+        <span
+          className={cn(
+            'rounded-full px-2 py-0.5 text-xs font-medium',
+            STATUS_BADGE_CLASSES[status]
+          )}
+        >
+          {STATUS_LABEL[status]} · {String(readiness_score)}/100
+        </span>
       </div>
       <p className="text-foreground text-sm whitespace-pre-wrap">{explanation_md}</p>
-      {is_rest_day ? (
-        <div className="bg-background mt-3 rounded-md border p-3 text-sm">
-          <p className="text-foreground flex items-center gap-1.5 font-medium">
-            <BedDouble className="size-4 shrink-0" aria-hidden />
-            Jour de repos
-          </p>
-          <p className="text-muted-foreground mt-1">
-            Pas de séance aujourd&rsquo;hui. La récupération fait partie de l&rsquo;entraînement :
-            c&rsquo;est là que ton corps assimile la charge. Écoute tes sensations et reviens frais
-            demain.
-          </p>
-        </div>
-      ) : (
-        <div className="bg-background mt-3 rounded-md border p-3 text-sm">
-          <p className="text-foreground font-medium">{coach_recommendation.title}</p>
-          <p className="text-muted-foreground mt-1">{coach_recommendation.rationale}</p>
-          <p className="text-foreground mt-2">{coach_recommendation.instruction}</p>
-        </div>
-      )}
-      {!is_rest_day && last_session_feedback && (
+      {/* Un jour de repos reste un jour de coaching : la recommandation, le retour
+          post-séance et la revue d'activités sont calculés côté worker (variante
+          « Repos à respecter ») — seule l'adaptation de séance n'a pas de sens (issue #179). */}
+      <div className="bg-background mt-3 rounded-md border p-3 text-sm">
+        <p className="text-foreground flex items-center gap-1.5 font-medium">
+          {is_rest_day && <BedDouble className="size-4 shrink-0" aria-hidden />}
+          {coach_recommendation.title}
+        </p>
+        <p className="text-muted-foreground mt-1">{coach_recommendation.rationale}</p>
+        <p className="text-foreground mt-2">{coach_recommendation.instruction}</p>
+      </div>
+      {last_session_feedback && (
         <div
           className={cn(
             'mt-3 rounded-md border p-3 text-sm',
@@ -148,7 +138,7 @@ export function BriefingCard({ briefing }: Readonly<Props>) {
             )}
         </div>
       )}
-      {!is_rest_day && insights.length > 0 && (
+      {insights.length > 0 && (
         <div className="mt-4 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <p className="text-foreground text-sm font-medium">Revue des activités</p>
