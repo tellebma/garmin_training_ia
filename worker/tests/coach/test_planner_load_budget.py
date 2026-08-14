@@ -84,17 +84,30 @@ def test_prod_week_total_stays_within_budget() -> None:
 
 
 def test_prod_week_bike_no_longer_emits_double_its_budget() -> None:
-    """Le plancher de `bike long build` (150 min = 112,5 TSS) ne doit plus imposer
-    une sortie que le budget ne paye pas.
+    """Le vélo ne double plus son budget : c'est la séance d'à-côté qui cède, pas
+    le total de la semaine (172,5 TSS de vélo avant, 123,5 après).
 
-    Le vélo garde plus que sa part stricte — la natation, saturée par ses plafonds
-    de durée, lui rend son reliquat — mais il ne double plus son budget, et la
-    semaine entière retombe dessus (cf. le test précédent)."""
+    Il garde plus que sa part stricte — la natation, saturée par ses plafonds de
+    durée, lui rend son reliquat — mais la semaine entière retombe sur son budget
+    (cf. le test précédent)."""
     sessions = _prod_week({"swim": 97.6, "bike": 80.8, "run": 106.1})
     bike = _emitted_by_sport(sessions).get("bike", 0.0)
     assert bike <= 80.8 * 1.6, f"vélo émis à {bike} pour 80,8 budgétés (avant : 172,5)"
-    assert not [s for s in _training(sessions) if s["session_type"] == "long"], (
-        "une sortie longue est encore émise alors que le budget ne la paye pas"
+
+
+def test_prod_week_keeps_its_long_ride() -> None:
+    """La sortie longue vélo est LA séance spécifique d'un triathlon de montagne :
+    elle est raccourcie, jamais rétrogradée tant qu'une autre séance peut céder.
+
+    Sans cette priorité, la semaine gardait deux endurances de 1 h 30 et perdait
+    la seule séance qui prépare les 2000 m de D+ de l'épreuve."""
+    sessions = _prod_week({"swim": 97.6, "bike": 80.8, "run": 106.1})
+    long_rides = [
+        s for s in _training(sessions) if s["sport"] == "bike" and s["session_type"] == "long"
+    ]
+    assert long_rides, "la sortie longue vélo a disparu de la semaine build"
+    assert long_rides[0]["target_duration_s"] >= 105 * 60, (
+        f"longue ramenée à {long_rides[0]['target_duration_s'] // 60} min"
     )
 
 

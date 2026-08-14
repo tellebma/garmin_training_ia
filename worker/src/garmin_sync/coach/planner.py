@@ -826,6 +826,32 @@ _LOAD_DOWNGRADE_LADDER: dict[str, tuple[str, ...]] = {
 
 _NON_TRAINING_TYPES = frozenset({"rest", "race"})
 
+# La sortie longue porte l'exigence de l'épreuve (2000 m de D+ à vélo sur la
+# course préparée) : c'est la DERNIÈRE séance à sacrifier quand la semaine
+# déborde, et elle est d'abord raccourcie plutôt que rétrogradée.
+_RACE_SPECIFIC_TYPES = frozenset({"long"})
+
+# Ordre de sacrifice quand la semaine déborde : ce qui coûte le moins à la
+# semaine part en premier. Rétrograder une endurance ne lui fait perdre que du
+# volume ; une récup ne peut que disparaître (elle est déjà au bas de l'échelle) ;
+# rétrograder une séance de qualité prive la semaine de son intensité ; toucher à
+# la longue lui retire la spécificité de l'épreuve.
+_SACRIFICE_RANK: dict[str, int] = {
+    "endurance": 0,
+    "recovery": 1,
+    "threshold": 2,
+    "intervals": 2,
+    "pma": 2,
+    "sprint": 2,
+    "long": 3,
+}
+_SACRIFICE_RANK_DEFAULT = 2
+
+# Plancher toléré pour une longue que le budget ne paye pas à plein tarif :
+# 70 % de sa durée minimale (2 h 30 -> 1 h 45 à vélo en build). Une longue
+# raccourcie prépare l'épreuve ; une endurance de même durée, non.
+_RELAXED_FLOOR_RATIO = 0.70
+
 
 @dataclass
 class _LoadSlot:
@@ -833,6 +859,7 @@ class _LoadSlot:
 
     session: dict[str, Any]
     sport: str
+    stype: str
     weight: float
     tss_per_hour: float
     low_s: int
@@ -856,13 +883,16 @@ def _floor_tss(sport: str, stype: str, phase: str) -> float | None:
     return bounds[0] / 3600 * _tss_per_hour(sport, stype)
 
 
-def _load_slot(session: dict[str, Any]) -> _LoadSlot:
+def _load_slot(session: dict[str, Any], *, floor_relaxed: bool = False) -> _LoadSlot:
     sport = str(session["sport"])
     stype = str(session["session_type"])
     low_s, high_s = duration_bounds_s(sport, stype, str(session["phase"])) or _UNBOUNDED_DURATION_S
+    if floor_relaxed:
+        low_s = min(high_s, round(low_s * _RELAXED_FLOOR_RATIO))
     return _LoadSlot(
         session=session,
         sport=sport,
+        stype=stype,
         weight=_SESSION_TYPE_WEIGHT.get(stype, 1.0),
         tss_per_hour=_tss_per_hour(sport, stype),
         low_s=low_s,
@@ -922,9 +952,17 @@ def _downgrade_slot(slot: _LoadSlot) -> bool:
 
 
 def _overflow_victim(slots: list[_LoadSlot]) -> _LoadSlot:
-    """Séance responsable du dépassement : la plus lourde parmi celles à leur plancher."""
-    at_floor = [slot for slot in slots if slot.duration_s <= slot.low_s]
-    return max(at_floor or slots, key=lambda slot: slot.tss)
+    """Séance à alléger : celle qui coûte le MOINS à la semaine, parmi celles
+    bloquées à leur plancher (les autres ont déjà rendu leur marge).
+
+    L'ordre suit ``_SACRIFICE_RANK`` ; à rang égal, on prend la plus lourde —
+    autant libérer le plus de charge par sacrifice consenti.
+    """
+    at_floor = [slot for slot in slots if slot.duration_s <= slot.low_s] or slots
+    return min(
+        at_floor,
+        key=lambda slot: (_SACRIFICE_RANK.get(slot.stype, _SACRIFICE_RANK_DEFAULT), -slot.tss),
+    )
 
 
 def _load_overflow(
@@ -958,12 +996,16 @@ def _apply_slot(slot: _LoadSlot) -> None:
 
 
 def _fit_sports_to_budgets(
-    active_by_sport: dict[str, list[dict[str, Any]]], tss_by_sport: dict[str, float]
+    active_by_sport: dict[str, list[dict[str, Any]]],
+    tss_by_sport: dict[str, float],
+    relaxed: set[int],
 ) -> list[_LoadSlot]:
     """Première passe : chaque sport répartit SON budget sur SES séances."""
     slots: list[_LoadSlot] = []
     for sport, group in active_by_sport.items():
-        group_slots = [_load_slot(session) for session in group]
+        group_slots = [
+            _load_slot(session, floor_relaxed=id(session) in relaxed) for session in group
+        ]
         _fit_durations_to_budget(group_slots, tss_by_sport.get(sport) or 0.0)
         slots.extend(group_slots)
     return slots
@@ -1045,21 +1087,30 @@ def fit_week_load_to_budget(
     """
     ceilings = sport_ceilings or {}
     active_by_sport, race_tss = _group_trainable_sessions(sessions)
-    # Le jour de course consomme sa part du budget de la semaine : il ne laisse
-    # pas un résidu à réinjecter dans les séances de taper qui l'entourent.
-    budget_total = sum(v for v in tss_by_sport.values() if v > 0) - race_tss
+    budget_total = sum(v for v in tss_by_sport.values() if v > 0)
+    # Le jour de course consomme sa part de la semaine : il n'ouvre pas un résidu
+    # à réinjecter dans les séances de taper qui l'entourent. Il ne RETIRE pas
+    # pour autant son budget d'entraînement à la semaine — sinon une course plus
+    # lourde que le budget hebdo vidait la semaine de course de ses séances.
+    residual_target = max(0.0, budget_total - race_tss)
 
     dropped: list[dict[str, Any]] = []
+    relaxed: set[int] = set()
     remaining_sessions = sum(len(group) for group in active_by_sport.values())
     while True:
-        kept = _fit_sports_to_budgets(active_by_sport, tss_by_sport)
-        _spread_week_residual(kept, budget_total, ceilings)
+        kept = _fit_sports_to_budgets(active_by_sport, tss_by_sport, relaxed)
+        _spread_week_residual(kept, residual_target, ceilings)
         overflowing = _load_overflow(
             kept, budget_total=budget_total, tolerance=tolerance, sport_ceilings=ceilings
         )
         if not overflowing:
             break
         victim = _overflow_victim(overflowing)
+        if victim.stype in _RACE_SPECIFIC_TYPES and id(victim.session) not in relaxed:
+            # Raccourcir la sortie longue avant de la dénaturer : sur une prépa
+            # montagne, 1 h 45 de longue prépare l'épreuve, 1 h 30 d'endurance non.
+            relaxed.add(id(victim.session))
+            continue
         if _downgrade_slot(victim):
             continue
         if remaining_sessions <= 1:
