@@ -1250,20 +1250,17 @@ def _realign_past_week_offsets(db: Any, *, plan_id: str, grid_start: date, today
         db.table("planned_sessions").update({"week_offset": offset}).in_("id", ids).execute()
 
 
-def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
-    """Generate a training plan for the given user.
+@dataclass(frozen=True)
+class _PlanInputs:
+    """Entrées validées d'une génération : profil, course A et sa date."""
 
-    ``today`` est injectable pour tester la stabilité des régénérations (l'ancre
-    de périodisation ne bouge pas quand `today` avance).
+    profile: dict[str, Any]
+    race: dict[str, Any]
+    race_date: date
 
-    Returns:
-        {"status": "ok", "plan_id": str, "weeks_count": int, "sessions_count": int}
-        {"status": "no_race_goal"} if user has no active race
-        {"status": "no_profile"} if profile not found
-        {"status": "race_in_past"} if race_date already past
-    """
-    db = get_admin_client()
 
+def _load_plan_inputs(db: Any, user_id: str, *, today: date) -> _PlanInputs | dict[str, Any]:
+    """Charge profil et course A, ou renvoie le statut d'erreur à retourner tel quel."""
     profile = cast(
         "dict[str, Any] | None",
         db.table("athlete_profiles")
@@ -1289,14 +1286,35 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         .maybe_single()
     )
     _race_executed = _race_builder.execute()
-    race = cast("dict[str, Any] | None", _race_executed.data)  # type: ignore[union-attr]
+    race = cast("dict[str, Any] | None", _race_executed.data)
     if not race:
         return {"status": "no_race_goal"}
 
-    today = today or date.today()
     race_date = date.fromisoformat(race["race_date"])
     if race_date <= today:
         return {"status": "race_in_past"}
+    return _PlanInputs(profile=profile, race=race, race_date=race_date)
+
+
+def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
+    """Generate a training plan for the given user.
+
+    ``today`` est injectable pour tester la stabilité des régénérations (l'ancre
+    de périodisation ne bouge pas quand `today` avance).
+
+    Returns:
+        {"status": "ok", "plan_id": str, "weeks_count": int, "sessions_count": int}
+        {"status": "no_race_goal"} if user has no active race
+        {"status": "no_profile"} if profile not found
+        {"status": "race_in_past"} if race_date already past
+    """
+    db = get_admin_client()
+    today = today or date.today()
+
+    loaded = _load_plan_inputs(db, user_id, today=today)
+    if isinstance(loaded, dict):
+        return loaded
+    profile, race, race_date = loaded.profile, loaded.race, loaded.race_date
 
     tss_by_date, today_state, activity_review, activities = _load_today_banister_state(
         db=db, user_id=user_id, profile=profile, today=today
