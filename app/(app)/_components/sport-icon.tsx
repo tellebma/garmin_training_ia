@@ -1,5 +1,6 @@
 // app/(app)/_components/sport-icon.tsx
 import {
+  Activity,
   Waves,
   Bike,
   Footprints,
@@ -17,6 +18,9 @@ export const SPORT_ICON: Record<Sport, LucideIcon> = {
   brick: RotateCw,
   rest: MinusCircle,
   race: Trophy,
+  triathlon: Trophy,
+  duathlon: Trophy,
+  aquathlon: Trophy,
 }
 
 export const SPORT_LABEL: Record<Sport, string> = {
@@ -26,6 +30,21 @@ export const SPORT_LABEL: Record<Sport, string> = {
   brick: 'Brick',
   rest: 'Repos',
   race: 'Jour J',
+  triathlon: 'Triathlon',
+  duathlon: 'Duathlon',
+  aquathlon: 'Aquathlon',
+}
+
+// Un sport inconnu (valeur ajoutée en base avant le front, cf. la migration
+// multisport) ne doit jamais faire planter le rendu : sans ce garde-fou,
+// `<Icon />` avec un composant `undefined` casse toute la page (page blanche
+// sur /plan). Les vues partielles forcent un lookup tolérant tout en gardant
+// l'exhaustivité des maps ci-dessus.
+const SPORT_ICON_LOOSE: Partial<Record<string, LucideIcon>> = SPORT_ICON
+const SPORT_LABEL_LOOSE: Partial<Record<string, string>> = SPORT_LABEL
+
+export function sportLabelFor(sport: string): string {
+  return SPORT_LABEL_LOOSE[sport] ?? sport
 }
 
 export const SESSION_TYPE_LABEL: Record<SessionType, string> = {
@@ -55,6 +74,6 @@ interface SportIconProps {
 }
 
 export function SportIcon({ sport, className, size = 20 }: Readonly<SportIconProps>) {
-  const Icon = SPORT_ICON[sport]
-  return <Icon size={size} className={className} aria-label={SPORT_LABEL[sport]} />
+  const Icon = SPORT_ICON_LOOSE[sport] ?? Activity
+  return <Icon size={size} className={className} aria-label={sportLabelFor(sport)} />
 }

@@ -1,7 +1,7 @@
 // app/(app)/_components/session-card.tsx
 import { Clock, Mountain, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SportIcon, SPORT_LABEL, SESSION_TYPE_LABEL } from './sport-icon'
+import { SportIcon, sportLabelFor, SESSION_TYPE_LABEL } from './sport-icon'
 import { formatDuration, formatTSS } from '@/lib/dashboard/format'
 import { workoutToMarkdown } from '@/lib/coach/session-templates'
 import type { Sport as CoachSport } from '@/lib/coach/session-templates'
@@ -61,7 +61,7 @@ export function SessionCard({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-foreground truncate text-sm font-medium">
-            {SPORT_LABEL[session.sport]} — {SESSION_TYPE_LABEL[session.session_type]}
+            {sportLabelFor(session.sport)} — {SESSION_TYPE_LABEL[session.session_type]}
           </p>
           <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-3 text-xs">
             <span className="flex items-center gap-1">

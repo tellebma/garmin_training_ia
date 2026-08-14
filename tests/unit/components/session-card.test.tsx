@@ -74,6 +74,31 @@ describe('SessionCard', () => {
     expect(screen.queryByText('Voir la séance détaillée')).toBeNull()
   })
 
+  it('renders a multisport race day without crashing (issue page blanche /plan)', () => {
+    const raceDay: PlannedSession = {
+      ...runSession,
+      id: 's-race',
+      sport: 'triathlon',
+      session_type: 'race',
+      target_duration_s: null,
+      target_tss: null,
+      phase: 'race',
+      workout: null,
+    }
+    render(<SessionCard session={raceDay} compact showWorkout />)
+    expect(screen.getByText('Triathlon — Course')).toBeTruthy()
+  })
+
+  it('falls back to a generic icon for a sport the front does not know yet', () => {
+    const unknown = {
+      ...runSession,
+      id: 's-unknown',
+      sport: 'kayak',
+    } as unknown as PlannedSession
+    render(<SessionCard session={unknown} compact />)
+    expect(screen.getByText('kayak — Endurance')).toBeTruthy()
+  })
+
   it('shows nothing special while generation is still pending (few failures)', () => {
     const pending: PlannedSession = {
       ...runSession,
