@@ -1,3 +1,9 @@
+## [1.17.2](https://github.com/tellebma/garmin_training_ia/compare/v1.17.1...v1.17.2) (2026-08-14)
+
+### Bug Fixes
+
+* **coach:** restitue côté front ce que le worker calcule déjà ([#179](https://github.com/tellebma/garmin_training_ia/issues/179), [#180](https://github.com/tellebma/garmin_training_ia/issues/180), [#187](https://github.com/tellebma/garmin_training_ia/issues/187)) ([#197](https://github.com/tellebma/garmin_training_ia/issues/197)) ([b63a65f](https://github.com/tellebma/garmin_training_ia/commit/b63a65f611402d63eaa0044f8b2885279ef3c7d9))
+
 ## [1.17.1](https://github.com/tellebma/garmin_training_ia/compare/v1.17.0...v1.17.1) (2026-08-14)
 
 ### Bug Fixes
