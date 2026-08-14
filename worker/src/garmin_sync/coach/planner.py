@@ -522,10 +522,13 @@ def cap_session_elevation_gradients(sessions: list[dict[str, Any]]) -> int:
     le surplus part sur les autres séances DU MÊME SPORT qui ont de la marge, et
     n'est écrêté qu'en dernier recours. Retourne le total (m) écrêté — une
     semaine trop pentue pour être répartie est tracée, jamais silencieuse.
+
+    Le jour de course est exclu : son D+ est celui de l'épreuve (#157), une
+    donnée subie et non une cible d'entraînement à rendre réalisable.
     """
     by_sport: dict[str, list[dict[str, Any]]] = {}
     for s in sessions:
-        if not s.get("target_elevation_gain_m"):
+        if not s.get("target_elevation_gain_m") or s.get("session_type") == "race":
             continue
         by_sport.setdefault(str(s.get("sport") or ""), []).append(s)
 

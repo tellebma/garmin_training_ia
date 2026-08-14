@@ -245,9 +245,14 @@ def _plan_sessions(monkeypatch: pytest.MonkeyPatch, *, race_dplus: int) -> list[
 
 
 def test_generated_plan_has_no_unrealistic_gradient(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bout en bout : aucune séance du plan ne dépasse le plafond de son sport."""
+    """Bout en bout : aucune séance d'entraînement ne dépasse le plafond de son sport.
+
+    Le jour de course est exclu : son D+ est celui de l'épreuve, pas une cible.
+    """
     sessions = _plan_sessions(monkeypatch, race_dplus=2200)
-    with_dplus = [s for s in sessions if s.get("target_elevation_gain_m")]
+    with_dplus = [
+        s for s in sessions if s.get("target_elevation_gain_m") and s.get("session_type") != "race"
+    ]
     assert with_dplus, "le plan doit bien poser des cibles de D+"
     for s in with_dplus:
         hours = float(s["target_duration_s"]) / 3600
@@ -263,3 +268,27 @@ def test_flat_race_plan_sets_no_elevation_target(monkeypatch: pytest.MonkeyPatch
     bike = [s for s in sessions if s["sport"] == "bike"]
     assert bike
     assert all(s["target_elevation_gain_m"] is None for s in bike)
+
+
+def test_race_day_elevation_is_never_clipped() -> None:
+    """Le D+ du jour J est celui de l'épreuve : il n'est pas une cible à borner."""
+    sessions = [
+        {
+            "sport": "triathlon",
+            "session_type": "race",
+            "target_duration_s": 13_900,
+            "target_elevation_gain_m": 2200,
+        },
+        {
+            "sport": "bike",
+            "session_type": "long",
+            "target_duration_s": 7200,
+            "target_elevation_gain_m": 1900,
+        },
+    ]
+    clipped = cap_session_elevation_gradients(sessions)
+
+    assert sessions[0]["target_elevation_gain_m"] == 2200
+    # La séance d'entraînement, elle, reste bornée par son gradient.
+    assert sessions[1]["target_elevation_gain_m"] == 1400
+    assert clipped == 500
