@@ -21,6 +21,12 @@ from garmin_sync.coach.banister import (
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
+from garmin_sync.coach.race_day import (
+    CLIMB_HOURS_PER_1000M,
+    RACE_SPEED_DEFAULT_KMH,
+    RACE_SPEED_KMH,
+    build_race_day_session,
+)
 from garmin_sync.coach.sports import normalize_discipline
 from garmin_sync.coach.training_days import (
     allocate_sport_sessions,
@@ -48,7 +54,7 @@ class RaceTarget:
 
     Regroupé (plutôt que passé paramètre par paramètre) pour garder les signatures
     de construction de semaine sous la limite de lisibilité : elles portaient 16 et
-    17 paramètres, dont ces quatre-là, toujours transmis ensemble.
+    17 paramètres, dont ceux-là, toujours transmis ensemble.
     """
 
     day: date
@@ -58,6 +64,10 @@ class RaceTarget:
     # La course enchaîne un segment vélo puis un segment course à pied : le plan
     # doit alors contenir des séances d'enchaînement (#154).
     has_bike_run_transition: bool = False
+    # Segments bruts + profil de performance : le jour J en dérive son temps
+    # estimé, son TSS et son déroulé (issue #157). Absents -> case vide, comme avant.
+    legs: list[dict[str, Any]] | None = None
+    athlete: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -261,17 +271,15 @@ def _race_day_sport(race: dict[str, Any]) -> str:
     return discipline or "run"
 
 
-def _race_day_session(*, day: date, race_sport: str, week_offset: int) -> dict[str, Any]:
-    return {
-        "date": day.isoformat(),
-        "sport": race_sport,
-        "session_type": "race",
-        "target_duration_s": None,
-        "target_tss": None,
-        "target_elevation_gain_m": None,
-        "phase": "race",
-        "week_offset": week_offset,
-    }
+def _race_day_session(*, day: date, race: RaceTarget, week_offset: int) -> dict[str, Any]:
+    """Jour J : temps estimé, TSS et déroulé par segment (cf. ``coach.race_day``)."""
+    return build_race_day_session(
+        day=day,
+        race_sport=race.sport,
+        week_offset=week_offset,
+        legs=race.legs,
+        athlete=race.athlete,
+    )
 
 
 def _rest_day_session(*, day: date, phase: Phase, week_offset: int) -> dict[str, Any]:
@@ -555,13 +563,6 @@ def compute_first_week_tss_multiplier(activity_review: ActivityReview) -> float:
     return 1.0
 
 
-# Vitesses de croisière amateur (km/h) pour estimer le poids temporel de chaque
-# segment de course, plus une pénalité de grimpe (~20 min par 1000 m de D+).
-_RACE_SPEED_KMH: dict[str, float] = {"swim": 3.2, "bike": 25.0, "run": 10.0, "brick": 12.0}
-_RACE_SPEED_DEFAULT_KMH = 12.0
-_CLIMB_HOURS_PER_1000M = 0.33
-
-
 def estimate_race_time_shares(legs: list[dict[str, Any]]) -> dict[str, float]:
     """Part du temps de course estimé par discipline (somme = 1).
 
@@ -569,14 +570,17 @@ def estimate_race_time_shares(legs: list[dict[str, Any]]) -> dict[str, float]:
     piloter la répartition des séances (#130). Les segments d'une même
     discipline s'additionnent (duathlon run-bike-run). Sans legs exploitables,
     parts égales.
+
+    Vitesses de référence partagées avec ``coach.race_day`` : le temps estimé du
+    jour J et la répartition des séances de préparation décrivent la même course.
     """
     hours: dict[str, float] = {}
     for leg in legs:
         disc = str(leg.get("discipline") or "unknown")
         dist = float(leg.get("distance_km") or 0)
         dplus = float(leg.get("elevation_gain_m") or 0)
-        h = dist / _RACE_SPEED_KMH.get(disc, _RACE_SPEED_DEFAULT_KMH)
-        h += dplus / 1000 * _CLIMB_HOURS_PER_1000M
+        h = dist / RACE_SPEED_KMH.get(disc, RACE_SPEED_DEFAULT_KMH)
+        h += dplus / 1000 * CLIMB_HOURS_PER_1000M
         hours[disc] = hours.get(disc, 0.0) + h
     total = sum(hours.values())
     if total <= 0:
@@ -971,9 +975,7 @@ def _build_week_sessions(
         day_idx = day.weekday()
 
         if is_last_week and day == race.day:
-            sessions.append(
-                _race_day_session(day=day, race_sport=race.sport, week_offset=week_offset)
-            )
+            sessions.append(_race_day_session(day=day, race=race, week_offset=week_offset))
             continue
         if day_idx not in day_plan:
             sessions.append(_rest_day_session(day=day, phase=phase, week_offset=week_offset))
@@ -1172,10 +1174,16 @@ def carry_over_workouts(
     The weekly regeneration used to drop every workout: each Monday the athlete
     found empty sessions and the LLM re-billed the exact same generations. Returns
     how many workouts were reused.
+
+    Une séance qui porte DÉJÀ son contenu (le jour de course, calculé sans LLM)
+    n'est jamais écrasée : sinon une version périmée, calculée sur un profil ou
+    des legs antérieurs, remplacerait silencieusement celle qu'on vient de bâtir.
     """
     by_key = {_workout_carry_key(s): s for s in existing_sessions if s.get("workout") is not None}
     reused = 0
     for session in new_sessions:
+        if session.get("workout") is not None:
+            continue
         previous = by_key.get(_workout_carry_key(session))
         if previous is None:
             continue
@@ -1256,7 +1264,12 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     profile = cast(
         "dict[str, Any] | None",
         db.table("athlete_profiles")
-        .select("user_id, hours_per_week, ftp_watts, fc_max_bpm, sports_strengths, available_days")
+        # vma_kmh / css_per_100m_s ne servent pas au budget de charge : ils donnent
+        # au jour J des allures cibles mesurées plutôt que des vitesses de référence.
+        .select(
+            "user_id, hours_per_week, ftp_watts, fc_max_bpm, sports_strengths, "
+            "available_days, vma_kmh, css_per_100m_s"
+        )
         .eq("user_id", user_id)
         .single()
         .execute()
@@ -1338,7 +1351,11 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
             sport=race_sport,
             time_shares=race_time_shares,
             dplus_by_sport=race_dplus_by_sport,
-            has_bike_run_transition=race_has_bike_run_transition(race["legs"]),
+            has_bike_run_transition=race_has_bike_run_transition(race.get("legs") or []),
+            legs=race.get("legs") or [],
+            # Niveaux EFFECTIFS (historique 90 j), pas déclarés : le temps estimé
+            # du jour J doit refléter l'athlète tel qu'il s'entraîne réellement.
+            athlete={**profile, "sports_strengths": effective_strengths},
         ),
         observed=ObservedHabits(
             weekday_counts=observed_weekday_counts,

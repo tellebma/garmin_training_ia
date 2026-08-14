@@ -161,6 +161,12 @@ def _session_with_activity_review_note(
 def _should_skip_workout_generation(session: dict[str, Any]) -> bool:
     if session.get("sport") == "rest" or session.get("session_type") == "rest":
         return True
+    # Le jour de course est bâti par le planner depuis les legs saisis (issue
+    # #157) : déterministe, multi-disciplines, hors de l'enveloppe mono-sport que
+    # le LLM sait produire. Le régénérer le remplacerait par une séance
+    # d'entraînement — et facturerait l'échange.
+    if session.get("session_type") == "race":
+        return True
     duration = session.get("target_duration_s")
     return not isinstance(duration, int) or duration <= 0
 

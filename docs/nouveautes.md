@@ -32,6 +32,10 @@
 - Si ta synchronisation reste en panne trop longtemps, ton plan n'est plus régénéré
   automatiquement sur des données obsolètes — le coach attend que tes données soient à
   nouveau fraîches.
+- Le jour de course n'est plus une case vide : il affiche ton temps estimé, segment par
+  segment, avec l'allure cible, le dénivelé et les transitions chronométrées.
+- Le jour J vient aussi avec son plan de nutrition et d'hydratation, calibré sur la durée
+  de ton épreuve, et compte enfin dans ta charge d'entraînement.
 
 ## 1.15.0 — 2026-07-30
 
