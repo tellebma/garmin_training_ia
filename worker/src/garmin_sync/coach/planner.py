@@ -632,21 +632,38 @@ def apply_race_gradient_floor(
         gradient_km = gradient_by_sport.get(sport, 0.0)
         if gradient_km <= 0:
             continue
-        # m/km -> m/h via la vitesse de référence de la discipline : les plafonds
-        # de gradient (#158) sont eux aussi exprimés en m/h.
-        target_m_per_h = gradient_km * RACE_SPEED_KMH.get(sport, RACE_SPEED_DEFAULT_KMH) * ratio
-        session = max(group, key=_specific_session_key)
-        duration_s = int(session.get("target_duration_s") or 0)
-        race_total = (race_dplus_by_sport or {}).get(sport)
-        ceilings = [
-            round(target_m_per_h * duration_s / 3600),
-            session_elevation_cap_m(sport, duration_s),
-        ]
-        if race_total:
-            ceilings.append(round(race_total * _GRADIENT_FLOOR_MAX_RACE_SHARE))
-        floor = min(ceilings)
-        if floor > int(session["target_elevation_gain_m"]):
-            session["target_elevation_gain_m"] = floor
+        _raise_specific_session_to_gradient(
+            group,
+            sport=sport,
+            gradient_km=gradient_km,
+            ratio=ratio,
+            race_total=(race_dplus_by_sport or {}).get(sport),
+        )
+
+
+def _raise_specific_session_to_gradient(
+    group: list[dict[str, Any]],
+    *,
+    sport: str,
+    gradient_km: float,
+    ratio: float,
+    race_total: int | None,
+) -> None:
+    """Remonte la séance porteuse d'une discipline au gradient de course, sous ses plafonds."""
+    # m/km -> m/h via la vitesse de référence de la discipline : les plafonds
+    # de gradient (#158) sont eux aussi exprimés en m/h.
+    target_m_per_h = gradient_km * RACE_SPEED_KMH.get(sport, RACE_SPEED_DEFAULT_KMH) * ratio
+    session = max(group, key=_specific_session_key)
+    duration_s = int(session.get("target_duration_s") or 0)
+    ceilings = [
+        round(target_m_per_h * duration_s / 3600),
+        session_elevation_cap_m(sport, duration_s),
+    ]
+    if race_total:
+        ceilings.append(round(race_total * _GRADIENT_FLOOR_MAX_RACE_SHARE))
+    floor = min(ceilings)
+    if floor > int(session["target_elevation_gain_m"]):
+        session["target_elevation_gain_m"] = floor
 
 
 _FIRST_WEEK_STRONG_DELOAD_SIGNALS = {"return_after_break", "load_spike", "hard_sessions_density"}
