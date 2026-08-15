@@ -200,6 +200,8 @@ def test_sync_user_aborts_on_rate_limit(
     Garmin. The exception must bubble up so the caller can mark last_sync_status.
     """
     fake_garmin_client.get_stats.side_effect = GarminConnectTooManyRequestsError("429")
+    start = date(2026, 5, 1)
+    end = date(2026, 5, 15)  # 15 days — if loop continued we'd see many calls
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
@@ -208,8 +210,8 @@ def test_sync_user_aborts_on_rate_limit(
         sync_user_for_date_range(
             user_id="u1",
             client=fake_garmin_client,
-            start=date(2026, 5, 1),
-            end=date(2026, 5, 15),  # 15 days — if loop continued we'd see many calls
+            start=start,
+            end=end,
         )
 
     # Only the first day's daily call should have been attempted (then abort).
@@ -227,6 +229,8 @@ def test_sync_user_aborts_on_auth_failure(
     bad-token requests for every day in the range.
     """
     fake_garmin_client.get_stats.side_effect = GarminConnectAuthenticationError("401")
+    start = date(2026, 5, 1)
+    end = date(2026, 5, 15)
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
@@ -235,8 +239,8 @@ def test_sync_user_aborts_on_auth_failure(
         sync_user_for_date_range(
             user_id="u1",
             client=fake_garmin_client,
-            start=date(2026, 5, 1),
-            end=date(2026, 5, 15),
+            start=start,
+            end=end,
         )
 
     assert fake_garmin_client.get_stats.call_count == 1
@@ -250,6 +254,8 @@ def test_sync_aborts_when_activities_endpoint_rate_limits(
 
     Covers sync.py lines 61-65 (the abort branch of the activities try/except)."""
     fake_garmin_client.get_activities_by_date.side_effect = GarminConnectTooManyRequestsError("429")
+    start = date(2026, 5, 1)
+    end = date(2026, 5, 15)
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
@@ -258,8 +264,8 @@ def test_sync_aborts_when_activities_endpoint_rate_limits(
         sync_user_for_date_range(
             user_id="u1",
             client=fake_garmin_client,
-            start=date(2026, 5, 1),
-            end=date(2026, 5, 15),
+            start=start,
+            end=end,
         )
 
     # No per-day endpoints should have been called after the abort
@@ -317,6 +323,8 @@ def test_sync_aborts_when_sleep_endpoint_returns_auth_error(
 
     Covers sync.py line 98-99 (the _AbortSyncErrors branch of _safe_upsert_sleep)."""
     fake_garmin_client.get_sleep_data.side_effect = GarminConnectAuthenticationError("401")
+    start = date(2026, 5, 15)
+    end = date(2026, 5, 16)
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
@@ -325,8 +333,8 @@ def test_sync_aborts_when_sleep_endpoint_returns_auth_error(
         sync_user_for_date_range(
             user_id="u1",
             client=fake_garmin_client,
-            start=date(2026, 5, 15),
-            end=date(2026, 5, 16),
+            start=start,
+            end=end,
         )
 
     # Sleep called on day 1 — and crashed — must NOT have been called on day 2
@@ -338,6 +346,8 @@ def test_sync_aborts_when_hrv_endpoint_returns_rate_limit(
 ) -> None:
     """Covers sync.py line 111-112 (the _AbortSyncErrors branch of _safe_upsert_hrv)."""
     fake_garmin_client.get_hrv_data.side_effect = GarminConnectTooManyRequestsError("429")
+    start = date(2026, 5, 15)
+    end = date(2026, 5, 16)
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
@@ -346,8 +356,8 @@ def test_sync_aborts_when_hrv_endpoint_returns_rate_limit(
         sync_user_for_date_range(
             user_id="u1",
             client=fake_garmin_client,
-            start=date(2026, 5, 15),
-            end=date(2026, 5, 16),
+            start=start,
+            end=end,
         )
 
     assert fake_garmin_client.get_hrv_data.call_count == 1
@@ -358,6 +368,8 @@ def test_sync_aborts_when_body_endpoint_returns_auth_error(
 ) -> None:
     """Covers sync.py line 125-126 (the _AbortSyncErrors branch of _safe_upsert_body)."""
     fake_garmin_client.get_body_composition.side_effect = GarminConnectAuthenticationError("401")
+    start = date(2026, 5, 15)
+    end = date(2026, 5, 16)
 
     with (
         patch("garmin_sync.sync.get_admin_client", return_value=fake_admin_client),
@@ -366,8 +378,8 @@ def test_sync_aborts_when_body_endpoint_returns_auth_error(
         sync_user_for_date_range(
             user_id="u1",
             client=fake_garmin_client,
-            start=date(2026, 5, 15),
-            end=date(2026, 5, 16),
+            start=start,
+            end=end,
         )
 
     assert fake_garmin_client.get_body_composition.call_count == 1

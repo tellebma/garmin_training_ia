@@ -193,10 +193,11 @@ def test_generate_workout_raises_on_openai_error(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     mock_client.beta.chat.completions.parse.side_effect = Exception("boom")
+    session = _session()
+    athlete = _athlete_full()
+    race_context = _race_context()
     with pytest.raises(OpenAIError):
-        generate_workout_for_session(
-            session=_session(), athlete=_athlete_full(), race_context=_race_context()
-        )
+        generate_workout_for_session(session=session, athlete=athlete, race_context=race_context)
 
 
 @patch("garmin_sync.coach.openai_client._get_client")
@@ -475,10 +476,11 @@ def test_generate_workout_raises_after_max_attempts(mock_get_client, mock_get_se
     invalid = _workout_dict(1800, 1500, 300)
     mock_client.beta.chat.completions.parse.return_value = _resp(invalid)
 
+    session = _endurance_session()
+    athlete = _athlete_full()
+    race_context = _race_context()
     with pytest.raises(OpenAIError, match="unrealistic workout"):
-        generate_workout_for_session(
-            session=_endurance_session(), athlete=_athlete_full(), race_context=_race_context()
-        )
+        generate_workout_for_session(session=session, athlete=athlete, race_context=race_context)
     assert mock_client.beta.chat.completions.parse.call_count == 2
 
 
@@ -499,14 +501,13 @@ def test_generate_workout_rejects_unrealistic_structure(mock_get_client):
         MagicMock(message=MagicMock(parsed=parsed))
     ]
 
+    session = {
+        **_session(),
+        "sport": "bike",
+        "session_type": "endurance",
+        "target_duration_s": 2700,
+    }
+    athlete = _athlete_full()
+    race_context = _race_context()
     with pytest.raises(OpenAIError, match="unrealistic workout"):
-        generate_workout_for_session(
-            session={
-                **_session(),
-                "sport": "bike",
-                "session_type": "endurance",
-                "target_duration_s": 2700,
-            },
-            athlete=_athlete_full(),
-            race_context=_race_context(),
-        )
+        generate_workout_for_session(session=session, athlete=athlete, race_context=race_context)
