@@ -1,3 +1,9 @@
+## [1.19.0](https://github.com/tellebma/garmin_training_ia/compare/v1.18.0...v1.19.0) (2026-08-15)
+
+### Features
+
+* **stats:** remplace la heatmap des parcours par une carte de fréquence ([#199](https://github.com/tellebma/garmin_training_ia/issues/199)) ([30c906f](https://github.com/tellebma/garmin_training_ia/commit/30c906f1d3b33b72f86e1d3ed24d6b1ce324e6d9)), closes [#195](https://github.com/tellebma/garmin_training_ia/issues/195)
+
 ## [1.18.0](https://github.com/tellebma/garmin_training_ia/compare/v1.17.2...v1.18.0) (2026-08-14)
 
 ### Features
