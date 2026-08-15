@@ -4,6 +4,10 @@
 
 - L'historique affiche le dénivelé de chaque sortie, à côté du TSS — visible aussi sur la
   dernière activité de « Aujourd'hui ».
+- La carte « Où je m'entraîne » ne noie plus tout dans du rouge : tes routes sont désormais
+  dessinées d'autant plus épaisses et claires que tu y es passé souvent, avec une légende et le
+  nombre exact de passages au survol. Vue de loin, on repère enfin d'un coup d'œil tes routes
+  habituelles et celles que tu n'as empruntées qu'une fois.
 - Les séances détaillées sont enfin lisibles : échauffement, séries et retour au calme sont
   mis en forme, avec la zone, l'allure ou les watts, la durée de nage et la consigne de récup
   qui restaient invisibles jusque-là.

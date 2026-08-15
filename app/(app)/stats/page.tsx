@@ -18,7 +18,7 @@ import {
 import { RecoveryPanel } from '../_components/recovery-panel'
 import { mapRecoveryRow } from '@/lib/dashboard/recovery'
 import { cn } from '@/lib/utils'
-import { RoutesHeatmapLazy } from '../_components/maps/routes-heatmap-lazy'
+import { RoutesFrequencyMapLazy } from '../_components/maps/routes-frequency-map-lazy'
 import { ColsWidget } from '../_components/cols-widget'
 import { ColsWidgetSkeleton } from '../_components/skeletons/cols-widget-skeleton'
 import { computeColsSummary, type ColCrossingRowDto, type ColDto } from '@/lib/dashboard/cols'
@@ -366,8 +366,11 @@ async function CockpitBody({
       </section>
 
       {hasGpsPoints && (
-        <ChartCard title="Où je m'entraîne" description="Carte de chaleur de tes parcours GPS">
-          <RoutesHeatmapLazy polylines={polylines} />
+        <ChartCard
+          title="Où je m'entraîne"
+          description="Tes routes, d'autant plus épaisses et claires que tu y passes souvent"
+        >
+          <RoutesFrequencyMapLazy polylines={polylines} />
         </ChartCard>
       )}
     </>
