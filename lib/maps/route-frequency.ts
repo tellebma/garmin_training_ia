@@ -136,7 +136,7 @@ export function computeBreaks(weights: readonly number[]): number[] {
 
   const breaks: number[] = [1]
   for (const candidate of [2, quantile(0.5), quantile(0.8), quantile(0.95)]) {
-    const last = breaks[breaks.length - 1] ?? 1
+    const last = breaks.at(-1) ?? 1
     if (candidate > last) breaks.push(candidate)
   }
   return breaks
