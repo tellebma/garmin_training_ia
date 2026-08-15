@@ -58,8 +58,9 @@ def test_block_distance_m_defaults_to_none():
 
 
 def test_block_rejects_non_positive_distance_m():
+    target = IntervalTarget(label="Z4", rpe=8)
     with pytest.raises(ValidationError):
-        IntervalBlock(duration_s=95, distance_m=0, target=IntervalTarget(label="Z4", rpe=8))
+        IntervalBlock(duration_s=95, distance_m=0, target=target)
 
 
 def test_target_accepts_swim_pace_per_100m_bounds():
