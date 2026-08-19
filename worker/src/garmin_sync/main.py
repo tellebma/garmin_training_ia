@@ -404,4 +404,67 @@ async def coach_regenerate_session(
         )
 
 
+class ChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    conversation_id: str | None = None
+
+
+@router.post("/coach/chat")
+async def coach_chat(
+    body: ChatRequest,
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Répond à une question de l'athlète via la boucle de tool calling (E11).
+
+    Ordre des vérifications volontaire : kill switch et quotas AVANT le rate
+    limit, parce que le rate limit insère une ligne à chaque appel — inutile de
+    consommer le quota horaire d'un utilisateur dont le chat est de toute façon
+    coupé.
+    """
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.coach.chat.agent import run_chat
+        from garmin_sync.coach.chat.budget import (
+            BudgetExceeded,
+            ChatDisabled,
+            check_or_raise,
+            remaining_usd,
+        )
+        from garmin_sync.coach.chat.store import ConversationNotFound
+        from garmin_sync.coach.rate_limit import CHAT, RateLimited
+        from garmin_sync.coach.rate_limit import check_or_raise as rate_check
+
+        try:
+            check_or_raise(user_id=user_id)
+        except ChatDisabled as e:
+            return {"status": "chat_disabled", "reason": str(e)}
+        except BudgetExceeded as e:
+            return {"status": "budget_exceeded", "reason": str(e), "remaining_usd": 0.0}
+
+        try:
+            rate_check(user_id=user_id, limit=CHAT)
+        except RateLimited:
+            return {"status": "rate_limited", "retry_after_seconds": 300}
+
+        try:
+            result = run_chat(
+                user_id=user_id,
+                question=body.question,
+                conversation_id=body.conversation_id,
+            )
+        except ConversationNotFound:
+            return {"status": "conversation_not_found"}
+
+        return {
+            "status": "ok",
+            "conversation_id": result.conversation_id,
+            "answer": result.answer,
+            "tools_used": result.tools_used,
+            "rounds": result.rounds,
+            "remaining_usd": round(remaining_usd(user_id=user_id), 4),
+        }
+    except Exception as e:
+        return report_endpoint_error(e, endpoint="coach_chat", user_id=user_id)
+
+
 app = create_app()

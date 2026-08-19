@@ -2,7 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Activity, CalendarDays, History, LineChart, Shield, User } from 'lucide-react'
+import {
+  Activity,
+  CalendarDays,
+  History,
+  LineChart,
+  MessageCircle,
+  Shield,
+  User,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +23,7 @@ interface NavItem {
 const items: NavItem[] = [
   { href: '/today', label: "Aujourd'hui", icon: Activity },
   { href: '/plan', label: 'Plan', icon: CalendarDays },
+  { href: '/coach', label: 'Coach', icon: MessageCircle },
   { href: '/stats', label: 'Stats', icon: LineChart },
   { href: '/history', label: 'Historique', icon: History },
   { href: '/profile', label: 'Profil', icon: User },

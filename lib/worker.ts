@@ -87,6 +87,38 @@ export async function workerDailyBriefing(jwt: string): Promise<unknown> {
   return workerPost<unknown>('/coach/daily-briefing', {}, jwt)
 }
 
+export type ChatResult =
+  | {
+      status: 'ok'
+      conversation_id: string
+      answer: string
+      tools_used: string[]
+      rounds: number
+      remaining_usd: number
+    }
+  | { status: 'chat_disabled'; reason: string }
+  | { status: 'budget_exceeded'; reason: string; remaining_usd: number }
+  | { status: 'rate_limited'; retry_after_seconds: number }
+  | { status: 'conversation_not_found' }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
+// Un message peut enchaîner jusqu'à 5 tours d'outils : la marge est plus large
+// que pour les autres appels coach, qui sont en un seul aller-retour.
+const CHAT_TIMEOUT_MS = 90_000
+
+export async function workerChat(
+  jwt: string,
+  question: string,
+  conversationId?: string
+): Promise<ChatResult> {
+  return workerPost<ChatResult>(
+    '/coach/chat',
+    { question, conversation_id: conversationId ?? null },
+    jwt,
+    CHAT_TIMEOUT_MS
+  )
+}
+
 export type SyncTriggerResult =
   | { status: 'started' }
   | { status: 'cooldown'; retry_after_seconds: number }

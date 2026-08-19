@@ -33,6 +33,13 @@ class RateLimit:
 ENSURE_SESSIONS = RateLimit(action="ensure_sessions", max_count=60, window_seconds=3600)
 REGENERATE_SESSION = RateLimit(action="regenerate_session", max_count=10, window_seconds=3600)
 DAILY_BRIEFING = RateLimit(action="daily_briefing", max_count=60, window_seconds=3600)
+#   - chat: chaque message déclenche plusieurs appels LLM (boucle d'outils), donc
+#     bien plus coûteux qu'une génération de séance. 20/heure couvre largement un
+#     usage réel tout en bornant l'emballement. Le vrai garde-fou reste le quota
+#     mensuel en dollars (coach/chat/budget.py) : un compteur d'appels ne distingue
+#     pas 20 messages courts (~$0.03) de 20 messages en fin de longue conversation
+#     (~$1.60).
+CHAT = RateLimit(action="chat", max_count=20, window_seconds=3600)
 
 
 def check_or_raise(*, user_id: str, limit: RateLimit) -> None:
