@@ -524,6 +524,62 @@ interne, tendance individuelle et ressenti, tout en indiquant les données absen
 Spec et critères d'acceptation :
 `docs/superpowers/specs/2026-06-19-e9-performance-cockpit-design.md`.
 
+### EPIC E11 — Chat coach conversationnel (demande owner 2026-05-21)
+
+**Priorité : P1 — Statut : lots A + B livrés (PR #206), livrés désactivés**
+
+Donner à l'athlète un interlocuteur : poser une question en français sur son
+entraînement (« pourquoi je suis rincé cette semaine ? », « je peux décaler ma
+sortie longue ? ») et obtenir une réponse qui s'appuie sur ses propres données.
+
+Approche retenue : **tool calling**, pas d'injection du contexte complet. Le LLM
+demande les données dont il a besoin, outil par outil. Décidé pour deux raisons :
+le coût (on ne paie que ce qui est lu) et la minimisation RGPD (une question sur
+le sommeil ne fait pas sortir les tracés GPS). Le chat vit dans le **worker**, qui
+réutilise les loaders existants de `coach/briefing.py`, le rate-limit atomique,
+le suivi `llm_usage` et les feature flags.
+
+Garde-fou n°1 — **cloisonnement des données**. Le worker attaque Supabase en
+service role, donc RLS est court-circuité : aucun outil n'expose `user_id` dans
+son schéma JSON, l'identité vient du JWT vérifié. Test d'évasion de tenant
+obligatoire à chaque ajout d'outil.
+
+Garde-fou n°2 — **coût borné côté serveur, jamais dans le prompt**. Quota exprimé
+en dollars et non en appels ($1,50/mois/athlète, $20/mois global avec coupure
+automatique), 5 tours de tool calling maximum, historique tronqué à 8 messages,
+allowlist de modèles (luna $0,20/$1,20 contre sol $5/$30, soit ×25 sur une simple
+erreur de configuration).
+
+- **E11.A P1 — Socle chat — V1 livrée (PR #206)** : tables `coach_conversations` /
+  `coach_messages` avec RLS, RPC `coach_activity_profile` et `coach_llm_spend_usd`,
+  module `worker/src/garmin_sync/coach/chat/` (outils, handlers, agent, store,
+  budget), endpoint `POST /coach/chat`, page `/coach` + Server Action + entrée de
+  navigation. 57 tests.
+- **E11.B P1 — Sécurité et budget — V1 livrée (PR #206)** : indissociable du socle.
+  Injection de l'identité depuis le JWT, kill switch `chat_enabled`, quotas en
+  dollars, allowlist de modèles, plafonds de tours et d'historique.
+- **E11.C P1 — Réponses en streaming** : le chat répond aujourd'hui d'un bloc après
+  plusieurs secondes. Le streaming SSE impose un **Route Handler Next.js** (les
+  Server Actions ne savent pas streamer) — entorse assumée à la convention du
+  projet. Estimé 1-2 j.
+- **E11.D P2 — Export du compte-rendu** : le markdown est déjà stocké en base ;
+  générer le document à la demande. **Décision owner (2026-08-21) : PDF seul, via
+  WeasyPrint.** Le DOCX (qui imposerait Pandoc, ~250 Mo sur l'image worker) n'est
+  ajouté que si le besoin utilisateur se manifeste. Estimé 2 j.
+- **E11.E P2 — Observabilité fine** : coût et latence par conversation, taux de
+  tours de tool calling saturés, questions restées sans réponse. Estimé 0,5 j.
+
+⚠️ **Trois actions owner avant activation** (le flag est créé à `false`) :
+appliquer la migration (automatique au merge sur `main`), **re-puller l'image
+worker sur UNRAID**, puis basculer `chat_enabled` à `true`.
+
+⚠️ Si le prompt caching est activé un jour, corriger `coach/llm_pricing.py` en même
+temps : il ne modélise pas l'input mis en cache (« on sur-compte légèrement
+l'input ») et les alertes budget se déclencheraient à tort.
+
+Specs : `docs/superpowers/specs/2026-08-19-e11-chat-coach-faisabilite.md` et
+`docs/superpowers/specs/2026-08-19-e11-chat-couts-garde-fous.md`.
+
 ### P0 — Recommandations sportives sourcées et auditables
 
 - Formaliser un référentiel de règles coach avec niveau de confiance, domaine
