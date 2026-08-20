@@ -46,6 +46,33 @@ const ELEVATION = [
   { distance_m: 500, elevation_m: 320 },
 ]
 
+const SEGMENTS = [
+  {
+    sport: 'swim',
+    duration_s: 1500,
+    distance_m: 1500,
+    elevation_gain_m: null,
+    hr_avg: 150,
+    pace_avg_s_per_km: null,
+  },
+  {
+    sport: 'bike',
+    duration_s: 4200,
+    distance_m: 40_000,
+    elevation_gain_m: 320,
+    hr_avg: 145,
+    pace_avg_s_per_km: null,
+  },
+  {
+    sport: 'run',
+    duration_s: 3000,
+    distance_m: 10_000,
+    elevation_gain_m: 40,
+    hr_avg: 158,
+    pace_avg_s_per_km: null,
+  },
+]
+
 function setup(overrides: Partial<Parameters<typeof ActivityStoryExport>[0]> = {}) {
   return render(
     <ActivityStoryExport
@@ -293,5 +320,38 @@ describe('ActivityStoryExport', () => {
     HTMLCanvasElement.prototype.getContext = vi.fn(() => null)
     setup()
     expect(renderActivityStory).not.toHaveBeenCalled()
+  })
+
+  it('propose le gabarit par discipline et les logos sur un multisport', async () => {
+    setup({ segments: SEGMENTS })
+
+    expect(screen.getByRole('button', { name: 'Par discipline' })).toBeTruthy()
+    const icons = screen.getByRole('button', { name: 'Logos des disciplines' })
+    expect(icons.getAttribute('aria-pressed')).toBe('true')
+
+    await userEvent.click(icons)
+
+    await waitFor(() => {
+      const spec = renderActivityStory.mock.calls.at(-1)?.[1] as { showSportIcons?: boolean }
+      expect(spec.showSportIcons).toBe(false)
+    })
+  })
+
+  it('transmet les segments au rendu du calque', async () => {
+    setup({ segments: SEGMENTS })
+
+    await waitFor(() => {
+      const spec = renderActivityStory.mock.calls.at(-1)?.[1] as {
+        segments?: readonly { sport: string }[]
+      }
+      expect(spec.segments?.map((segment) => segment.sport)).toEqual(['swim', 'bike', 'run'])
+    })
+  })
+
+  it('n’affiche ni gabarit multisport ni logos sur une activité simple', () => {
+    setup()
+
+    expect(screen.queryByRole('button', { name: 'Par discipline' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Logos des disciplines' })).toBeNull()
   })
 })

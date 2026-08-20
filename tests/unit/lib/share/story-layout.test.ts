@@ -337,13 +337,21 @@ describe('buildElevationProfile', () => {
 describe('compactSamplesForStory', () => {
   it('sépare trace et altitude en arrondissant', () => {
     const sets = compactSamplesForStory([
-      { latitude: 45.123_456_789, longitude: 4.987_654_321, distance_m: 10.7, elevation_m: 220.4 },
+      {
+        latitude: 45.123_456_789,
+        longitude: 4.987_654_321,
+        distance_m: 10.7,
+        elevation_m: 220.4,
+        elapsed_s: 12.4,
+      },
       { latitude: null, longitude: null, distance_m: 20, elevation_m: 240.6 },
       { latitude: 45.2, longitude: 5, distance_m: null, elevation_m: null },
     ])
+    // `elapsed_s` accompagne chaque point : c'est lui qui rattache le tracé aux
+    // disciplines d'un multisport. Absent des samples, il vaut `null`.
     expect(sets.route).toEqual([
-      { latitude: 45.123_46, longitude: 4.987_65 },
-      { latitude: 45.2, longitude: 5 },
+      { latitude: 45.123_46, longitude: 4.987_65, elapsed_s: 12 },
+      { latitude: 45.2, longitude: 5, elapsed_s: null },
     ])
     expect(sets.elevation).toEqual([
       { distance_m: 11, elevation_m: 220 },

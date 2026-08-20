@@ -11,6 +11,7 @@ import { ChartCard } from '../../_components/chart-card'
 import { MetricTile } from '../../_components/metric-tile'
 import { ActivityStoryExportLazy } from '../../_components/share/activity-story-export-lazy'
 import { compactSamplesForStory } from '@/lib/share/story-layout'
+import type { StorySegment } from '@/lib/share/story-segments'
 import { SPORT_LABEL } from '../../_components/sport-icon'
 import {
   buildNextSessionAdjustment,
@@ -154,8 +155,8 @@ async function ActivityDetailBody({
     new Date(activity.start_time).getTime() - 90 * 86_400_000
   ).toISOString()
 
-  const [plannedRes, similarRes, samples, profileRes, upcomingRes, feedbackRes] = await Promise.all(
-    [
+  const [plannedRes, similarRes, samples, profileRes, upcomingRes, feedbackRes, segmentsRes] =
+    await Promise.all([
       supabase
         .from('planned_sessions')
         .select(
@@ -199,8 +200,14 @@ async function ActivityDetailBody({
         .eq('user_id', userId)
         .eq('activity_id', activity.id)
         .maybeSingle(),
-    ]
-  )
+      // Décomposition d'un multisport (E22.1) : vide pour une activité simple.
+      supabase
+        .from('activity_segments')
+        .select('sport, duration_s, distance_m, elevation_gain_m, hr_avg, pace_avg_s_per_km')
+        .eq('user_id', userId)
+        .eq('garmin_activity_id', activity.garmin_activity_id)
+        .order('segment_index', { ascending: true }),
+    ])
 
   const plannedSession: PlannedSession | null = plannedRes.data ?? null
   const similarActivities: ActivityDetail[] = similarRes.data ?? []
@@ -209,6 +216,7 @@ async function ActivityDetailBody({
   ).length
   const upcomingSessions: PlannedSession[] = upcomingRes.data ?? []
   const activityFeedback: ActivityFeedbackDto | null = feedbackRes.data ?? null
+  const segments: StorySegment[] = segmentsRes.data ?? []
   const profileData = profileRes.data as { fc_max_bpm?: unknown } | null
   const profileFcMax = typeof profileData?.fc_max_bpm === 'number' ? profileData.fc_max_bpm : null
   const fcMax: number | null = profileFcMax ?? activity.hr_max ?? null
@@ -304,6 +312,7 @@ async function ActivityDetailBody({
         sportLabel={knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport}
         route={storySamples.route}
         elevation={storySamples.elevation}
+        segments={segments}
       />
 
       {sampleSummary && (

@@ -13,7 +13,7 @@ Resilience policy:
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from garminconnect import (
@@ -30,6 +30,10 @@ from garmin_sync.transformers.body import transform_body
 from garmin_sync.transformers.daily import transform_daily
 from garmin_sync.transformers.hrv import transform_hrv
 from garmin_sync.transformers.route import build_route_polyline
+from garmin_sync.transformers.segments import (
+    extract_child_activity_ids,
+    transform_activity_segment,
+)
 from garmin_sync.transformers.sleep import transform_sleep
 
 log = logging.getLogger(__name__)
@@ -60,6 +64,13 @@ _USER_DATE_CONFLICT = "user_id,date"
 
 # Une activité GPS fait ~2000 samples ; un upsert unique dépasse le Mo de payload.
 _SAMPLE_UPSERT_CHUNK = 500
+
+# Sports d'une activité multisport : `brick` après normalisation, plus les valeurs
+# brutes déjà en base avant que `multi_sport` ne soit reconnu.
+_MULTISPORT_SPORTS = ("brick", "multi_sport", "multisport", "transition")
+
+# Décompositions multisport traitées par run : chacune coûte 1 + N appels Garmin.
+_SEGMENTS_BACKFILL_BATCH = 3
 
 
 SYNC_MODE_FULL = "full"
@@ -108,6 +119,7 @@ def _sync_activities(
             db.table("activities").upsert(rows, on_conflict="user_id,garmin_activity_id").execute()
             _sync_missing_activity_samples(db, user_id, client, rows)
         _sync_gps_backfill(db, user_id, client, get_settings().gps_backfill_batch)
+        _sync_activity_segments(db, user_id, client, _SEGMENTS_BACKFILL_BATCH)
     except _AbortSyncErrors:
         log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
         raise
@@ -231,6 +243,88 @@ def _activities_missing_gps(db: Any, user_id: str, limit: int) -> list[int]:
         )
     except Exception:
         log.exception("gps backfill lookup failed user=%s", user_id)
+        return []
+    rows = resp.data if resp else None
+    if not isinstance(rows, list):
+        return []
+    return [
+        int(row["garmin_activity_id"])
+        for row in rows
+        if isinstance(row, dict) and row.get("garmin_activity_id") is not None
+    ]
+
+
+def _sync_activity_segments(db: Any, user_id: str, client: Garmin, limit: int) -> None:
+    """Décompose les activités multisport en segments par discipline (throttlé).
+
+    Sert à la fois les nouvelles activités et l'historique : la sélection porte sur
+    `segments_checked_at is null`, qui est renseigné même quand Garmin ne publie
+    aucun enfant — sinon la même activité serait ré-interrogée à chaque cron.
+    """
+    if limit <= 0:
+        return
+    for activity_id in _multisport_activities_without_segments(db, user_id, limit):
+        try:
+            _persist_activity_segments(db, user_id, activity_id, client)
+        except _AbortSyncErrors:
+            raise
+        except Exception:
+            log.exception("segments sync failed user=%s activity=%s", user_id, activity_id)
+
+
+def _persist_activity_segments(db: Any, user_id: str, activity_id: int, client: Garmin) -> None:
+    """Récupère les activités enfants d'un multisport et écrit ses segments."""
+    parent = client.get_activity(str(activity_id))
+    child_ids = extract_child_activity_ids(parent if isinstance(parent, dict) else {})
+    rows = [
+        transform_activity_segment(
+            user_id=user_id,
+            parent_activity_id=activity_id,
+            segment_index=index,
+            raw=child,
+        )
+        for index, child in enumerate(_fetch_children(client, child_ids))
+    ]
+    if rows:
+        db.table("activity_segments").upsert(
+            rows, on_conflict="user_id,garmin_activity_id,segment_index"
+        ).execute()
+    # Marqueur écrit dans tous les cas, y compris sans enfant exploitable.
+    db.table("activities").update({"segments_checked_at": datetime.now(UTC).isoformat()}).eq(
+        "user_id", user_id
+    ).eq("garmin_activity_id", activity_id).execute()
+
+
+def _fetch_children(client: Garmin, child_ids: list[int]) -> list[dict[str, Any]]:
+    """Résumé de chaque activité enfant. Un enfant illisible est ignoré, pas fatal."""
+    children: list[dict[str, Any]] = []
+    for child_id in child_ids:
+        try:
+            child = client.get_activity(str(child_id))
+        except _AbortSyncErrors:
+            raise
+        except Exception:
+            log.exception("multisport child fetch failed activity=%s", child_id)
+            continue
+        if isinstance(child, dict):
+            children.append(child)
+    return children
+
+
+def _multisport_activities_without_segments(db: Any, user_id: str, limit: int) -> list[int]:
+    try:
+        resp = (
+            db.table("activities")
+            .select("garmin_activity_id")
+            .eq("user_id", user_id)
+            .in_("sport", list(_MULTISPORT_SPORTS))
+            .is_("segments_checked_at", "null")
+            .order("start_time", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:
+        log.exception("multisport segments lookup failed user=%s", user_id)
         return []
     rows = resp.data if resp else None
     if not isinstance(rows, list):

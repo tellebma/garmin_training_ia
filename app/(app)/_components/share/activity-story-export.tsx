@@ -11,6 +11,7 @@ import {
   type ShareResult,
 } from '@/lib/share/export-png'
 import { availableStoryViews, renderActivityStory } from '@/lib/share/render-activity-story'
+import { hasDistinctDisciplines, type StorySegment } from '@/lib/share/story-segments'
 import {
   buildStoryMetrics,
   defaultMetricKeys,
@@ -38,6 +39,9 @@ const CHECKERBOARD =
   'repeating-conic-gradient(rgba(255,255,255,0.09) 0% 25%, rgba(255,255,255,0.02) 0% 50%) 50% / 24px 24px'
 
 const FORMATS: readonly StoryFormat[] = ['story', 'square']
+// Référence stable : un `[]` littéral en valeur par défaut change à chaque rendu et
+// relance le rendu canvas (puis son encodage PNG) en boucle.
+const NO_SEGMENTS: readonly StorySegment[] = []
 const BACKGROUNDS: readonly StoryBackground[] = ['transparent', 'gradient', 'dark']
 
 export interface ActivityStoryExportProps {
@@ -46,6 +50,8 @@ export interface ActivityStoryExportProps {
   readonly sportLabel: string
   readonly route: readonly StoryPoint[]
   readonly elevation: readonly StoryElevationPoint[]
+  /** Segments d'un multisport (vide pour une activité simple). */
+  readonly segments?: readonly StorySegment[]
 }
 
 type Feedback = { readonly tone: 'ok' | 'muted'; readonly text: string } | null
@@ -111,12 +117,17 @@ export function ActivityStoryExport({
   sportLabel,
   route,
   elevation,
+  segments = NO_SEGMENTS,
 }: ActivityStoryExportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   // PNG du rendu courant, encodé d'avance : le partage natif doit pouvoir partir sans
   // aucun `await` après le clic (cf. `sharePng`).
   const readyBlobRef = useRef<Blob | null>(null)
-  const views = useMemo(() => availableStoryViews(route, elevation), [route, elevation])
+  const views = useMemo(
+    () => availableStoryViews(route, elevation, segments),
+    [route, elevation, segments]
+  )
+  const multisport = useMemo(() => hasDistinctDisciplines(segments), [segments])
   const allMetrics = useMemo(() => buildStoryMetrics(activity, sport), [activity, sport])
 
   const initialView: StoryView = views[0] ?? 'stats'
@@ -129,6 +140,7 @@ export function ActivityStoryExport({
   )
   const [showTitle, setShowTitle] = useState(true)
   const [showBrand, setShowBrand] = useState(true)
+  const [showSportIcons, setShowSportIcons] = useState(true)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
 
@@ -198,11 +210,13 @@ export function ActivityStoryExport({
       title: sportLabel,
       subtitle,
       metrics,
+      segments,
       route,
       elevation,
       brand: BRAND,
       showTitle,
       showBrand,
+      showSportIcons,
     })
 
     let stale = false
@@ -225,10 +239,12 @@ export function ActivityStoryExport({
     sportLabel,
     subtitle,
     metrics,
+    segments,
     route,
     elevation,
     showTitle,
     showBrand,
+    showSportIcons,
   ])
 
   const toggleMetric = useCallback(
@@ -328,6 +344,7 @@ export function ActivityStoryExport({
         <p className="text-muted-foreground mt-0.5 text-xs">
           Un sticker PNG à fond transparent avec ta trace et tes métriques, à superposer sur ta
           photo dans Instagram, WhatsApp ou Snapchat.
+          {multisport ? ' Sur un multisport, chaque discipline a sa ligne et sa couleur.' : ''}
         </p>
       </header>
 
@@ -437,6 +454,16 @@ export function ActivityStoryExport({
               >
                 Signature
               </OptionChip>
+              {multisport && (
+                <OptionChip
+                  active={showSportIcons}
+                  onClick={() => {
+                    setShowSportIcons((current) => !current)
+                  }}
+                >
+                  Logos des disciplines
+                </OptionChip>
+              )}
             </OptionRow>
           )}
 
