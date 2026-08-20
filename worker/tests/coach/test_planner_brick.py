@@ -15,6 +15,7 @@ import pytest
 from garmin_sync.coach.planner import (
     TrainingTarget,
     WeekSlot,
+    WeekSportBudget,
     _build_week_sessions,
     _tss_with_brick_share,
     race_has_bike_run_transition,
@@ -45,7 +46,7 @@ def _week(
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
-        tss_by_sport={"swim": 100.0, "bike": 120.0, "run": 110.0},
+        budget=WeekSportBudget(tss={"swim": 100.0, "bike": 120.0, "run": 110.0}),
         available_days=["mon", "tue", "wed", "thu", "sat", "sun"],
         hours_per_week=10,
         target=TrainingTarget(

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from itertools import pairwise
 from typing import Any, cast
@@ -145,6 +145,21 @@ class WeekSlot:
     start: date
     is_last: bool = False
     progress: float = 1.0
+
+
+@dataclass(frozen=True)
+class WeekSportBudget:
+    """Ce que la semaine peut dépenser, discipline par discipline.
+
+    Les trois grandeurs se lisent ensemble et n'ont de sens que combinées : la
+    charge visée (``tss``), le dénivelé visé (``elevation``) et le plafond de
+    progression hérité de la semaine précédente (``ceilings``, #164) — sans quoi
+    la renormalisation de charge ferait franchir son cap de rampe à un sport.
+    """
+
+    tss: dict[str, float]
+    elevation: dict[str, int] = field(default_factory=dict)
+    ceilings: dict[str, float] = field(default_factory=dict)
 
 
 def _activity_day(raw: Any) -> date | None:
@@ -1370,14 +1385,12 @@ def _build_week_sessions(
     slot: WeekSlot,
     sports_in_race: list[str],
     sports_strengths: dict[str, int],
-    tss_by_sport: dict[str, float],
+    budget: WeekSportBudget,
     available_days: list[str],
     hours_per_week: float | None,
     target: TrainingTarget,
-    weekly_elevation_by_sport: dict[str, int] | None = None,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
     allowed_types: list[str] | None = None,
-    sport_ceilings: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions.
 
@@ -1390,7 +1403,8 @@ def _build_week_sessions(
     long day), and the resulting day plan drives both the weight tallies and
     the emitted sessions in a single pass.
     """
-    weekly_elevation_by_sport = weekly_elevation_by_sport or {}
+    tss_by_sport = budget.tss
+    weekly_elevation_by_sport = budget.elevation
     sessions: list[dict[str, Any]] = []
 
     level = athlete_level(sports_strengths)
@@ -1485,7 +1499,7 @@ def _build_week_sessions(
     # Deuxième passe (#164) : les durées viennent d'être clampées séance par
     # séance, donc le total a dérivé du budget. On le renormalise avant de
     # toucher au D+ (une séance rétrogradée ou retirée n'a plus de cible de D+).
-    for idx in fit_week_load_to_budget(sessions, tss_by_sport, sport_ceilings=sport_ceilings):
+    for idx in fit_week_load_to_budget(sessions, tss_by_sport, sport_ceilings=budget.ceilings):
         sessions[idx] = _rest_day_session(
             day=date.fromisoformat(sessions[idx]["date"]), phase=slot.phase, week_offset=slot.offset
         )
@@ -1735,11 +1749,14 @@ def _build_all_week_sessions(
             ),
             sports_in_race=grid.sports,
             sports_strengths=effective_strengths,
-            tss_by_sport=tss_by_sport,
+            budget=WeekSportBudget(
+                tss=tss_by_sport,
+                elevation=weekly_elevation_by_sport,
+                ceilings=_ramp_ceilings(prev_tss_by_sport),
+            ),
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
             target=target,
-            weekly_elevation_by_sport=weekly_elevation_by_sport,
             observed=observed,
             # Fenêtre de récupération : ni qualité ni séance longue, quel que soit
             # ce que la phase autoriserait par ailleurs.
@@ -1749,7 +1766,6 @@ def _build_all_week_sessions(
                 and load.recovery.covers_week(week_start + timedelta(weeks=offset))
                 else None
             ),
-            sport_ceilings=_ramp_ceilings(prev_tss_by_sport),
         )
         # Le cap de progression se lit sur le TSS RÉELLEMENT ÉMIS (#164) : appliqué
         # au budget théorique il protégeait une grandeur qui ne pilotait plus la

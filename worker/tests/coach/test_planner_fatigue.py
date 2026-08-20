@@ -25,8 +25,8 @@ from garmin_sync.coach.planner import (
     TSB_STRONG_DELOAD_THRESHOLD,
     ObservedHabits,
     TrainingTarget,
-    _PlanGrid,
     _build_all_week_sessions,
+    _PlanGrid,
     tsb_load_multiplier,
 )
 
