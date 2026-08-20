@@ -127,19 +127,14 @@ def _run_tool_calls(
         )
 
 
-def run_chat(*, user_id: str, question: str, conversation_id: str | None = None) -> ChatResult:
-    """Répond à une question en s'appuyant sur les outils.
+def _open_conversation(
+    *, user_id: str, question: str, conversation_id: str | None
+) -> tuple[str, list[dict[str, Any]]]:
+    """Ouvre ou reprend une conversation et renvoie ``(id, messages de départ)``.
 
-    Les quotas (:mod:`budget`) et le rate limit sont vérifiés par l'appelant,
-    avant tout appel payant.
+    Reprendre une conversation existante impose de vérifier qu'elle appartient
+    bien à l'appelant : le worker lit en service role, RLS ne protège rien ici.
     """
-    question = (question or "").strip()[:MAX_QUESTION_CHARS]
-    if not question:
-        msg = "question vide"
-        raise ValueError(msg)
-
-    model = resolve_chat_model()
-
     if conversation_id:
         store.assert_owned(user_id=user_id, conversation_id=conversation_id)
         history = store.load_history(user_id=user_id, conversation_id=conversation_id)
@@ -156,6 +151,41 @@ def run_chat(*, user_id: str, question: str, conversation_id: str | None = None)
         *history,
         {"role": "user", "content": question},
     ]
+    return conversation_id, messages
+
+
+def _assistant_tool_call_message(message: Any) -> dict[str, Any]:
+    """Rejoue la demande d'outils du modèle dans le contexte du tour suivant."""
+    return {
+        "role": "assistant",
+        "content": message.content,
+        "tool_calls": [
+            {
+                "id": c.id,
+                "type": "function",
+                "function": {"name": c.function.name, "arguments": c.function.arguments},
+            }
+            for c in message.tool_calls
+        ],
+    }
+
+
+def run_chat(*, user_id: str, question: str, conversation_id: str | None = None) -> ChatResult:
+    """Répond à une question en s'appuyant sur les outils.
+
+    Les quotas (:mod:`budget`) et le rate limit sont vérifiés par l'appelant,
+    avant tout appel payant.
+    """
+    question = (question or "").strip()[:MAX_QUESTION_CHARS]
+    if not question:
+        msg = "question vide"
+        raise ValueError(msg)
+
+    model = resolve_chat_model()
+
+    conversation_id, messages = _open_conversation(
+        user_id=user_id, question=question, conversation_id=conversation_id
+    )
 
     client = _get_client()
     specs = openai_tool_specs()
@@ -184,20 +214,7 @@ def run_chat(*, user_id: str, question: str, conversation_id: str | None = None)
             answer = message.content or ""
             break
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": message.content,
-                "tool_calls": [
-                    {
-                        "id": c.id,
-                        "type": "function",
-                        "function": {"name": c.function.name, "arguments": c.function.arguments},
-                    }
-                    for c in message.tool_calls
-                ],
-            }
-        )
+        messages.append(_assistant_tool_call_message(message))
         _run_tool_calls(
             message.tool_calls,
             user_id=user_id,
