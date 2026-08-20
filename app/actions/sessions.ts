@@ -11,6 +11,7 @@ type SessionType =
   | 'intervals'
   | 'pma'
   | 'sprint'
+  | 'strides'
   | 'long'
   | 'recovery'
   | 'race'
@@ -23,6 +24,7 @@ const ALLOWED_SESSION_TYPES = new Set<SessionType>([
   'intervals',
   'pma',
   'sprint',
+  'strides',
   'long',
   'recovery',
   'race',

@@ -43,6 +43,9 @@ _DOWNGRADE_ONE_LEVEL: dict[str, str] = {
     "intervals": "threshold",
     "pma": "threshold",
     "sprint": "endurance",
+    # Côtes courtes / accélérations (#165) : déjà la forme de qualité la plus
+    # légère, sa version allégée est l'endurance pure.
+    "strides": "endurance",
     "threshold": "endurance",
     "long": "endurance",
     "endurance": "recovery",

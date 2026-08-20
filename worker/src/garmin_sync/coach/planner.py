@@ -20,6 +20,7 @@ from garmin_sync.coach.banister import (
 )
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
+from garmin_sync.coach.intensity_dose import STRIDES, hard_types_for_level
 from garmin_sync.coach.phases import Phase, compute_phases
 from garmin_sync.coach.race_day import (
     CLIMB_HOURS_PER_1000M,
@@ -64,6 +65,9 @@ class RaceTarget:
     # La course enchaîne un segment vélo puis un segment course à pied : le plan
     # doit alors contenir des séances d'enchaînement (#154).
     has_bike_run_transition: bool = False
+    # Exigence de terrain par discipline (m de D+ par km) : le plan doit la viser
+    # en build/peak, indépendamment de la progression du D+ hebdo (#156).
+    gradient_m_per_km: dict[str, float] | None = None
     # Segments bruts + profil de performance : le jour J en dérive son temps
     # estimé, son TSS et son déroulé (issue #157). Absents -> case vide, comme avant.
     legs: list[dict[str, Any]] | None = None
@@ -137,19 +141,13 @@ def distribute_weekly_tss_by_sport(
     return {s: round(weekly_tss * w / total_w, 2) for s, w in weights.items()}
 
 
-_HARD_TYPES_BY_LEVEL: dict[int, set[str]] = {
-    1: set(),
-    2: set(),
-    3: {"threshold", "sprint"},
-    4: {"threshold", "sprint", "pma"},
-    5: {"threshold", "sprint", "pma"},
-}
-
-# Types dont l'accès dépend du niveau athlète (filtrés par _HARD_TYPES_BY_LEVEL).
+# Types dont l'accès dépend du niveau athlète : dérivé de `intensity_dose`, seule
+# source de vérité du dosage. Le niveau ne SUPPRIME plus l'intensité (#165), il en
+# change la nature et la dose — tout niveau garde au minimum `strides`.
 # "intervals" reste dans le schéma/caps pour compatibilité (séances déjà en DB) mais
 # n'apparaît plus dans aucune liste `base` ci-dessous — gardé ici uniquement pour ne
 # jamais le laisser passer si une future liste `base` le réintroduit par erreur.
-_FILTERABLE_HARD_TYPES = {"threshold", "intervals", "sprint", "pma"}
+_FILTERABLE_HARD_TYPES = {"threshold", "intervals", "sprint", "pma", STRIDES}
 
 
 def pick_session_types_for_phase(
@@ -157,25 +155,33 @@ def pick_session_types_for_phase(
 ) -> list[str]:
     """Return the canonical set of session types for a given phase.
 
-    `max_level` (1-5) borne l'intensité : un niveau faible retire les types durs
-    (threshold/pma/sprint) au profit d'endurance/recovery.
+    `max_level` (1-5) module l'intensité ACCESSIBLE : un niveau faible n'a pas
+    accès au seuil long ni à la PMA, mais garde toujours un type de qualité
+    léger (``strides`` : côtes courtes / accélérations). Le dosage exact — durée
+    de répétition, nombre, récupération, zone — vit dans `intensity_dose` et
+    part dans le prompt LLM.
+
+    L'ordre de la liste porte une intention : le premier type de qualité est le
+    plus exigeant accessible, c'est celui que `_assign_quality_days` réserve.
 
     `progress` (0..1, cf. `_progress_for_offset`) gate `pma` à la 2e moitié de la
     phase build (progress >= 0.5) — trop tôt dans le plan, pma n'apparaît pas
     encore. Par défaut 1.0 pour rester rétro-compatible avec les appels existants.
     """
     if phase == "base":
-        base = ["endurance", "long", "recovery"]
+        # La base n'est plus une traversée du désert : un rappel de vitesse
+        # hebdomadaire y a toute sa place, à tous les niveaux (#165).
+        base = ["endurance", "long", "recovery", STRIDES]
     elif phase == "build":
-        base = ["endurance", "threshold", "long"]
+        base = ["endurance", "threshold", "long", STRIDES]
         if progress >= 0.5:
             base.append("pma")
     elif phase == "peak":
-        base = ["pma", "sprint", "endurance", "long"]
+        base = ["pma", "sprint", "endurance", "long", STRIDES]
     else:  # taper
-        base = ["endurance", "recovery", "sprint"]
+        base = ["endurance", "recovery", "sprint", STRIDES]
 
-    allowed_hard = _HARD_TYPES_BY_LEVEL.get(max_level, {"threshold", "sprint", "pma"})
+    allowed_hard = hard_types_for_level(max_level)
     filtered = [t for t in base if t not in _FILTERABLE_HARD_TYPES or t in allowed_hard]
     return filtered or ["endurance"]
 
@@ -295,7 +301,14 @@ def _rest_day_session(*, day: date, phase: Phase, week_offset: int) -> dict[str,
     }
 
 
+# Séances qui appellent 48 h de récupération : deux d'affilée est une faute de
+# placement. `strides` n'en fait volontairement PAS partie — des répétitions
+# courtes avec récupération complète ne saturent pas l'athlète et peuvent
+# voisiner une autre séance sans l'hypothéquer.
 _HARD_SESSION_TYPES = {"threshold", "intervals", "pma", "sprint"}
+# Tout ce qui compte comme « séance de qualité » : ce que le plan doit garantir
+# à chaque discipline chaque semaine (#155).
+_QUALITY_SESSION_TYPES = _HARD_SESSION_TYPES | {STRIDES}
 _LONG_RECOVERY_TYPES = {"long", "recovery"}
 
 
@@ -305,19 +318,18 @@ def _pick_session_type(
     types_for_phase: list[str],
     used_types: list[str],
     long_day_idx: int | None = None,
-    sport_used_count: int = 0,
 ) -> str:
-    """Pick a session type respecting priority slots and avoiding back-to-back hard sessions.
+    """Type de séance d'un jour NON réservé à la qualité (long, récup, endurance).
 
-    ``types_for_phase`` est la liste de la DISCIPLINE du jour (plafond d'intensité
-    par sport, cf. #121) ; ``used_types`` reste l'historique global de la semaine
-    pour éviter deux séances dures d'affilée, tous sports confondus.
+    Les séances de qualité sont placées en amont par ``_assign_quality_days`` :
+    elles ne se décident plus au fil de l'eau. L'ancienne heuristique (« le
+    premier créneau d'un sport prend un type dur ») dépendait de l'ordre des
+    jours et laissait les disciplines servies tard sans aucune intensité.
 
-    ``sport_used_count`` (séances déjà posées pour CE sport cette semaine) sert la
-    garantie de séance de qualité : le premier créneau éligible d'un sport prend
-    un type dur si son niveau y donne droit — sans quoi l'index de rotation
-    global retombait presque toujours sur "endurance" pour un sport n'ayant
-    qu'un ou deux créneaux, et les semaines build/peak restaient sans intensité.
+    ``types_for_phase`` est la liste de la DISCIPLINE du jour (plafond
+    d'intensité par sport, cf. #121) ; ``used_types`` reste l'historique global
+    de la semaine pour éviter deux séances dures d'affilée, tous sports
+    confondus.
     """
     priority = _placement_priority_for_day(day_idx, long_day_idx)
     if priority == 0 and "long" in types_for_phase:
@@ -331,10 +343,7 @@ def _pick_session_type(
         candidates = [t for t in candidates if t not in _HARD_SESSION_TYPES]
     if not candidates:
         return "endurance"
-    hard = [t for t in candidates if t in _HARD_SESSION_TYPES]
-    if sport_used_count == 0 and hard:
-        return hard[0]
-    soft = [t for t in candidates if t not in _HARD_SESSION_TYPES]
+    soft = [t for t in candidates if t not in _QUALITY_SESSION_TYPES]
     pool = soft or candidates
     return pool[len(used_types) % len(pool)]
 
@@ -347,6 +356,7 @@ _SESSION_TYPE_WEIGHT: dict[str, float] = {
     "intervals": 1.2,
     "pma": 1.2,
     "sprint": 0.9,
+    STRIDES: 0.9,
     "endurance": 1.0,
     "recovery": 0.5,
 }
@@ -367,6 +377,9 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("bike", "intervals"): 82.0,
     ("bike", "pma"): 88.0,
     ("bike", "sprint"): 65.0,
+    # Répétitions courtes + récupération complète : au-dessus de l'endurance,
+    # bien en dessous d'un bloc de seuil continu.
+    ("bike", STRIDES): 55.0,
     ("bike", "recovery"): 22.0,
     ("run", "endurance"): 48.0,
     ("run", "long"): 52.0,
@@ -374,6 +387,7 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("run", "intervals"): 90.0,
     ("run", "pma"): 95.0,
     ("run", "sprint"): 70.0,
+    ("run", STRIDES): 62.0,
     ("run", "recovery"): 30.0,
     ("swim", "endurance"): 50.0,
     ("swim", "long"): 55.0,
@@ -381,6 +395,7 @@ _TSS_PER_HOUR: dict[tuple[str, str], float] = {
     ("swim", "intervals"): 85.0,
     ("swim", "pma"): 88.0,
     ("swim", "sprint"): 68.0,
+    ("swim", STRIDES): 60.0,
     ("swim", "recovery"): 35.0,
     ("brick", "endurance"): 65.0,
     ("brick", "long"): 65.0,
@@ -445,6 +460,9 @@ _ELEVATION_SESSION_WEIGHT: dict[str, float] = {
     "long": 2.0,
     "endurance": 1.0,
     "threshold": 0.3,
+    # Les côtes courtes SONT du dénivelé : c'est même la façon la plus dense
+    # d'en encaisser quand la course est pentue (#156).
+    STRIDES: 0.8,
     "intervals": 0.0,
     "pma": 0.0,
     "sprint": 0.0,
@@ -550,6 +568,102 @@ def cap_session_elevation_gradients(sessions: list[dict[str, Any]]) -> int:
             sum(targets),
         )
     return clipped_total
+
+
+# Spécificité terrain (#156) : phases où le plan doit VISER le gradient de la
+# course, et montée en charge de cette exigence au fil du build.
+_GRADIENT_FLOOR_PHASES = frozenset({"build", "peak"})
+_GRADIENT_FLOOR_START_RATIO = 0.6
+# Une séance ne demande jamais plus de 150 % du dénivelé TOTAL de la course :
+# s'entraîner au-dessus de l'épreuve reste de la surdistance, pas une expédition.
+_GRADIENT_FLOOR_MAX_RACE_SHARE = 1.5
+
+
+def race_gradient_m_per_km(legs: list[dict[str, Any]]) -> dict[str, float]:
+    """Exigence de terrain de la course, en mètres de D+ par kilomètre.
+
+    Le D+ TOTAL d'un segment ne dit rien de sa difficulté : 200 m sur 8 km
+    (25 m/km) est une course de côte, 200 m sur 90 km est plat. La cible hebdo
+    de dénivelé, elle, progresse vers le total — d'où des séances à 6 m/km
+    prescrites pour une épreuve qui en demande 25 (bug prod du plan owner).
+    """
+    distance: dict[str, float] = {}
+    gain: dict[str, float] = {}
+    for leg in legs:
+        disc = str(leg.get("discipline") or "unknown")
+        distance[disc] = distance.get(disc, 0.0) + float(leg.get("distance_km") or 0)
+        gain[disc] = gain.get(disc, 0.0) + float(leg.get("elevation_gain_m") or 0)
+    return {d: gain[d] / km for d, km in distance.items() if km > 0 and gain.get(d, 0) > 0}
+
+
+def _specific_session_key(session: dict[str, Any]) -> tuple[float, int]:
+    """Tri des séances porteuses de terrain : poids D+ d'abord, durée ensuite."""
+    weight = _ELEVATION_SESSION_WEIGHT.get(str(session.get("session_type") or ""), 0.0)
+    return weight, int(session.get("target_duration_s") or 0)
+
+
+def apply_race_gradient_floor(
+    sessions: list[dict[str, Any]],
+    *,
+    gradient_by_sport: dict[str, float],
+    race_dplus_by_sport: dict[str, int] | None = None,
+    phase: Phase,
+    progress: float = 1.0,
+) -> None:
+    """En build/peak, la séance porteuse de chaque discipline atteint le gradient de course.
+
+    Une seule séance par discipline est concernée — la plus « spécifique » (la
+    sortie longue en général) : le reste de la semaine garde le terrain issu de
+    la progression hebdomadaire, on ne transforme pas tout le plan en montagne.
+    Le plancher est borné trois fois : par ``session_elevation_cap_m`` (#158),
+    par 150 % du D+ total de l'épreuve, et il monte progressivement (60 % en
+    début de build, 100 % en fin de build et en peak).
+    """
+    if phase not in _GRADIENT_FLOOR_PHASES or not gradient_by_sport:
+        return
+    ratio = min(1.0, _GRADIENT_FLOOR_START_RATIO + (1 - _GRADIENT_FLOOR_START_RATIO) * progress)
+    by_sport: dict[str, list[dict[str, Any]]] = {}
+    for s in sessions:
+        if s.get("session_type") == "race" or not s.get("target_elevation_gain_m"):
+            continue
+        by_sport.setdefault(str(s.get("sport") or ""), []).append(s)
+
+    for sport, group in by_sport.items():
+        gradient_km = gradient_by_sport.get(sport, 0.0)
+        if gradient_km <= 0:
+            continue
+        _raise_specific_session_to_gradient(
+            group,
+            sport=sport,
+            gradient_km=gradient_km,
+            ratio=ratio,
+            race_total=(race_dplus_by_sport or {}).get(sport),
+        )
+
+
+def _raise_specific_session_to_gradient(
+    group: list[dict[str, Any]],
+    *,
+    sport: str,
+    gradient_km: float,
+    ratio: float,
+    race_total: int | None,
+) -> None:
+    """Remonte la séance porteuse d'une discipline au gradient de course, sous ses plafonds."""
+    # m/km -> m/h via la vitesse de référence de la discipline : les plafonds
+    # de gradient (#158) sont eux aussi exprimés en m/h.
+    target_m_per_h = gradient_km * RACE_SPEED_KMH.get(sport, RACE_SPEED_DEFAULT_KMH) * ratio
+    session = max(group, key=_specific_session_key)
+    duration_s = int(session.get("target_duration_s") or 0)
+    ceilings = [
+        round(target_m_per_h * duration_s / 3600),
+        session_elevation_cap_m(sport, duration_s),
+    ]
+    if race_total:
+        ceilings.append(round(race_total * _GRADIENT_FLOOR_MAX_RACE_SHARE))
+    floor = min(ceilings)
+    if floor > int(session["target_elevation_gain_m"]):
+        session["target_elevation_gain_m"] = floor
 
 
 _FIRST_WEEK_STRONG_DELOAD_SIGNALS = {"return_after_break", "load_spike", "hard_sessions_density"}
@@ -712,6 +826,136 @@ def _training_day_session(
     }
 
 
+@dataclass(frozen=True)
+class _DaySlot:
+    """Un jour d'entraînement de la semaine, avant décision du type de séance."""
+
+    offset: int  # position chronologique dans la semaine (0-6)
+    weekday: int  # index de jour de semaine (lundi=0), pour les règles de placement
+    sport: str
+
+
+# Créneaux que `_placement_priority_for_day` réserve à la récupération : une
+# séance de qualité n'y est posée qu'en dernier recours.
+_RECOVERY_DAY_IDX = (0, 3)
+_EXTRA_QUALITY_PHASES = frozenset({"build", "peak"})
+# Niveau au-dessous duquel une discipline est considérée comme le point faible
+# de l'athlète (cohérent avec `level_label_for_score` : <= 2 = beginner).
+_WEAK_LEVEL = 2
+# Nombre de séances d'une discipline à partir duquel une 2e séance de qualité
+# reste raisonnable dans la semaine.
+_MIN_SESSIONS_FOR_EXTRA_QUALITY = 3
+
+
+def _quality_types_available(types_for_phase: list[str]) -> list[str]:
+    """Types de qualité accessibles à cette discipline, du plus exigeant au plus léger.
+
+    L'ordre vient de `pick_session_types_for_phase` : premier = le plus
+    structurant de la phase (seuil en build, PMA en peak), dernier = le plus
+    léger (`strides`).
+    """
+    return [t for t in types_for_phase if t in _QUALITY_SESSION_TYPES]
+
+
+def _quality_quota(*, level: int, phase: Phase, sessions: int) -> int:
+    """Nombre de séances de qualité dues à une discipline cette semaine.
+
+    Une par discipline (#155). Le point faible en reçoit une SECONDE en
+    build/peak dès que son volume le permet : son surplus de volume (+25 % via
+    ``distribute_weekly_tss_by_sport``) ne doit pas être exclusivement du
+    kilomètre lent (#156). Cette séance supplémentaire est toujours la plus
+    légère accessible — on ajoute de la qualité, pas de la traumatologie.
+    """
+    if sessions <= 0:
+        return 0
+    extra = (
+        level <= _WEAK_LEVEL
+        and phase in _EXTRA_QUALITY_PHASES
+        and sessions >= _MIN_SESSIONS_FOR_EXTRA_QUALITY
+    )
+    return min(sessions, 1 + int(extra))
+
+
+def _pick_quality_slot(
+    slots: list[_DaySlot], claimed: dict[int, str], long_day_idx: int | None
+) -> int | None:
+    """Meilleur créneau libre pour une séance de qualité (offset), ou None.
+
+    Trois niveaux de préférence, du plus au moins souhaitable : hors créneau de
+    récupération et à distance des séances dures déjà posées ; à distance
+    seulement ; n'importe quel jour libre. Le jour de la sortie longue n'est
+    jamais pris.
+    """
+    hard_offsets = [o for o, t in claimed.items() if t in _HARD_SESSION_TYPES]
+    free = [s for s in slots if s.offset not in claimed and s.weekday != long_day_idx]
+    spaced = [s for s in free if all(abs(s.offset - o) > 1 for o in hard_offsets)]
+    prime = [s for s in spaced if s.weekday not in _RECOVERY_DAY_IDX]
+    for tier in (prime, spaced, free):
+        if tier:
+            return tier[0].offset
+    return None
+
+
+def _assign_quality_days(
+    *,
+    slots: list[_DaySlot],
+    types_by_sport: dict[str, list[str]],
+    strengths: dict[str, int],
+    phase: Phase,
+    long_day_idx: int | None,
+) -> dict[int, str]:
+    """Réserve les créneaux de qualité AVANT le remplissage : offset -> type.
+
+    Les disciplines sont servies de la plus faible à la plus forte : le point
+    faible prend le meilleur créneau, alors qu'il était jusqu'ici le seul à
+    n'avoir aucune intensité du tout (#156).
+    """
+    slots_by_sport: dict[str, list[_DaySlot]] = {}
+    for slot in slots:
+        slots_by_sport.setdefault(slot.sport, []).append(slot)
+
+    claimed: dict[int, str] = {}
+    order = sorted(slots_by_sport, key=lambda s: (strengths.get(s, 3), -len(slots_by_sport[s]), s))
+    for sport in order:
+        quality_types = _quality_types_available(types_by_sport.get(sport, []))
+        if not quality_types:
+            continue
+        quota = _quality_quota(
+            level=strengths.get(sport, 3), phase=phase, sessions=len(slots_by_sport[sport])
+        )
+        for rank in range(quota):
+            offset = _pick_quality_slot(slots_by_sport[sport], claimed, long_day_idx)
+            if offset is None:
+                break
+            # 1re séance : le type le plus structurant accessible. Les suivantes
+            # (point faible) : le plus léger, pour ajouter du stimulus sans risque.
+            claimed[offset] = quality_types[0] if rank == 0 else quality_types[-1]
+    return claimed
+
+
+def _week_day_slots(
+    *,
+    week_start: date,
+    training_idx: set[int],
+    sport_by_day: dict[int, str],
+    is_last_week: bool,
+    race_date: date,
+) -> list[_DaySlot]:
+    """Jours d'entraînement de la semaine, en ordre chronologique."""
+    slots: list[_DaySlot] = []
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_idx = day.weekday()
+        if is_last_week and day == race_date:
+            continue
+        if day_idx not in training_idx:
+            continue
+        slots.append(
+            _DaySlot(offset=offset, weekday=day_idx, sport=sport_by_day.get(day_idx, "run"))
+        )
+    return slots
+
+
 def _build_training_day_plan(
     *,
     week_start: date,
@@ -721,39 +965,49 @@ def _build_training_day_plan(
     is_last_week: bool,
     race_date: date,
     long_day_idx: int | None = None,
+    strengths: dict[str, int] | None = None,
+    phase: Phase = "build",
 ) -> dict[int, tuple[str, str]]:
-    """Single-pass day plan: weekday index -> (sport, session_type).
+    """Day plan: weekday index -> (sport, session_type).
 
-    Walks the 7 days in order so `_pick_session_type`'s used_types history is
-    consistent with the emission loop. Only days selected as training days
-    (and not the race day) get an entry. Both the weight tallies and the emitted
-    sessions derive from this map, so they can never diverge.
+    Deux passes : les créneaux de qualité sont d'abord RÉSERVÉS par discipline
+    (`_assign_quality_days`, du point faible vers le point fort), puis les jours
+    restants sont remplis chronologiquement (long / récup / endurance) — l'ordre
+    de parcours ne décide plus qui a droit à de l'intensité.
+
+    Both the weight tallies and the emitted sessions derive from this map, so
+    they can never diverge.
 
     ``types_by_sport`` porte le plafond d'intensité PAR discipline (#121) : le
     type du jour est tiré de la liste du sport assigné à ce jour — un niveau 1
     en course n'interdit plus le seuil en vélo.
     """
+    slots = _week_day_slots(
+        week_start=week_start,
+        training_idx=training_idx,
+        sport_by_day=sport_by_day,
+        is_last_week=is_last_week,
+        race_date=race_date,
+    )
+    quality_by_offset = _assign_quality_days(
+        slots=slots,
+        types_by_sport=types_by_sport,
+        strengths=strengths or {},
+        phase=phase,
+        long_day_idx=long_day_idx,
+    )
+
     plan: dict[int, tuple[str, str]] = {}
     used_types: list[str] = []
-    sport_counts: dict[str, int] = {}
-    for offset in range(7):
-        day = week_start + timedelta(days=offset)
-        day_idx = day.weekday()
-        if is_last_week and day == race_date:
-            continue
-        if day_idx not in training_idx:
-            continue
-        sport = sport_by_day.get(day_idx, "run")
-        stype = _pick_session_type(
-            day_idx=day_idx,
-            types_for_phase=types_by_sport.get(sport, ["endurance"]),
+    for slot in slots:
+        stype = quality_by_offset.get(slot.offset) or _pick_session_type(
+            day_idx=slot.weekday,
+            types_for_phase=types_by_sport.get(slot.sport, ["endurance"]),
             used_types=used_types,
             long_day_idx=long_day_idx,
-            sport_used_count=sport_counts.get(sport, 0),
         )
         used_types.append(stype)
-        sport_counts[sport] = sport_counts.get(sport, 0) + 1
-        plan[day_idx] = (sport, stype)
+        plan[slot.weekday] = (slot.sport, stype)
     return plan
 
 
@@ -973,6 +1227,8 @@ def _build_week_sessions(
         is_last_week=is_last_week,
         race_date=race.day,
         long_day_idx=long_day_idx,
+        strengths=sports_strengths,
+        phase=phase,
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
     sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
@@ -1006,6 +1262,16 @@ def _build_week_sessions(
     # rend réalisable (plafond de gradient + report sur les séances qui ont de
     # la marge) sans toucher au volume hebdo visé (#158).
     cap_session_elevation_gradients(sessions)
+    # ... puis on s'assure que la séance la plus spécifique de chaque discipline
+    # atteint bien l'exigence de terrain de l'épreuve (#156). Appliqué APRÈS le
+    # plafond : le plancher de spécificité en tient compte, il ne le viole pas.
+    apply_race_gradient_floor(
+        sessions,
+        gradient_by_sport=race.gradient_m_per_km or {},
+        race_dplus_by_sport=race.dplus_by_sport,
+        phase=phase,
+        progress=progress,
+    )
     return sessions
 
 
@@ -1377,6 +1643,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
             time_shares=race_time_shares,
             dplus_by_sport=race_dplus_by_sport,
             has_bike_run_transition=race_has_bike_run_transition(race.get("legs") or []),
+            gradient_m_per_km=race_gradient_m_per_km(race.get("legs") or []),
             legs=race.get("legs") or [],
             # Niveaux EFFECTIFS (historique 90 j), pas déclarés : le temps estimé
             # du jour J doit refléter l'athlète tel qu'il s'entraîne réellement.

@@ -10,6 +10,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from garmin_sync.coach.intensity_dose import describe_dose
 from garmin_sync.coach.workout_schema import (
     Workout,
     describe_session_envelope,
@@ -85,6 +86,13 @@ Règles :
 - Séance "sprint" : répétitions très courtes de 5 à 15s à intensité maximale (Z5),
   récupération large (6 à 10 fois le temps de travail) — vise la force explosive et
   la vitesse de pointe, pas l'endurance.
+- Séance "strides" : répétitions courtes (30s à 1min) en côte ou en accélération
+  progressive, récupération complète entre chaque (retour au calme actif) — vise la
+  force et la vitesse sans accumulation de lactate. Accessible à tous les niveaux :
+  c'est la séance de qualité du débutant, pas une séance au rabais.
+- Quand un dosage chiffré est fourni dans la demande, il est IMPÉRATIF : ne durcis
+  pas la séance (pas plus de répétitions, pas plus longues) et ne la remplace pas
+  par de l'endurance continue.
 - summary_md : 1-2 phrases FR conseil du jour, motivant mais bref.
 - technical_focus : 1 phrase FR sur l'aspect technique spécifique au sport.
 """
@@ -144,12 +152,29 @@ def _athlete_lines(*, athlete: dict[str, Any], sport: str) -> list[str]:
     lines.append(f"- Niveau (1-5) : swim={swim}, bike={bike}, run={run}")
     weak = [s for s in ("swim", "bike", "run") if isinstance(sports.get(s), int) and sports[s] <= 2]
     if weak:
+        # L'ancienne consigne (« privilégie l'endurance, pas d'intervalles durs »)
+        # doublait l'interdiction du planner : le point faible ne recevait que du
+        # volume lent (#165). Le niveau module désormais le DOSAGE, fourni plus bas.
         lines.append(
-            "- Consigne intensité : pour les disciplines faibles "
-            f"({', '.join(weak)}), privilégie l'endurance et la technique, "
-            "limite l'intensité (pas d'intervalles seuil durs)."
+            f"- Disciplines les plus faibles ({', '.join(weak)}) : soigne la technique "
+            "et la qualité d'exécution, respecte STRICTEMENT le dosage prescrit — "
+            "sans le durcir ni le remplacer par de l'endurance continue."
         )
     return lines
+
+
+def _dose_line(session: dict[str, Any], athlete: dict[str, Any]) -> list[str]:
+    """Prescription chiffrée de l'intensité, calibrée sur le niveau de LA discipline.
+
+    C'est ce qui rend le dosage réel : sans elle, « threshold » redevient un
+    3x10' générique quel que soit l'athlète (#165).
+    """
+    sports = athlete.get("sports_strengths") or {}
+    level = sports.get(str(session.get("sport") or ""))
+    if not isinstance(level, int):
+        return []
+    text = describe_dose(session_type=str(session.get("session_type") or ""), level=level)
+    return ["", text] if text else []
 
 
 def _activity_review_lines(activity_review: Any) -> list[str]:
@@ -188,6 +213,7 @@ def _build_user_prompt(
         "",
     ]
     lines.extend(_athlete_lines(athlete=athlete, sport=str(session["sport"])))
+    lines.extend(_dose_line(session, athlete))
     lines.extend(
         [
             "",
