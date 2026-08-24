@@ -154,7 +154,7 @@ export function RaceTagForm({
             />
           </label>
           <label className="text-muted-foreground text-xs">
-            Discipline
+            <span className="block">Discipline</span>
             <select
               className="border-input bg-background mt-1 block h-9 rounded-md border px-2 text-sm"
               value={discipline}

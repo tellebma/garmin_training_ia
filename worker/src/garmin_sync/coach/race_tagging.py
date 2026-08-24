@@ -137,31 +137,43 @@ def match_race_activities(
     Fonction pure : ni I/O ni horloge. Les activités déjà taguées à la main sont
     ignorées, celles taguées automatiquement sur la bonne course aussi (rien à écrire).
     """
+    by_date = _races_by_date(races)
+    matches: dict[str, str] = {}
+    for activity in activities:
+        pair = _match_one(activity, by_date)
+        if pair is not None:
+            activity_id, race_id = pair
+            matches[activity_id] = race_id
+    return matches
+
+
+def _races_by_date(races: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     by_date: dict[str, list[dict[str, Any]]] = {}
     for race in races:
         race_date = str(race.get("race_date") or "")
         if race_date:
             by_date.setdefault(race_date, []).append(race)
+    return by_date
 
-    matches: dict[str, str] = {}
-    for activity in activities:
-        if activity.get("race_tag_source") == "manual":
-            continue
-        candidates = by_date.get(_activity_date(activity))
-        if not candidates:
-            continue
-        sport = str(activity.get("sport") or "")
-        matched = _best_candidate(candidates, activity, sport)
-        if matched is None:
-            continue
-        activity_id = str(activity.get("id") or "")
-        race_id = str(matched.get("id") or "")
-        if not activity_id or not race_id:
-            continue
-        if activity.get("race_goal_id") == race_id:
-            continue
-        matches[activity_id] = race_id
-    return matches
+
+def _match_one(
+    activity: dict[str, Any],
+    by_date: dict[str, list[dict[str, Any]]],
+) -> tuple[str, str] | None:
+    """Rattachement à écrire pour une activité, ou None s'il n'y a rien à faire."""
+    if activity.get("race_tag_source") == "manual":
+        return None
+    candidates = by_date.get(_activity_date(activity))
+    if not candidates:
+        return None
+    matched = _best_candidate(candidates, activity, str(activity.get("sport") or ""))
+    if matched is None:
+        return None
+    activity_id = str(activity.get("id") or "")
+    race_id = str(matched.get("id") or "")
+    if not activity_id or not race_id or activity.get("race_goal_id") == race_id:
+        return None
+    return activity_id, race_id
 
 
 def _best_candidate(
