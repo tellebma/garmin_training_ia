@@ -684,6 +684,8 @@ Specs : `docs/superpowers/specs/2026-08-19-e11-chat-coach-faisabilite.md` et
   faible qui ne progresse pas.
 - Reco coach : "on augmente le volume", "on garde la charge", "on ajoute du seuil",
   "on réduit l'intensité cette semaine".
+- Les **courses passées** comptent comme jalons de référence dans ces signaux (temps, splits,
+  écart à l'objectif) — voir E23.4.
 
 ### P1 — Analyse discipline par discipline
 
@@ -1074,6 +1076,56 @@ distance, allure ou vitesse, FC moyenne), en plus du total de l'épreuve.
 Dépendance : cet EPIC bénéficie au partage mais la décomposition par discipline sert aussi la
 fiche `/history/[id]` et le coach (E9.4 progression par discipline) — la spec doit décider si
 la donnée est produite pour le seul calque ou exposée plus largement.
+### EPIC E23 — Vue course : détection, débrief et jalon de progression (demande owner 2026-08-24)
+
+**Priorité : P1 — Statut : à spécifier**
+
+Aujourd'hui une course n'existe que comme **objectif** (`race_goals` + séance `race` du jour J,
+livrée par la PR #174). Une fois l'épreuve passée, elle redevient une activité d'historique
+ordinaire : rien n'indique que c'était une course, le résultat n'est comparé ni à l'objectif ni
+aux épreuves précédentes, et les données propres à la course (temps par segment, transitions,
+classement officiel) n'existent nulle part.
+
+Objectif : faire de la course un **objet de première classe** — détectée, tagguée, débriefée, et
+prise en compte dans les progressions.
+
+- **E23.1 P1 — Détection et tag « course »** : au sync, si une activité tombe le jour d'une
+  `race_goals.race_date` (fenêtre ±1 jour, cohérence sport/distance avec les `legs`), la rattacher
+  à la course (`activities.race_goal_id` + flag `is_race`). Prévoir le tag **manuel**
+  (marquer/démarquer une activité comme course depuis `/history/[id]`) et la création d'une course
+  **rétroactive** pour une épreuve jamais saisie comme objectif. Cas multi-activités le même jour
+  (triathlon découpé par Garmin en plusieurs fichiers + transitions) : les regrouper sous une seule
+  course — recoupe la décomposition multisport d'E22.1.
+- **E23.2 P1 — Page course dédiée** : une vue distincte de la fiche activité standard
+  (`/history/[id]` en mode course, ou `/history/race/[id]`) : bandeau épreuve (nom, lieu, date,
+  discipline, distances par leg), temps total, **splits par segment** (natation / T1 / vélo / T2 /
+  course à pied), allure et FC par segment, D+, **objectif vs réalisé**
+  (`race_goals.target_time_seconds`), carte du parcours.
+- **E23.3 P1 — Débrief coach de course** : lecture coach spécifique à l'épreuve — ce qui a bien
+  marché, points d'amélioration, gestion de l'allure et de la FC segment par segment, comparaison à
+  la préparation réellement effectuée (charge, séances clés, affûtage), enseignements pour la
+  prochaine course. Complété par un **ressenti athlète** (champ libre, comme le feedback
+  post-séance) et des données subjectives non mesurées par la montre : nutrition, météo, matériel,
+  incidents.
+- **E23.4 P1 — La course compte dans les progressions** : une course devient un **jalon de
+  référence** — repère sur les courbes de progression (`/stats`, progression par discipline E9.4),
+  comparaison entre deux épreuves de même format (« 2e triathlon S : −4 min, T1 −40 s »), et signal
+  d'entrée pour la détection progression/stagnation. Le plan d'après-course doit en tenir compte
+  (récupération post-épreuve, bascule vers l'objectif suivant).
+- **E23.5 P2 — Stats externes de course (officielles ou non)** : enrichir la vue avec ce que Garmin
+  ne fournit pas — classement scratch et catégorie, temps officiels et temps de transition, dossard,
+  nombre de partants, lien vers les résultats, photos. **V1 = saisie manuelle** d'un jeu de champs
+  structurés ; **V2 = import** depuis les plateformes de chronométrage (Njuko, Sporkrono,
+  ChronoRace, Livetrail, FFTri…) via URL de résultats ou API quand elle existe, derrière un
+  adaptateur par fournisseur — aucune de ces sources n'est standardisée, donc périmètre à cadrer
+  fournisseur par fournisseur.
+- **E23.6 P2 — Vue « souvenir » / première course** : traitement éditorial particulier pour les
+  épreuves marquantes, en premier lieu le **premier triathlon** — récit de la course, chiffres clés
+  mis en avant, chemin parcouru depuis le début de la préparation (volume total, nombre de séances,
+  progression par discipline), export partageable (recoupe E22 / E22.1).
+
+**Cas d'usage de référence (owner)** : son premier triathlon — la vue doit **raconter** la course
+autant que la mesurer.
 
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 
