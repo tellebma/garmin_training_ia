@@ -1,3 +1,11 @@
+import { drawSportGlyph } from './sport-glyphs'
+import {
+  buildStorySegmentLines,
+  hasDistinctDisciplines,
+  sliceRouteBySegments,
+  type StorySegment,
+  type StorySegmentLine,
+} from './story-segments'
 import {
   buildElevationProfile,
   computeStoryLayout,
@@ -27,6 +35,11 @@ export interface StorySpec {
   /** Sous-titre, ex. « mercredi 30 juillet 2026 ». */
   readonly subtitle: string
   readonly metrics: readonly StoryMetric[]
+  /**
+   * Segments d'un multisport, dans l'ordre de l'épreuve. Vide pour une activité
+   * simple : le gabarit « disciplines » disparaît et le tracé reste monochrome.
+   */
+  readonly segments?: readonly StorySegment[]
   readonly route: readonly StoryPoint[]
   readonly elevation: readonly StoryElevationPoint[]
   readonly brand: string
@@ -34,6 +47,8 @@ export interface StorySpec {
   readonly showTitle?: boolean
   /** Signature en bas du sticker (défaut : affichée). */
   readonly showBrand?: boolean
+  /** Pictogrammes de discipline devant chaque ligne (défaut : affichés). */
+  readonly showSportIcons?: boolean
 }
 
 const FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -216,6 +231,47 @@ function drawMetricsStack(
   })
 }
 
+/**
+ * Une ligne par discipline : pictogramme + nom dans la teinte de la discipline,
+ * puis ses métriques en gros. C'est ce bloc qui rend les trois efforts d'un
+ * triathlon distinguables, là où le calque n'affichait qu'un total agrégé.
+ */
+function drawSegments(
+  ctx: CanvasRenderingContext2D,
+  box: Box,
+  lines: readonly StorySegmentLine[],
+  spec: StorySpec,
+  scale: number
+): void {
+  const lineHeight = box.height / lines.length
+  const labelSize = 34 * scale
+  const valueSize = commonValueSize(ctx, lines, 64 * scale, box.width)
+  const glyphSize = labelSize * 1.5
+  const x = centerX(box)
+
+  lines.forEach((line, index) => {
+    const y = box.y + lineHeight * index
+    if (spec.showSportIcons !== false) {
+      // Le pictogramme se pose à gauche du libellé, l'ensemble restant centré.
+      // Une discipline sans pictogramme (sport inconnu) garde son libellé seul.
+      const labelWidth = measureTextWidth(ctx, line.label, '600', labelSize)
+      drawSportGlyph(
+        ctx,
+        line.sport,
+        x - labelWidth / 2 - glyphSize * 0.75,
+        y + labelSize / 2,
+        glyphSize,
+        line.color
+      )
+    }
+    drawText(ctx, line.label, x, y, { font: `600 ${String(labelSize)}px`, color: line.color })
+    drawText(ctx, line.value, x, y + labelSize + 14 * scale, {
+      font: `700 ${String(valueSize)}px`,
+      color: WHITE,
+    })
+  })
+}
+
 function tracePath(ctx: CanvasRenderingContext2D, points: ProjectedRoute['points']): void {
   ctx.beginPath()
   points.forEach(([x, y], index) => {
@@ -243,6 +299,28 @@ function strokeWithHalo(
   tracePath(ctx, points)
   ctx.stroke()
   ctx.restore()
+}
+
+/**
+ * Tracé de l'activité. Sur un multisport, chaque discipline prend sa teinte —
+ * on lit la nage, le vélo et la course sur une seule trace. Le découpage repose
+ * sur le temps écoulé des points ; s'il n'est pas fiable, le tracé retombe sur
+ * la couleur d'accent, d'un seul tenant.
+ */
+function drawRoute(
+  ctx: CanvasRenderingContext2D,
+  route: ProjectedRoute,
+  spec: StorySpec,
+  lineWidth: number
+): void {
+  const slices = sliceRouteBySegments(route, spec.segments ?? [])
+  if (slices.length === 0) {
+    strokeWithHalo(ctx, route.points, spec.accent, lineWidth)
+    return
+  }
+  for (const slice of slices) {
+    strokeWithHalo(ctx, slice.points, slice.color, lineWidth)
+  }
 }
 
 function drawElevation(
@@ -311,7 +389,12 @@ function drawBlock(
       return
     case 'route': {
       const route = projectRoute(spec.route, box)
-      if (route) strokeWithHalo(ctx, route.points, spec.accent, 16 * scale)
+      if (route) drawRoute(ctx, route, spec, 16 * scale)
+      return
+    }
+    case 'segments': {
+      const lines = buildStorySegmentLines(spec.segments ?? [])
+      if (lines.length > 0) drawSegments(ctx, box, lines, spec, scale)
       return
     }
     case 'elevation': {
@@ -336,6 +419,7 @@ function drawBlocks(ctx: CanvasRenderingContext2D, layout: StoryLayout, spec: St
  */
 export function renderActivityStory(ctx: CanvasRenderingContext2D, spec: StorySpec): void {
   const layout = computeStoryLayout(spec.view, spec.format, spec.metrics.length, {
+    segmentCount: buildStorySegmentLines(spec.segments ?? []).length,
     // `exactOptionalPropertyTypes` : ne transmettre les options que si elles sont définies.
     ...(spec.showTitle === undefined ? {} : { showTitle: spec.showTitle }),
     ...(spec.showBrand === undefined ? {} : { showBrand: spec.showBrand }),
@@ -347,12 +431,18 @@ export function renderActivityStory(ctx: CanvasRenderingContext2D, spec: StorySp
 /** Gabarits proposables selon les données réellement disponibles pour l'activité. */
 export function availableStoryViews(
   route: readonly StoryPoint[],
-  elevation: readonly StoryElevationPoint[]
+  elevation: readonly StoryElevationPoint[],
+  segments: readonly StorySegment[] = []
 ): StoryView[] {
   const probe: Box = { x: 0, y: 0, width: 100, height: 100 }
   const hasRoute = projectRoute(route, probe) !== null
   const hasElevation = buildElevationProfile(elevation, probe) !== null
   const views: StoryView[] = []
+  // Le gabarit multisport passe devant : sur un triathlon, c'est la vue qui dit
+  // quelque chose — les autres agrègent trois efforts en une moyenne.
+  if (hasDistinctDisciplines(segments) && buildStorySegmentLines(segments).length > 0) {
+    views.push('disciplines')
+  }
   if (hasRoute) views.push('trace', 'stats-trace')
   if (hasElevation) views.push('profil')
   views.push('stats')

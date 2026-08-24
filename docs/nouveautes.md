@@ -1,5 +1,14 @@
 # Nouveautés
 
+## 1.20.0 — 2026-08-21
+
+- Le partage d'une activité multisport distingue enfin les trois disciplines : un nouveau
+  gabarit « Par discipline » donne à la natation, au vélo et à la course leur propre ligne
+  (durée, distance, allure), au lieu d'une moyenne qui mélangeait tout.
+- Sur la trace GPS, chaque discipline a sa couleur — on voit d'un coup d'œil où s'arrête la
+  nage et où commence le vélo.
+- Un pictogramme par discipline s'affiche sur le calque, désactivable d'un clic.
+
 ## 1.18.0 — 2026-08-14
 
 - L'historique affiche le dénivelé de chaque sortie, à côté du TSS — visible aussi sur la

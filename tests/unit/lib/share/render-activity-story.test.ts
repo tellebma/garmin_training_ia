@@ -6,6 +6,7 @@ import {
   withAlpha,
   type StorySpec,
 } from '@/lib/share/render-activity-story'
+import type { StorySegment } from '@/lib/share/story-segments'
 
 interface FakeCall {
   readonly op: string
@@ -74,6 +75,42 @@ const ELEVATION = [
   { distance_m: 0, elevation_m: 100 },
   { distance_m: 500, elevation_m: 320 },
   { distance_m: 1000, elevation_m: 180 },
+]
+
+/** Trace d'un triathlon : le temps écoulé rattache chaque point à sa discipline. */
+const MULTISPORT_ROUTE = Array.from({ length: 9 }, (_, index) => ({
+  latitude: 45 + index / 1000,
+  longitude: 4 + (index % 3) / 1000,
+  elapsed_s: index * 100,
+}))
+
+const SWIM: StorySegment = {
+  sport: 'swim',
+  duration_s: 300,
+  distance_m: 1500,
+  elevation_gain_m: null,
+  hr_avg: 150,
+  pace_avg_s_per_km: null,
+}
+
+const SEGMENTS: StorySegment[] = [
+  SWIM,
+  {
+    sport: 'bike',
+    duration_s: 300,
+    distance_m: 40_000,
+    elevation_gain_m: 320,
+    hr_avg: 145,
+    pace_avg_s_per_km: null,
+  },
+  {
+    sport: 'run',
+    duration_s: 300,
+    distance_m: 10_000,
+    elevation_gain_m: 40,
+    hr_avg: 158,
+    pace_avg_s_per_km: null,
+  },
 ]
 
 const SPEC: StorySpec = {
@@ -278,6 +315,69 @@ describe('availableStoryViews', () => {
 
   it('propose le profil sans GPS (home-trainer avec altitude)', () => {
     expect(availableStoryViews([], ELEVATION)).toEqual(['profil', 'stats'])
+  })
+
+  it('met le gabarit multisport en tête quand les disciplines diffèrent', () => {
+    expect(availableStoryViews(ROUTE, ELEVATION, SEGMENTS)[0]).toBe('disciplines')
+  })
+
+  it('ne le propose pas pour une activité d’une seule discipline', () => {
+    expect(availableStoryViews(ROUTE, ELEVATION, [SWIM])).not.toContain('disciplines')
+  })
+})
+
+describe('gabarit par discipline', () => {
+  it('dessine une ligne par discipline plutôt qu\u2019un total agrégé', () => {
+    const fake = fakeContext(2)
+
+    renderActivityStory(fake.ctx, {
+      ...SPEC,
+      view: 'disciplines',
+      title: 'Brick',
+      segments: SEGMENTS,
+    })
+
+    const texts = fake.texts()
+    expect(texts).toContain('Natation')
+    expect(texts).toContain('Vélo')
+    expect(texts).toContain('Course')
+    expect(texts).toContain('5min · 1.5 km · 0:20 /100m')
+  })
+
+  it('colorie le tracé discipline par discipline', () => {
+    const fake = fakeContext(2)
+
+    renderActivityStory(fake.ctx, {
+      ...SPEC,
+      view: 'trace',
+      route: MULTISPORT_ROUTE,
+      segments: SEGMENTS,
+    })
+
+    // Trois tronçons, chacun doublé de son halo : six passes de trait au lieu
+    // des deux d'un tracé monochrome.
+    const strokes = fake.calls.filter((c) => c.op === 'stroke')
+    expect(strokes.length).toBeGreaterThanOrEqual(6)
+  })
+
+  it('retombe sur un tracé d\u2019une seule couleur sans segment', () => {
+    const fake = fakeContext(2)
+
+    renderActivityStory(fake.ctx, { ...SPEC, view: 'trace', route: MULTISPORT_ROUTE })
+
+    expect(fake.calls.filter((c) => c.op === 'stroke')).toHaveLength(2)
+  })
+
+  it('ne dessine aucune ligne quand les segments sont inexploitables', () => {
+    const fake = fakeContext(2)
+
+    renderActivityStory(fake.ctx, {
+      ...SPEC,
+      view: 'disciplines',
+      segments: [{ ...SWIM, duration_s: null }],
+    })
+
+    expect(fake.texts()).not.toContain('Natation')
   })
 })
 

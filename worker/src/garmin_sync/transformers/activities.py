@@ -66,10 +66,12 @@ _SPORT_SWIM = {
     "pool_swimming",
     "swimming",
 }
-_SPORT_BRICK = {"multisport", "transition"}
+# `multi_sport` est le typeKey d'un triathlon/duathlon Garmin ; `multisport` et
+# `transition` sont les variantes historiques rencontrées sur les mêmes activités.
+_SPORT_BRICK = {"multi_sport", "multisport", "transition"}
 
 
-def _normalize_sport(raw_sport: str) -> str:
+def normalize_sport(raw_sport: str) -> str:
     """Map Garmin's granular sport types to our canonical 5 (swim/bike/run/brick/race).
 
     Unknown sports are returned as-is — the caller can decide what to do (the
@@ -97,7 +99,7 @@ def transform_activity(
     start = _parse_dt(raw.get("startTimeGMT"))
     activity_type = raw.get("activityType") or {}
     raw_sport = activity_type.get("typeKey", "unknown")
-    sport = _normalize_sport(raw_sport)
+    sport = normalize_sport(raw_sport)
     duration_s = int(raw.get("duration") or 0)
     power_avg = _to_int(raw.get("averagePower"))
     hr_avg = _to_int(raw.get("averageHR"))

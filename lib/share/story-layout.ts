@@ -15,9 +15,10 @@ export type StoryFormat = 'story' | 'square'
  * - `stats-trace` : métriques empilées en très gros puis un tracé plus petit
  * - `profil`      : profil altimétrique puis une ligne de métriques
  * - `stats`       : métriques seules (activités sans GPS : home-trainer, piscine…)
+ * - `disciplines` : une ligne par discipline d'un multisport, puis le total
  * - `minimal`     : tracé seul, sans texte (calque à superposer librement)
  */
-export type StoryView = 'trace' | 'stats-trace' | 'profil' | 'stats' | 'minimal'
+export type StoryView = 'trace' | 'stats-trace' | 'profil' | 'stats' | 'disciplines' | 'minimal'
 
 /** Fond du PNG : transparent (vrai calque), sombre opaque, ou dégradé bas de vignette. */
 export type StoryBackground = 'transparent' | 'dark' | 'gradient'
@@ -57,6 +58,11 @@ export interface StoryActivity {
 export interface StoryPoint {
   readonly latitude: number | null
   readonly longitude: number | null
+  /**
+   * Temps écoulé depuis le départ, en secondes. Sert à rattacher chaque point du
+   * tracé à une discipline sur un multisport ; absent, le tracé reste monochrome.
+   */
+  readonly elapsed_s?: number | null
 }
 
 export interface StoryElevationPoint {
@@ -74,6 +80,7 @@ export const STORY_VIEW_LABELS: Record<StoryView, string> = {
   'stats-trace': 'Métriques + tracé',
   profil: 'Profil + métriques',
   stats: 'Métriques seules',
+  disciplines: 'Par discipline',
   minimal: 'Tracé seul',
 }
 
@@ -214,6 +221,7 @@ export type StoryBlockKind =
   | 'elevation'
   | 'metricsRow'
   | 'metricsStack'
+  | 'segments'
   | 'brand'
 
 export interface StoryBlock {
@@ -238,6 +246,10 @@ export function findStoryBlock(layout: StoryLayout, kind: StoryBlockKind): Box |
  */
 export function metricsCapForView(view: StoryView): number {
   if (view === 'minimal') return 0
+  // Sur le gabarit « par discipline », les métriques globales ne sont qu'un rappel
+  // du total sous la pile : deux suffisent, au-delà elles concurrencent les lignes
+  // de disciplines qui sont le sujet du calque.
+  if (view === 'disciplines') return 2
   return view === 'stats' || view === 'stats-trace' ? 4 : 3
 }
 
@@ -252,9 +264,17 @@ const ELEVATION_HEIGHT_LARGE = 440
 const METRICS_ROW_HEIGHT = 150
 const METRIC_LINE_HEIGHT = 142
 const METRIC_LINE_GAP = 52
+const SEGMENT_LINE_HEIGHT = 118
+const SEGMENT_LINE_GAP = 40
 
 function metricsStackHeight(count: number): number {
   return count * METRIC_LINE_HEIGHT + (count - 1) * METRIC_LINE_GAP
+}
+
+/** Hauteur de la pile « une ligne par discipline » du gabarit multisport. */
+export function segmentsBlockHeight(count: number): number {
+  if (count <= 0) return 0
+  return count * SEGMENT_LINE_HEIGHT + (count - 1) * SEGMENT_LINE_GAP
 }
 
 interface StackItem {
@@ -262,7 +282,13 @@ interface StackItem {
   readonly height: number
 }
 
-function stackItems(view: StoryView, metricCount: number): StackItem[] {
+function stackItems(view: StoryView, metricCount: number, segmentCount: number): StackItem[] {
+  if (view === 'disciplines') {
+    return [
+      { kind: 'segments', height: segmentsBlockHeight(segmentCount) },
+      { kind: 'metricsRow', height: METRICS_ROW_HEIGHT },
+    ]
+  }
   if (view === 'stats-trace') {
     return [
       { kind: 'metricsStack', height: metricsStackHeight(metricCount) },
@@ -282,6 +308,8 @@ function stackItems(view: StoryView, metricCount: number): StackItem[] {
 interface StoryLayoutOptions {
   readonly showTitle?: boolean
   readonly showBrand?: boolean
+  /** Nombre de lignes de disciplines à réserver (gabarit `disciplines`). */
+  readonly segmentCount?: number
 }
 
 /**
@@ -313,10 +341,13 @@ export function computeStoryLayout(
   }
 
   const shownMetrics = Math.min(metricCount, metricsCapForView(view))
+  const segmentCount = options.segmentCount ?? 0
   const items: StackItem[] = [
     ...(options.showTitle === false ? [] : [{ kind: 'title' as const, height: TITLE_HEIGHT }]),
-    ...stackItems(view, shownMetrics).filter(
-      (item) => shownMetrics > 0 || (item.kind !== 'metricsRow' && item.kind !== 'metricsStack')
+    ...stackItems(view, shownMetrics, segmentCount).filter(
+      (item) =>
+        item.height > 0 &&
+        (shownMetrics > 0 || (item.kind !== 'metricsRow' && item.kind !== 'metricsStack'))
     ),
     ...(options.showBrand === false ? [] : [{ kind: 'brand' as const, height: BRAND_HEIGHT }]),
   ]
@@ -341,6 +372,12 @@ export function computeStoryLayout(
 export interface ProjectedRoute {
   /** Points projetés en coordonnées canvas, déjà centrés dans la boîte. */
   readonly points: readonly (readonly [number, number])[]
+  /**
+   * Temps écoulé de chaque point, même longueur et même ordre que `points`
+   * (`NaN` quand la donnée manque). Permet de découper le tracé par discipline
+   * après projection, sans refaire le filtrage ni le sous-échantillonnage.
+   */
+  readonly elapsed: readonly number[]
 }
 
 function sampleEvenly<T>(items: readonly T[], max: number): T[] {
@@ -362,10 +399,10 @@ function sampleEvenly<T>(items: readonly T[], max: number): T[] {
  * (une boucle carrée sur le terrain reste carrée sur l'image).
  */
 export function projectRoute(points: readonly StoryPoint[], box: Box): ProjectedRoute | null {
-  const coords: [number, number][] = []
+  const coords: [number, number, number][] = []
   for (const point of points) {
     if (isFiniteNumber(point.latitude) && isFiniteNumber(point.longitude)) {
-      coords.push([point.longitude, point.latitude])
+      coords.push([point.longitude, point.latitude, point.elapsed_s ?? Number.NaN])
     }
   }
   if (coords.length < 2) return null
@@ -376,6 +413,7 @@ export function projectRoute(points: readonly StoryPoint[], box: Box): Projected
   const cosLat = Math.max(0.1, Math.cos((meanLat * Math.PI) / 180))
 
   const planar = sampled.map(([lng, lat]) => [lng * cosLat, lat] as [number, number])
+  const elapsed = sampled.map(([, , seconds]) => seconds)
   const xs = planar.map(([x]) => x)
   const ys = planar.map(([, y]) => y)
   const minX = Math.min(...xs)
@@ -403,7 +441,7 @@ export function projectRoute(points: readonly StoryPoint[], box: Box): Projected
     return [px, py] as const
   })
 
-  return { points: projected }
+  return { points: projected, elapsed }
 }
 
 export interface StorySampleInput {
@@ -411,6 +449,7 @@ export interface StorySampleInput {
   readonly longitude: number | null
   readonly distance_m: number | null
   readonly elevation_m: number | null
+  readonly elapsed_s?: number | null
 }
 
 export interface StorySampleSets {
@@ -434,6 +473,8 @@ export function compactSamplesForStory(samples: readonly StorySampleInput[]): St
   ).map((s) => ({
     latitude: Math.round((s.latitude ?? 0) * COORD_PRECISION) / COORD_PRECISION,
     longitude: Math.round((s.longitude ?? 0) * COORD_PRECISION) / COORD_PRECISION,
+    // Une seconde près suffit à rattacher un point du tracé à sa discipline.
+    elapsed_s: isFiniteNumber(s.elapsed_s) ? Math.round(s.elapsed_s) : null,
   }))
 
   const elevation = sampleEvenly(

@@ -965,6 +965,60 @@ externes « taint » le canvas et empêchent `toBlob()`). Spec :
 MapLibre ; icône de sport dessinée sur le sticker (`Path2D`) ; bouton de partage direct depuis
 la liste `/history` ; comparaison « vs sortie similaire » sur le calque.
 
+#### E22.1 P2 — Calque multisport : distinguer les 3 disciplines (demande owner 2026-08-20)
+
+**Statut : V1 livrée (PR #207)**
+
+Livré : table `activity_segments` (une ligne par discipline et par transition, alimentée par
+le worker depuis les activités enfants Garmin, marquée par `activities.segments_checked_at`
+pour ne jamais ré-interroger deux fois la même épreuve) ; gabarit de calque « Par discipline »
+(une ligne par discipline avec durée / distance / allure, plus le total sous la pile) ; tracé
+GPS colorié discipline par discipline via le temps écoulé des points ; pictogrammes de
+discipline dessinés en `Path2D`, désactivables. Le typeKey Garmin `multi_sport`, jusque-là non
+reconnu, est désormais normalisé en `brick` comme `multisport`.
+
+Reste ouvert : la décomposition n'a pas pu être vérifiée sur une vraie épreuve (aucun
+multisport dans les données de dev) — les extracteurs acceptent plusieurs formes de payload
+faute de pouvoir en confirmer une. À revalider sur le premier triathlon synchronisé.
+
+Contexte d'origine :
+
+Aujourd'hui le calque traite une activité multisport (triathlon / duathlon / aquathlon) comme
+une sortie unique : `_normalize_sport` (`worker/src/garmin_sync/transformers/activities.py`)
+écrase `multisport`/`transition` en un seul sport `brick`, et `buildStoryMetrics`
+(`lib/share/story-layout.ts`) calcule des métriques globales sur cette ligne agrégée. Résultat
+partagé : une distance et une allure moyennes qui mélangent nage, vélo et course — donc sans
+signification pour l'owner comme pour ses lecteurs.
+
+Objectif : sur une activité multisport, le calque **présente chaque discipline séparément**
+(nage / vélo / course, plus les transitions), avec pour chacune ses propres métriques (durée,
+distance, allure ou vitesse, FC moyenne), en plus du total de l'épreuve.
+
+- **Données (prérequis)** : le modèle actuel n'a aucune notion de segment — `activities` porte
+  une ligne par activité et `activity_samples` n'a pas de colonne discipline. Il faut ingérer
+  la décomposition Garmin d'une activité multisport (activités enfants via `childIds` /
+  `parentId`, ou à défaut les splits) et la persister : soit des lignes `activities` enfants
+  rattachées au parent, soit une table `activity_segments` (ordre, sport, durée, distance,
+  dénivelé, FC, allure). Décision à trancher en spec — l'option « activités enfants » recoupe
+  la question déjà ouverte de savoir si le worker doit ou non compter ces enfants dans le TSS
+  (risque de double comptage avec le parent).
+- **Rendu du calque** : un gabarit « multisport » qui empile 3 blocs de métriques (un par
+  discipline) plutôt que la grille 3-4 métriques actuelle ; le tracé GPS colorié par segment
+  (une teinte par discipline) ; le total de l'épreuve conservé en en-tête. Contrainte E22
+  inchangée : rendu 100 % Canvas côté client, pas de fond de carte (tuiles externes → canvas
+  « tainted », `toBlob()` bloqué).
+- **Option logos de discipline** (demande owner, activable/désactivable) : icône nage / vélo /
+  course à côté de chaque bloc. Le composant React `app/(app)/_components/sport-icon.tsx`
+  n'est pas réutilisable tel quel dans un canvas — dessiner les glyphes en `Path2D` (recoupe
+  la « suite possible » E22 déjà notée) plutôt que charger un SVG externe.
+- **Cas dégradés à couvrir** : activité multisport sans enfants exploitables (fallback sur le
+  rendu agrégé actuel), enchaînement à 2 disciplines (duathlon / aquathlon), transitions
+  absentes ou de durée nulle.
+
+Dépendance : cet EPIC bénéficie au partage mais la décomposition par discipline sert aussi la
+fiche `/history/[id]` et le coach (E9.4 progression par discipline) — la spec doit décider si
+la donnée est produite pour le seul calque ou exposée plus largement.
+
 ### EPIC E17 — Déploiement automatisé des migrations Supabase
 
 **Priorité : P1 — Statut : V1 livrée (auto-apply, sans gate)**
