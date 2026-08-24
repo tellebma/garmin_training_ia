@@ -1,3 +1,9 @@
+## [1.21.0](https://github.com/tellebma/garmin_training_ia/compare/v1.20.0...v1.21.0) (2026-08-24)
+
+### Features
+
+* **coach:** chat contextuel à tool calling (E11 lots A+B) ([#206](https://github.com/tellebma/garmin_training_ia/issues/206)) ([b518b5f](https://github.com/tellebma/garmin_training_ia/commit/b518b5ff9f7b6eeca03a75bdcea9efe86255db61)), closes [#207](https://github.com/tellebma/garmin_training_ia/issues/207)
+
 ## [1.20.0](https://github.com/tellebma/garmin_training_ia/compare/v1.19.0...v1.20.0) (2026-08-24)
 
 ### Features
