@@ -1,5 +1,14 @@
 # Nouveautés
 
+## 1.21.0 — 2026-08-21
+
+- Un onglet « Coach » fait son apparition : tu peux lui poser tes questions d'entraînement en
+  français, et il va chercher lui-même les données utiles pour répondre — charge, récupération,
+  séances passées, plan à venir, objectifs de course.
+- Il te dit à chaque réponse quelles données il a consultées, et il ne lit que celles dont il a
+  besoin pour la question posée : ni ton adresse, ni tes tracés GPS ne sortent de l'application.
+- Le nombre de questions est plafonné par mois pour garder le coût sous contrôle.
+
 ## 1.20.0 — 2026-08-21
 
 - Le partage d'une activité multisport distingue enfin les trois disciplines : un nouveau
