@@ -1,3 +1,9 @@
+## [1.20.0](https://github.com/tellebma/garmin_training_ia/compare/v1.19.0...v1.20.0) (2026-08-24)
+
+### Features
+
+* **share:** distingue les 3 disciplines d'un multisport sur le calque ([#207](https://github.com/tellebma/garmin_training_ia/issues/207)) ([6b5c3a5](https://github.com/tellebma/garmin_training_ia/commit/6b5c3a5f1812f40f3b37d1ced01f0a2b18cb619a))
+
 ## [1.19.0](https://github.com/tellebma/garmin_training_ia/compare/v1.18.0...v1.19.0) (2026-08-15)
 
 ### Features
