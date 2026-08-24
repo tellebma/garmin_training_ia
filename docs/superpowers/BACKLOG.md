@@ -1078,7 +1078,7 @@ fiche `/history/[id]` et le coach (E9.4 progression par discipline) — la spec 
 la donnée est produite pour le seul calque ou exposée plus largement.
 ### EPIC E23 — Vue course : détection, débrief et jalon de progression (demande owner 2026-08-24)
 
-**Priorité : P1 — Statut : V1 livrée (PR #E23)** — spec
+**Priorité : P1 — Statut : V1 livrée (PR #208)** — spec
 `docs/superpowers/specs/2026-08-24-e23-vue-course-design.md`, plan
 `docs/superpowers/plans/2026-08-24-e23-vue-course.md`.
 
