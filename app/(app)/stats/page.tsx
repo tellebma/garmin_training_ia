@@ -20,6 +20,14 @@ import { mapRecoveryRow } from '@/lib/dashboard/recovery'
 import { cn } from '@/lib/utils'
 import { RoutesFrequencyMapLazy } from '../_components/maps/routes-frequency-map-lazy'
 import { ColsWidget } from '../_components/cols-widget'
+import { RacesWidget } from '../_components/races-widget'
+import {
+  summarizeRaceHistory,
+  type RaceActivityRow,
+  type RaceGoalRow,
+  type RaceResultsRow,
+  type RaceSegmentRow,
+} from '@/lib/coach/race-analysis'
 import { ColsWidgetSkeleton } from '../_components/skeletons/cols-widget-skeleton'
 import { computeColsSummary, type ColCrossingRowDto, type ColDto } from '@/lib/dashboard/cols'
 import type {
@@ -377,6 +385,91 @@ async function CockpitBody({
   )
 }
 
+/**
+ * Les courses de l'athlète, chargées à part : la lecture de progression d'une
+ * épreuve à l'autre ne doit pas retarder le cockpit.
+ */
+async function RacesWidgetLoader({ userId }: { readonly userId: string }) {
+  const supabase = await createClient()
+
+  const [racesRes, activitiesRes, resultsRes] = await Promise.all([
+    supabase
+      .from('race_goals')
+      .select(
+        'id, race_date, name, location, discipline, legs, total_distance_km, total_elevation_gain_m, target_time_seconds, prep_start_date'
+      )
+      .eq('user_id', userId)
+      .overrideTypes<RaceGoalRow[], { merge: false }>(),
+    supabase
+      .from('activities')
+      .select(
+        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, hr_avg, pace_avg_s_per_km, tss, race_goal_id'
+      )
+      .eq('user_id', userId)
+      .not('race_goal_id', 'is', null)
+      .overrideTypes<(RaceActivityRow & { race_goal_id: string })[], { merge: false }>(),
+    supabase
+      .from('race_results')
+      .select(
+        'race_goal_id, official_time_s, swim_time_s, t1_time_s, bike_time_s, t2_time_s, run_time_s, overall_rank, overall_finishers, category, category_rank, category_finishers, bib_number, results_url, weather, nutrition, gear, incidents, comment'
+      )
+      .eq('user_id', userId)
+      .overrideTypes<(RaceResultsRow & { race_goal_id: string })[], { merge: false }>(),
+  ])
+
+  const activities = activitiesRes.data ?? []
+  const activitiesByRace: Record<string, RaceActivityRow[]> = {}
+  for (const activity of activities) {
+    const bucket = activitiesByRace[activity.race_goal_id] ?? []
+    bucket.push(activity)
+    activitiesByRace[activity.race_goal_id] = bucket
+  }
+
+  const segmentsByActivity = await fetchRaceSegments(userId, activities)
+
+  const resultsByRace: Record<string, RaceResultsRow> = {}
+  for (const result of resultsRes.data ?? []) {
+    resultsByRace[result.race_goal_id] = result
+  }
+
+  return (
+    <RacesWidget
+      races={summarizeRaceHistory({
+        races: racesRes.data ?? [],
+        activitiesByRace,
+        segmentsByActivity,
+        resultsByRace,
+      })}
+    />
+  )
+}
+
+async function fetchRaceSegments(
+  userId: string,
+  activities: readonly RaceActivityRow[]
+): Promise<Record<number, RaceSegmentRow[]>> {
+  const ids = activities.map((activity) => activity.garmin_activity_id)
+  if (ids.length === 0) return {}
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('activity_segments')
+    .select(
+      'garmin_activity_id, segment_index, sport, start_time, duration_s, distance_m, elevation_gain_m, hr_avg, pace_avg_s_per_km'
+    )
+    .eq('user_id', userId)
+    .in('garmin_activity_id', ids)
+    .order('segment_index', { ascending: true })
+    .overrideTypes<RaceSegmentRow[], { merge: false }>()
+
+  const byActivity: Record<number, RaceSegmentRow[]> = {}
+  for (const segment of data ?? []) {
+    const bucket = byActivity[segment.garmin_activity_id] ?? []
+    bucket.push(segment)
+    byActivity[segment.garmin_activity_id] = bucket
+  }
+  return byActivity
+}
+
 async function ColsWidgetLoader({ userId }: { readonly userId: string }) {
   const supabase = await createClient()
   const { data: profile } = await supabase
@@ -468,6 +561,10 @@ export default async function StatsPage({ searchParams }: Props) {
 
       <Suspense fallback={<CockpitSkeleton />}>
         <CockpitBody userId={userId} range={range} selectedSport={selectedSport} />
+      </Suspense>
+
+      <Suspense fallback={<ColsWidgetSkeleton />}>
+        <RacesWidgetLoader userId={userId} />
       </Suspense>
 
       <Suspense fallback={<ColsWidgetSkeleton />}>

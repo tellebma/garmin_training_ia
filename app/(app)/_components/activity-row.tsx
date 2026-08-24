@@ -1,5 +1,5 @@
 // app/(app)/_components/activity-row.tsx
-import { Activity as ActivityIcon, Mountain } from 'lucide-react'
+import { Activity as ActivityIcon, Flag, Mountain } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SPORT_ICON, SPORT_LABEL } from './sport-icon'
 import { RouteThumbnail } from './maps/route-thumbnail'
@@ -38,7 +38,15 @@ export function ActivityRow({ activity, className }: Readonly<ActivityRowProps>)
         <RouteThumbnail polyline={activity.route_polyline} className="h-8 w-8 shrink-0" />
       ) : null}
       <div className="min-w-0 flex-1">
-        <p className="text-foreground truncate text-sm font-medium">{label}</p>
+        <p className="text-foreground flex items-center gap-2 truncate text-sm font-medium">
+          {label}
+          {activity.race_goal_id ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              <Flag size={10} aria-hidden />
+              Course
+            </span>
+          ) : null}
+        </p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {formatRelativeDate(activity.start_time)}
         </p>

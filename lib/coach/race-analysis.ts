@@ -543,3 +543,115 @@ function appendPreparationInsight(
     `Préparation réellement effectuée : ${String(preparation.sessions)} séances pour ${String(hours)} h d’entraînement.`
   )
 }
+
+/**
+ * Chrono de course : `4:32:10` (ou `32:10` sous l'heure). Un temps d'épreuve se lit
+ * à la seconde — `formatDuration` arrondit à la minute, ce qui gomme les transitions.
+ */
+export function formatRaceClock(seconds: number | null | undefined): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '—'
+  const total = Math.round(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  return h > 0 ? `${String(h)}:${mm}:${ss}` : `${String(m)}:${ss}`
+}
+
+/** Écart signé, lisible : `-4:12`, `+38 s`. */
+export function formatClockDelta(seconds: number | null | undefined): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '—'
+  if (seconds === 0) return '='
+  const sign = seconds < 0 ? '-' : '+'
+  return `${sign}${formatRaceClock(Math.abs(seconds))}`
+}
+
+/**
+ * Lit un chrono saisi à la main : `4:32:10`, `32:10`, `1h12`, ou un nombre de secondes.
+ * Renvoie null si la saisie n'est pas exploitable — le formulaire ne doit jamais
+ * transformer une faute de frappe en temps officiel.
+ */
+export function parseRaceClock(input: string): number | null {
+  const trimmed = input.trim().toLowerCase().replace(/\s/g, '')
+  if (trimmed === '') return null
+
+  const hMatch = /^(\d+)h(\d{1,2})?(?:m?(\d{1,2})s?)?$/.exec(trimmed)
+  if (hMatch) {
+    const [, h, m, s] = hMatch
+    return Number(h) * 3600 + Number(m ?? 0) * 60 + Number(s ?? 0)
+  }
+
+  const parts = trimmed.split(':')
+  if (parts.length > 1) {
+    if (parts.some((part) => !/^\d{1,2}$/.test(part))) return null
+    const numbers = parts.map(Number)
+    const [a = 0, b = 0, c = 0] = numbers
+    return numbers.length === 3 ? a * 3600 + b * 60 + c : a * 60 + b
+  }
+
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : null
+}
+
+export interface RaceHistoryEntry {
+  readonly raceGoalId: string
+  readonly name: string
+  readonly raceDate: string
+  readonly discipline: string
+  readonly elapsedS: number
+  readonly source: 'official' | 'garmin'
+  readonly targetDeltaS: number | null
+  /** Écart avec la course précédente de même discipline. Négatif = progression. */
+  readonly previousDeltaS: number | null
+}
+
+/**
+ * Historique des courses, la plus récente d'abord — le socle de la lecture de
+ * progression demandée (E23.4) : un triathlète se compare d'une épreuve à l'autre
+ * avant de se comparer d'un footing à l'autre.
+ */
+export function summarizeRaceHistory({
+  races,
+  activitiesByRace,
+  segmentsByActivity,
+  resultsByRace,
+}: {
+  readonly races: readonly RaceGoalRow[]
+  readonly activitiesByRace: Readonly<Record<string, RaceActivityRow[]>>
+  readonly segmentsByActivity: Readonly<Record<number, RaceSegmentRow[]>>
+  readonly resultsByRace: Readonly<Record<string, RaceResultsRow>>
+}): RaceHistoryEntry[] {
+  const ascending = [...races].sort((a, b) => a.race_date.localeCompare(b.race_date))
+  const lastByDiscipline: Record<string, number> = {}
+  const entries: RaceHistoryEntry[] = []
+
+  for (const race of ascending) {
+    const activities = activitiesByRace[race.id] ?? []
+    if (activities.length === 0) continue
+    const segments = activities.flatMap(
+      (activity) => segmentsByActivity[activity.garmin_activity_id] ?? []
+    )
+    const timeline = buildRaceTimeline({ activities, segments })
+    const elapsed = resolveRaceElapsed({
+      timeline,
+      race,
+      results: resultsByRace[race.id] ?? null,
+    })
+    if (elapsed.totalS <= 0) continue
+
+    const previous = lastByDiscipline[race.discipline]
+    entries.push({
+      raceGoalId: race.id,
+      name: race.name ?? 'Course',
+      raceDate: race.race_date,
+      discipline: race.discipline,
+      elapsedS: elapsed.totalS,
+      source: elapsed.source,
+      targetDeltaS: elapsed.deltaS,
+      previousDeltaS: previous === undefined ? null : elapsed.totalS - previous,
+    })
+    lastByDiscipline[race.discipline] = elapsed.totalS
+  }
+
+  return entries.reverse()
+}

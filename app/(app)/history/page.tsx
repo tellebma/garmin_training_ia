@@ -44,7 +44,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
   let query = supabase
     .from('activities')
     .select(
-      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, route_polyline'
+      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, route_polyline, race_goal_id'
     )
     .eq('user_id', userId)
 

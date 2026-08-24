@@ -1,5 +1,18 @@
 # Nouveautés
 
+## 1.22.0 — 2026-08-24
+
+- Tes courses ne se perdent plus dans l'historique : l'activité du jour d'une épreuve est
+  reconnue automatiquement et ouvre une **vue course** dédiée — temps par discipline, T1 et T2,
+  écart au temps visé et comparaison avec ta course précédente du même format.
+- Le coach te fait un vrai retour sur la course : ce qui a marché, les points d'amélioration
+  (pacing, transitions, fin d'épreuve), et le rappel de la préparation réellement effectuée.
+- Tu peux compléter ce que la montre ne mesure pas : chronos officiels, classement, dossard,
+  météo, nutrition, matériel et ton ressenti — et retrouver toutes tes courses dans « Mes
+  courses », sur la page Statistiques.
+- Une activité peut être marquée comme course à la main, même pour une épreuve courue avant
+  l'app : ton premier triathlon a droit à sa page, badge « Première course » compris.
+
 ## 1.21.0 — 2026-08-21
 
 - Un onglet « Coach » fait son apparition : tu peux lui poser tes questions d'entraînement en

@@ -375,3 +375,93 @@ describe('buildRaceDebrief', () => {
     expect(debrief.strengths.join(' ')).toContain('Répartition du temps conforme')
   })
 })
+
+describe('race clocks', () => {
+  it('formats a race time to the second', async () => {
+    const { formatRaceClock } = await import('@/lib/coach/race-analysis')
+
+    expect(formatRaceClock(9130)).toBe('2:32:10')
+    expect(formatRaceClock(1930)).toBe('32:10')
+    expect(formatRaceClock(null)).toBe('—')
+    expect(formatRaceClock(0)).toBe('—')
+  })
+
+  it('formats a signed delta', async () => {
+    const { formatClockDelta } = await import('@/lib/coach/race-analysis')
+
+    expect(formatClockDelta(-252)).toBe('-4:12')
+    expect(formatClockDelta(38)).toBe('+0:38')
+    expect(formatClockDelta(0)).toBe('=')
+    expect(formatClockDelta(null)).toBe('—')
+  })
+
+  it('parses the shapes an athlete actually types', async () => {
+    const { parseRaceClock } = await import('@/lib/coach/race-analysis')
+
+    expect(parseRaceClock('2:32:10')).toBe(9130)
+    expect(parseRaceClock('32:10')).toBe(1930)
+    expect(parseRaceClock('1h12')).toBe(4320)
+    expect(parseRaceClock('1h12m30s')).toBe(4350)
+    expect(parseRaceClock('9130')).toBe(9130)
+    expect(parseRaceClock('  ')).toBeNull()
+    expect(parseRaceClock('deux heures')).toBeNull()
+    expect(parseRaceClock('2:aa')).toBeNull()
+  })
+})
+
+describe('summarizeRaceHistory', () => {
+  const olderRace: RaceGoalRow = {
+    ...RACE,
+    id: 'race-0',
+    race_date: '2025-09-01',
+    name: 'Premier triathlon',
+    target_time_seconds: null,
+  }
+
+  const activitiesByRace = {
+    'race-0': [activity({ id: 'a0', garmin_activity_id: 10, duration_s: 9600 })],
+    'race-1': [activity({ id: 'a1', garmin_activity_id: 11, duration_s: 9000 })],
+  }
+
+  it('orders races from the most recent and measures the progress', async () => {
+    const { summarizeRaceHistory } = await import('@/lib/coach/race-analysis')
+
+    const history = summarizeRaceHistory({
+      races: [RACE, olderRace],
+      activitiesByRace,
+      segmentsByActivity: {},
+      resultsByRace: {},
+    })
+
+    expect(history.map((entry) => entry.raceGoalId)).toEqual(['race-1', 'race-0'])
+    expect(history[0]).toMatchObject({ elapsedS: 9000, previousDeltaS: -600, targetDeltaS: 0 })
+    expect(history[1]?.previousDeltaS).toBeNull()
+  })
+
+  it('prefers the official time and skips races without activities', async () => {
+    const { summarizeRaceHistory } = await import('@/lib/coach/race-analysis')
+
+    const history = summarizeRaceHistory({
+      races: [RACE, olderRace],
+      activitiesByRace: { 'race-1': activitiesByRace['race-1'] },
+      segmentsByActivity: { 11: FULL_SEGMENTS },
+      resultsByRace: { 'race-1': { ...emptyResults, official_time_s: 8888 } },
+    })
+
+    expect(history).toHaveLength(1)
+    expect(history[0]).toMatchObject({ elapsedS: 8888, source: 'official' })
+  })
+
+  it('skips a race whose activities have no usable duration', async () => {
+    const { summarizeRaceHistory } = await import('@/lib/coach/race-analysis')
+
+    const history = summarizeRaceHistory({
+      races: [RACE],
+      activitiesByRace: { 'race-1': [activity({ id: 'a1', duration_s: 0 })] },
+      segmentsByActivity: {},
+      resultsByRace: {},
+    })
+
+    expect(history).toEqual([])
+  })
+})
