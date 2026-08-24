@@ -32,6 +32,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import type { ActivityFeedbackDto, PlannedSession, Sport } from '@/lib/dashboard/types'
 import { ActivityFeedbackForm } from './activity-feedback-form'
+import { RaceTagForm, type CandidateRace } from './race-tag-form'
 
 export const revalidate = 300
 
@@ -97,7 +98,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   const { data: activityData } = await supabase
     .from('activities')
     .select(
-      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories'
+      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories, race_goal_id'
     )
     .eq('user_id', userId)
     .eq('id', id)
@@ -106,6 +107,8 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   if (!activityData) notFound()
 
   const activity: ActivityDetail = activityData
+  const raceGoalId =
+    typeof activityData.race_goal_id === 'string' ? activityData.race_goal_id : null
   const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
 
   return (
@@ -131,6 +134,10 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
         </div>
       </header>
 
+      <Suspense fallback={null}>
+        <ActivityRaceTag userId={userId} activity={activity} raceGoalId={raceGoalId} />
+      </Suspense>
+
       <Suspense fallback={<ActivityDetailSkeleton />}>
         <ActivityDetailBody userId={userId} activity={activity} />
       </Suspense>
@@ -139,6 +146,51 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
         <ActivityColsGravis userId={userId} garminActivityId={activity.garmin_activity_id} />
       </Suspense>
     </div>
+  )
+}
+
+/** Les courses à afficher : celle déjà rattachée, et celles programmées ce jour-là. */
+function raceFilter(activityDate: string, raceGoalId: string | null): string {
+  const sameDay = `race_date.eq.${activityDate}`
+  return raceGoalId ? `${sameDay},id.eq.${raceGoalId}` : sameDay
+}
+
+/**
+ * Bandeau course : soit l'activité est rattachée à une épreuve, soit on propose de
+ * l'y rattacher. Requête isolée derrière son propre Suspense — elle ne doit pas
+ * retarder l'analyse de l'activité.
+ */
+async function ActivityRaceTag({
+  userId,
+  activity,
+  raceGoalId,
+}: {
+  readonly userId: string
+  readonly activity: ActivityDetail
+  readonly raceGoalId: string | null
+}) {
+  const supabase = await createClient()
+  const activityDate = isoDate(activity.start_time)
+
+  const { data } = await supabase
+    .from('race_goals')
+    .select('id, name, discipline, race_date')
+    .eq('user_id', userId)
+    .or(raceFilter(activityDate, raceGoalId))
+    .overrideTypes<(CandidateRace & { race_date: string })[], { merge: false }>()
+
+  const races = data ?? []
+  const race = races.find((candidate) => candidate.id === raceGoalId) ?? null
+  const candidates = races.filter((candidate) => candidate.race_date === activityDate)
+
+  return (
+    <RaceTagForm
+      activityId={activity.id}
+      activityDate={activityDate}
+      activitySport={activity.sport}
+      race={race}
+      candidates={candidates}
+    />
   )
 }
 

@@ -61,6 +61,8 @@ export interface ActivityRowDto {
   tss: number | null
   hr_avg: number | null
   route_polyline?: unknown
+  /** Course à laquelle l'activité est rattachée (E23) ; null = activité ordinaire. */
+  race_goal_id?: string | null
 }
 
 export interface WeeklyVolumePoint {
