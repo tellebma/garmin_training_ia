@@ -23,6 +23,7 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
+from garmin_sync.coach.race_tagging import tag_races_for_user
 from garmin_sync.config import get_settings
 from garmin_sync.supabase_client import get_admin_client
 from garmin_sync.transformers.activities import transform_activity, transform_activity_samples
@@ -120,6 +121,9 @@ def _sync_activities(
             _sync_missing_activity_samples(db, user_id, client, rows)
         _sync_gps_backfill(db, user_id, client, get_settings().gps_backfill_batch)
         _sync_activity_segments(db, user_id, client, _SEGMENTS_BACKFILL_BATCH)
+        # E23.1 — rattache l'activité du jour J à sa course. Borné à la fenêtre
+        # synchronisée ; `tag_races_for_user` avale ses propres erreurs.
+        tag_races_for_user(db, user_id, start_date=start.isoformat(), end_date=end.isoformat())
     except _AbortSyncErrors:
         log.warning("activities sync aborted (rate-limit/auth) for user=%s", user_id)
         raise
