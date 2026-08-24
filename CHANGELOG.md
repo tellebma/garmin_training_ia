@@ -1,3 +1,9 @@
+## [1.22.0](https://github.com/tellebma/garmin_training_ia/compare/v1.21.0...v1.22.0) (2026-08-24)
+
+### Features
+
+* **race:** vue course — détection, débrief et jalon de progression (E23) ([#208](https://github.com/tellebma/garmin_training_ia/issues/208)) ([079e231](https://github.com/tellebma/garmin_training_ia/commit/079e2314e1481c07be466e3af8b530d33b9de311))
+
 ## [1.21.0](https://github.com/tellebma/garmin_training_ia/compare/v1.20.0...v1.21.0) (2026-08-24)
 
 ### Features
