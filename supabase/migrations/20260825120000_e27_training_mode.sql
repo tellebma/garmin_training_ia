@@ -31,3 +31,23 @@ comment on column public.athlete_profiles.training_mode_since is
 update public.athlete_profiles
    set training_mode_since = current_date
  where training_mode_since is null;
+
+-- =========================================
+-- Un plan peut désormais n'être rattaché à aucune course
+-- =========================================
+
+-- `race_goal_id not null` était la traduction en base de « un plan prépare une épreuve ».
+-- Un plan de maintien ou de progression continue n'en prépare aucune.
+alter table public.training_plans
+  alter column race_goal_id drop not null;
+
+comment on column public.training_plans.race_goal_id is
+  'Course préparée par ce plan. NULL = plan sans objectif daté (E27, mode maintain/improve).';
+
+-- L'unicité du plan actif reposait sur (user_id, race_goal_id) : avec un race_goal_id NULL,
+-- Postgres considère chaque ligne comme distincte et l'index ne garantit plus rien — deux
+-- plans actifs sans course pourraient coexister, et `/today` afficherait deux séances par
+-- jour (bug déjà vécu avec les plans orphelins). D'où un second index, pour ce cas précis.
+create unique index if not exists training_plans_active_without_race_per_user
+  on public.training_plans (user_id)
+  where status = 'active' and race_goal_id is null;

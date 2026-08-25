@@ -86,6 +86,30 @@ def test_no_window_when_there_is_nothing_to_impose():
     )
 
 
+def test_a_week_is_in_recovery_as_soon_as_one_of_its_days_is():
+    """Bug attrapé en test : ne regarder que le lundi ratait le cas le plus fréquent.
+
+    Course courue un lundi (ou en fin de semaine) : la récupération commence le
+    lendemain, donc la semaine EN COURS est une semaine de récupération. La tester
+    sur son seul premier jour la déclarait normale — et l'athlète recevait une
+    séance longue au lendemain de son épreuve.
+    """
+    monday = date(2026, 8, 24)
+    window = post_race_recovery(race_date=monday, elapsed_s=3 * 3600, today=monday)
+    assert window is not None
+    assert not window.covers(monday)
+    assert window.covers_week(monday)
+    assert window.week_load_multiplier(monday) == 0.5
+
+
+def test_a_week_straddling_the_end_of_the_window_stays_eased():
+    """On préfère une semaine trop douce à une semaine trop dure après une course."""
+    window = post_race_recovery(race_date=RACE_DAY, elapsed_s=3 * 3600, today=RACE_DAY)
+    assert window is not None
+    straddling = RACE_DAY + timedelta(days=5)  # se termine après la fin de fenêtre
+    assert window.week_load_multiplier(straddling) == 0.5
+
+
 def test_recovery_allows_no_quality_and_no_long_session():
     assert RECOVERY_SESSION_TYPES == ["recovery", "endurance"]
     for forbidden in ("threshold", "pma", "sprint", "long"):

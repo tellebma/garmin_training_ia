@@ -40,11 +40,23 @@ DEFAULT_HORIZON_WEEKS = 4
 """Assez pour voir venir un bloc et sa décharge, assez court pour ne pas mentir."""
 
 # Facteurs RELATIFS à la CTL du moment, répétés à l'identique à chaque cycle.
-# Aucun ne dépasse 1.10 : la garantie anti-emballement est dans la donnée, pas dans
-# un commentaire.
+#
+# C'est la MOYENNE du cycle qui décide de la dérive de CTL, pas la valeur des semaines
+# de charge. Une première version posait (1.0, 1.0, 1.0, 0.70) pour le maintien : trois
+# semaines à l'équilibre et une décharge donnent une moyenne de 0.925, soit une CTL qui
+# perd ~7 % par cycle — un « maintien » qui déentraîne. Les semaines de charge
+# compensent donc explicitement la décharge :
+#
+#   maintain : (1.08 * 3 + 0.76) / 4 = 1.00   -> CTL stable
+#   improve  : (1.12 * 3 + 0.79) / 4 = 1.0375 -> progression douce, ~+2 %/cycle réel
+#
+# Aucun facteur ne dépasse MAX_MULTIPLIER : la garantie anti-emballement est dans la
+# donnée, pas dans un commentaire. Un facteur de 1.12 n'est pas « +12 % par semaine » :
+# c'est une charge tenue 12 % au-dessus du niveau d'équilibre courant, à laquelle la
+# CTL ne répond que d'environ +2 % en une semaine.
 _MULTIPLIERS: dict[str, tuple[float, ...]] = {
-    "maintain": (1.0, 1.0, 1.0, 0.70),
-    "improve": (1.0, 1.05, 1.10, 0.75),
+    "maintain": (1.08, 1.08, 1.08, 0.76),
+    "improve": (1.12, 1.12, 1.12, 0.79),
 }
 
 _CYCLE_PHASES: dict[str, tuple[Phase, ...]] = {

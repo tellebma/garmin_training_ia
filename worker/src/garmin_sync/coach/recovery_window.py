@@ -59,6 +59,27 @@ class RecoveryWindow:
         days_elapsed = (day - self.race_date).days
         return _FIRST_WEEK_MULTIPLIER if days_elapsed <= 7 else _SECOND_WEEK_MULTIPLIER
 
+    def _week_days(self, week_start: date) -> list[date]:
+        return [week_start + timedelta(days=offset) for offset in range(7)]
+
+    def covers_week(self, week_start: date) -> bool:
+        """La fenêtre touche-t-elle cette semaine ?
+
+        Tester le seul lundi laissait passer le cas le plus fréquent : une course
+        courue en fin de semaine, dont la récupération commence le lendemain — la
+        semaine en cours n'était alors pas considérée comme une semaine de récup,
+        et l'athlète recevait une séance longue au lendemain de son épreuve.
+        """
+        return any(self.covers(day) for day in self._week_days(week_start))
+
+    def week_load_multiplier(self, week_start: date) -> float:
+        """Le multiplicateur le plus contraignant parmi les jours de la semaine.
+
+        Une semaine à cheval sur la fin de la fenêtre reste allégée : on préfère une
+        semaine trop douce à une semaine trop dure juste après une course.
+        """
+        return min(self.load_multiplier(day) for day in self._week_days(week_start))
+
 
 def recovery_days(elapsed_s: float | None, race_distance: str | None = None) -> int:
     """Jours de récupération dus après une épreuve de cette durée."""

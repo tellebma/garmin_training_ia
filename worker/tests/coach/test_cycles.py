@@ -57,7 +57,12 @@ def test_race_mode_has_no_cycle():
 def test_maintain_stays_on_base_and_deloads_once_per_cycle():
     phases = compute_cycle_phases(4, "maintain", start_cycle_week=0)
     assert [phase for _, phase in phases] == ["base", "base", "base", "base"]
-    assert cycle_load_multipliers("maintain", start_cycle_week=0, weeks=4) == [1.0, 1.0, 1.0, 0.70]
+    assert cycle_load_multipliers("maintain", start_cycle_week=0, weeks=4) == [
+        1.08,
+        1.08,
+        1.08,
+        0.76,
+    ]
 
 
 def test_improve_alternates_build_weeks_without_peak_or_taper():
@@ -71,7 +76,7 @@ def test_improve_alternates_build_weeks_without_peak_or_taper():
 def test_horizon_starts_where_the_calendar_says_not_at_zero():
     """Le deload ne recule pas : régénérer en semaine 2 place la décharge à l'offset 1."""
     multipliers = cycle_load_multipliers("improve", start_cycle_week=2, weeks=4)
-    assert multipliers == [1.10, 0.75, 1.0, 1.05]
+    assert multipliers == [1.12, 0.79, 1.12, 1.12]
     phases = compute_cycle_phases(4, "improve", start_cycle_week=2)
     assert [phase for _, phase in phases] == ["build", "base", "base", "build"]
 
@@ -93,7 +98,7 @@ def test_a_calendar_week_keeps_its_factor_across_regenerations():
 def test_no_multiplier_ever_exceeds_the_documented_ceiling(mode: str, start: int):
     """Garde-fou anti-emballement : aucune semaine ne peut demander plus de +10 %."""
     multipliers = cycle_load_multipliers(mode, start_cycle_week=start, weeks=12)
-    assert max(multipliers) <= MAX_MULTIPLIER == 1.10
+    assert max(multipliers) <= MAX_MULTIPLIER == 1.12
 
 
 @pytest.mark.parametrize("mode", ["maintain", "improve"])
