@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRaceDebrief,
+  buildRaceSalute,
   buildRaceTimeline,
   compareRaces,
   expectedSharePct,
@@ -463,5 +464,99 @@ describe('summarizeRaceHistory', () => {
     })
 
     expect(history).toEqual([])
+  })
+})
+
+describe('buildRaceSalute', () => {
+  const elapsed = (totalS: number, targetS: number | null = RACE.target_time_seconds) => ({
+    totalS,
+    source: 'garmin' as const,
+    targetS,
+    deltaS: targetS === null ? null : totalS - targetS,
+  })
+  const finisher = [activity({ distance_m: 51_500, duration_s: 8700 })]
+
+  it('félicite un objectif tenu, avec l’écart en clair', () => {
+    const salute = buildRaceSalute({
+      race: RACE,
+      activities: finisher,
+      elapsed: elapsed(8700),
+      previousDeltaS: null,
+      isFirstRace: false,
+    })
+    expect(salute.tone).toBe('cheer')
+    expect(salute.headline).toContain('Objectif tenu')
+    expect(salute.figure).toBe('2:25:00')
+  })
+
+  it('fête la première course avant toute comparaison', () => {
+    const salute = buildRaceSalute({
+      race: RACE,
+      activities: finisher,
+      elapsed: elapsed(9600),
+      previousDeltaS: null,
+      isFirstRace: true,
+    })
+    expect(salute.tone).toBe('cheer')
+    expect(salute.headline).toContain('Première course')
+  })
+
+  it('salue un progrès sur la course précédente quand la cible est manquée de peu', () => {
+    const salute = buildRaceSalute({
+      race: RACE,
+      activities: finisher,
+      elapsed: elapsed(9300),
+      previousDeltaS: -240,
+      isFirstRace: false,
+    })
+    expect(salute.tone).toBe('cheer')
+    expect(salute.headline).toContain('de mieux')
+  })
+
+  it('reste factuel sans temps visé ni course précédente', () => {
+    const salute = buildRaceSalute({
+      race: RACE,
+      activities: finisher,
+      elapsed: elapsed(9300, null),
+      previousDeltaS: null,
+      isFirstRace: false,
+    })
+    expect(salute.tone).toBe('neutral')
+    expect(salute.headline).toBe('Course bouclée.')
+  })
+
+  it('ne félicite jamais une course écourtée, même si c’est la première', () => {
+    // La seule erreur vraiment coûteuse ici : un « Bravo » à quelqu'un qui a abandonné.
+    const salute = buildRaceSalute({
+      race: RACE,
+      activities: [activity({ distance_m: 33_000, duration_s: 6000 })],
+      elapsed: elapsed(6000),
+      previousDeltaS: -600,
+      isFirstRace: true,
+    })
+    expect(salute.tone).toBe('tender')
+    expect(salute.headline).not.toContain('Bravo')
+  })
+
+  it('prend un ton attentionné quand la cible est très largement manquée', () => {
+    const salute = buildRaceSalute({
+      race: RACE,
+      activities: finisher,
+      elapsed: elapsed(11_000),
+      previousDeltaS: null,
+      isFirstRace: false,
+    })
+    expect(salute.tone).toBe('tender')
+  })
+
+  it('ne conclut pas à une course écourtée sans distance exploitable', () => {
+    const salute = buildRaceSalute({
+      race: { ...RACE, total_distance_km: null, legs: null },
+      activities: [activity({ distance_m: 0 })],
+      elapsed: elapsed(8700),
+      previousDeltaS: null,
+      isFirstRace: false,
+    })
+    expect(salute.tone).toBe('cheer')
   })
 })

@@ -655,3 +655,111 @@ export function summarizeRaceHistory({
 
   return entries.reverse()
 }
+
+// ---------------------------------------------------------------------------------------
+// Le mot sur la course (E26)
+// ---------------------------------------------------------------------------------------
+
+export type RaceSaluteTone = 'cheer' | 'neutral' | 'tender'
+
+export interface RaceSalute {
+  readonly tone: RaceSaluteTone
+  /** Une phrase. Pas deux. */
+  readonly headline: string
+  /** Le chiffre qui compte, déjà formaté. */
+  readonly figure: string
+}
+
+/** Sous ce ratio de la distance attendue, l'épreuve a été écourtée. */
+const SHORTENED_DISTANCE_RATIO = 0.85
+/** Au-delà de cet écart relatif au temps visé, ce n'était pas le jour. */
+const MISSED_TARGET_RATIO = 0.15
+
+function coveredDistanceM(activities: readonly RaceActivityRow[]): number {
+  return activities.reduce((sum, activity) => sum + (activity.distance_m ?? 0), 0)
+}
+
+function expectedDistanceM(race: RaceGoalRow): number {
+  if (race.total_distance_km) return race.total_distance_km * 1000
+  const legs = race.legs ?? []
+  const km = legs.reduce((sum, leg) => sum + (leg.distance_km ?? 0), 0)
+  return km * 1000
+}
+
+/**
+ * Le mot dit à l'athlète juste après sa course (E26.3).
+ *
+ * Déterministe, comme `buildRaceDebrief` : le ton d'un message qui tombe au lendemain
+ * d'une épreuve ne peut pas dépendre de l'humeur d'un LLM. Trois règles de rédaction —
+ * une phrase, un chiffre, jamais de faux enthousiasme. Le détail vit dans le débrief,
+ * vers lequel la modale renvoie.
+ *
+ * L'ordre d'évaluation va du plus discriminant au plus général : une course écourtée
+ * l'emporte sur un objectif tenu, parce qu'un « Bravo » adressé à quelqu'un qui a
+ * abandonné est la seule erreur vraiment coûteuse ici.
+ *
+ * Limite connue : un abandon franc n'arrive pas jusqu'ici. `race_tagging` exige 60 % de
+ * la distance attendue pour rattacher une activité à une course — le garde-fou qui évite
+ * de taguer le footing de décrassage écarte aussi l'abandon à 30 %. Le ton `tender` ne se
+ * déclenche donc que sur la bande 60-85 %, ou après un tag manuel.
+ */
+export function buildRaceSalute({
+  race,
+  activities,
+  elapsed,
+  previousDeltaS,
+  isFirstRace,
+}: {
+  readonly race: RaceGoalRow
+  readonly activities: readonly RaceActivityRow[]
+  readonly elapsed: RaceElapsed
+  /** Écart avec la précédente course de même discipline. Négatif = plus rapide. */
+  readonly previousDeltaS: number | null
+  readonly isFirstRace: boolean
+}): RaceSalute {
+  const figure = formatRaceClock(elapsed.totalS)
+  const expected = expectedDistanceM(race)
+  const covered = coveredDistanceM(activities)
+
+  if (expected > 0 && covered > 0 && covered < expected * SHORTENED_DISTANCE_RATIO) {
+    return {
+      tone: 'tender',
+      headline: 'Journée difficile — la course s’est arrêtée avant la ligne.',
+      figure,
+    }
+  }
+
+  if (
+    elapsed.deltaS !== null &&
+    elapsed.targetS !== null &&
+    elapsed.deltaS / elapsed.targetS > MISSED_TARGET_RATIO
+  ) {
+    return {
+      tone: 'tender',
+      headline: 'Ce n’était pas le jour. Le débrief dit où ça s’est joué.',
+      figure,
+    }
+  }
+
+  if (isFirstRace) {
+    return { tone: 'cheer', headline: 'Première course bouclée. Ça se fête.', figure }
+  }
+
+  if (elapsed.deltaS !== null && elapsed.deltaS <= 0) {
+    return {
+      tone: 'cheer',
+      headline: `Objectif tenu — ${formatRaceClock(Math.abs(elapsed.deltaS))} sous ta cible.`,
+      figure,
+    }
+  }
+
+  if (previousDeltaS !== null && previousDeltaS < 0) {
+    return {
+      tone: 'cheer',
+      headline: `${formatRaceClock(Math.abs(previousDeltaS))} de mieux que ta course précédente.`,
+      figure,
+    }
+  }
+
+  return { tone: 'neutral', headline: 'Course bouclée.', figure }
+}
