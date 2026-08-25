@@ -1,3 +1,9 @@
+## [1.24.0](https://github.com/tellebma/garmin_training_ia/compare/v1.23.0...v1.24.0) (2026-08-25)
+
+### Features
+
+* **activities:** recalcule la charge dès qu'une activité est supprimée ([#210](https://github.com/tellebma/garmin_training_ia/issues/210)) ([63cd89b](https://github.com/tellebma/garmin_training_ia/commit/63cd89ba502362d0fb6758a6425e16d55aad2395))
+
 ## [1.23.0](https://github.com/tellebma/garmin_training_ia/compare/v1.22.0...v1.23.0) (2026-08-25)
 
 ### Features
