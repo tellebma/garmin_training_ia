@@ -1076,6 +1076,31 @@ distance, allure ou vitesse, FC moyenne), en plus du total de l'épreuve.
 Dépendance : cet EPIC bénéficie au partage mais la décomposition par discipline sert aussi la
 fiche `/history/[id]` et le coach (E9.4 progression par discipline) — la spec doit décider si
 la donnée est produite pour le seul calque ou exposée plus largement.
+### EPIC E24 — Exclure une activité de son historique (demande owner 2026-08-24)
+
+**Priorité : P1 — Statut : V1 en cours**
+
+Cas vécu par l'owner le jour de sa course : compteur GPS du vélo lancé **en mode activité** en
+plus de la montre, pour avoir les métriques sous les yeux pendant l'épreuve. Résultat : deux
+activités pour un seul effort, donc TSS compté deux fois, volume gonflé, charge (CTL/ATL/TSB)
+faussée, et une vue course qui additionne deux fois le même vélo.
+
+Il faut pouvoir **retirer une activité** de son historique et de ses statistiques.
+
+- **E24.1 P1 — Exclusion réversible plutôt que suppression sèche** : une suppression physique
+  serait **annulée au sync suivant** — l'activité existe toujours chez Garmin et l'upsert la
+  recréerait. L'exclusion est donc portée par une colonne (`activities.excluded_at`) que le sync
+  ne réécrit jamais : l'activité reste en base, cesse de compter, et peut être restaurée.
+- **E24.2 P1 — L'exclusion vaut partout** : charge et Banister, volumes, cockpit, briefing,
+  revue d'activités, niveau par discipline, plan, chat coach, vue course, dernière activité de
+  `/today`, historique. Un seul point d'entrée dans le code (helper de portée) pour que le filtre
+  ne s'oublie pas au prochain écran.
+- **E24.3 P1 — Bouton et restauration** : depuis `/history/[id]`, bouton de suppression avec sa
+  conséquence annoncée ; les activités exclues restent listables et restaurables depuis
+  `/history` (filtre dédié), pour qu'une erreur ne soit jamais définitive.
+- **E24.4 P2 — Détection de doublon** : signaler deux activités qui se chevauchent (même créneau,
+  même sport) et proposer d'en exclure une, au lieu d'attendre que l'athlète le remarque.
+
 ### EPIC E23 — Vue course : détection, débrief et jalon de progression (demande owner 2026-08-24)
 
 **Priorité : P1 — Statut : V1 livrée (PR #208)** — spec
