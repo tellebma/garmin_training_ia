@@ -51,3 +51,65 @@ comment on column public.training_plans.race_goal_id is
 create unique index if not exists training_plans_active_without_race_per_user
   on public.training_plans (user_id)
   where status = 'active' and race_goal_id is null;
+
+-- =========================================
+-- Changer de cap : une seule écriture, un seul endroit
+-- =========================================
+
+-- L'ancre ne bouge QU'AU changement de mode : rappeler `set_training_mode` avec le mode
+-- déjà en place ne doit pas repousser la semaine de décharge (sinon elle n'arrive jamais).
+create or replace function public.set_training_mode(p_mode text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'not authorized';
+  end if;
+  if p_mode not in ('race', 'maintain', 'improve') then
+    raise exception 'invalid training mode: %', p_mode;
+  end if;
+
+  update public.athlete_profiles
+     set training_mode = p_mode,
+         training_mode_since = current_date
+   where user_id = v_user
+     and training_mode is distinct from p_mode;
+end;
+$$;
+
+revoke execute on function public.set_training_mode(text) from public, anon;
+grant execute on function public.set_training_mode(text) to authenticated;
+
+-- Créer ou replanifier une course A bascule le cap sur 'race' — dans LA MÊME transaction
+-- que l'écriture de la course. Le faire depuis l'application demanderait deux écritures :
+-- un échec entre les deux laisserait un athlète avec une course à préparer et un plan de
+-- maintien. Le trigger le rend impossible, et couvre tous les chemins d'écriture
+-- (onboarding, édition du profil, course rétroactive).
+create or replace function public.sync_training_mode_with_race()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Une course rétroactive (E23) est passée et non primaire : elle ne relance rien.
+  if new.is_primary and new.race_date > current_date then
+    update public.athlete_profiles
+       set training_mode = 'race',
+           training_mode_since = current_date
+     where user_id = new.user_id
+       and training_mode is distinct from 'race';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_race_goals_sync_training_mode on public.race_goals;
+create trigger trg_race_goals_sync_training_mode
+  after insert or update of race_date, is_primary on public.race_goals
+  for each row execute procedure public.sync_training_mode_with_race();

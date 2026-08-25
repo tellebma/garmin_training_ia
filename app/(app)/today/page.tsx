@@ -36,6 +36,8 @@ import type {
   RaceGoal,
 } from '@/lib/dashboard/types'
 
+import { effectiveTrainingMode, trainingModeCopy } from '@/lib/coach/training-mode'
+
 export const revalidate = 0
 
 function daysUntil(iso: string): number {
@@ -134,6 +136,7 @@ export default async function TodayPage() {
     banisterRes,
     lastActivityRes,
     raceRes,
+    profileRes,
     garminCredsRes,
   ] = await Promise.all([
     supabase
@@ -193,6 +196,7 @@ export default async function TodayPage() {
       .eq('user_id', userId)
       .eq('is_primary', true)
       .maybeSingle(),
+    supabase.from('athlete_profiles').select('training_mode').eq('user_id', userId).maybeSingle(),
     supabase
       .from('garmin_credentials')
       .select(
@@ -212,6 +216,10 @@ export default async function TodayPage() {
   const lastActivity = lastActivityRes.data as ActivityRowDto | null
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   const race = raceRes.data as RaceGoal | null
+  const effectiveMode = effectiveTrainingMode(
+    profileRes.data?.training_mode,
+    race?.race_date ?? null
+  )
   const garminSyncStatus = (garminCredsRes.data?.last_sync_status ?? null) as string | null
   const garminSyncError = (garminCredsRes.data?.last_sync_error_message ?? null) as string | null
   const lastSleepSyncAt = (garminCredsRes.data?.last_sleep_sync_at ?? null) as string | null
@@ -246,14 +254,25 @@ export default async function TodayPage() {
             })}
           </p>
         </div>
-        {race && (
-          <div className="text-right">
-            <p className="text-muted-foreground text-xs">{race.name ?? 'Course'}</p>
-            <p className="text-foreground text-sm font-semibold">
-              J-{String(daysUntil(race.race_date))}
-            </p>
-          </div>
-        )}
+        <div className="text-right">
+          {race && daysUntil(race.race_date) >= 0 ? (
+            <>
+              <p className="text-muted-foreground text-xs">{race.name ?? 'Course'}</p>
+              <p className="text-foreground text-sm font-semibold">
+                J-{String(daysUntil(race.race_date))}
+              </p>
+            </>
+          ) : (
+            /* Sans course à venir, un « J--30 » n'aurait aucun sens : on affiche le cap
+               réellement appliqué au plan (E27). */
+            <>
+              <p className="text-muted-foreground text-xs">Cap actuel</p>
+              <p className="text-foreground text-sm font-semibold">
+                {trainingModeCopy(effectiveMode).label}
+              </p>
+            </>
+          )}
+        </div>
       </header>
 
       <SyncTimingsCard

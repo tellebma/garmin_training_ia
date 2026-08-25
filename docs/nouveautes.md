@@ -1,5 +1,15 @@
 # Nouveautés
 
+## 1.25.0 — 2026-08-26
+
+- L'app ne s'arrête plus à ta ligne d'arrivée : le lendemain d'une course, tu continues de
+  recevoir des séances, au lieu d'un plan vide jusqu'à ce que tu saisisses un nouvel objectif.
+- Deux nouveaux caps quand tu n'as pas de course en vue : **maintien de forme** (charge stable)
+  ou **progression continue** (charge en hausse régulière), avec une semaine plus légère toutes
+  les quatre semaines. Ça se choisit depuis ton profil, et ça se change quand tu veux.
+- Après une épreuve, la récupération est imposée avant tout nouveau bloc — de 3 jours à
+  2 semaines selon le temps que tu as passé à l'effort, sans séance de qualité ni sortie longue.
+
 ## 1.24.0 — 2026-08-25
 
 - Quand tu supprimes (ou restaures) une activité, ta charge et ta forme sont recalculées dans la
