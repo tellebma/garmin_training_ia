@@ -3,7 +3,11 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { RotateCcw, Trash2, TriangleAlert } from 'lucide-react'
-import { deleteActivity, restoreActivity } from '@/app/actions/activity-visibility'
+import {
+  deleteActivity,
+  restoreActivity,
+  type ActivityVisibilityResult,
+} from '@/app/actions/activity-visibility'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -24,9 +28,11 @@ export function ActivityDeleteForm({ activityId, excludedAt, excludedReason }: R
   const [confirming, setConfirming] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
-  function run(action: () => Promise<{ success: boolean }>, redirectTo?: string): void {
+  function run(action: () => Promise<ActivityVisibilityResult>, redirectTo?: string): void {
     setError(null)
+    setNotice(null)
     startTransition(async () => {
       const result = await action()
       if (!result.success) {
@@ -34,6 +40,15 @@ export function ActivityDeleteForm({ activityId, excludedAt, excludedReason }: R
         return
       }
       setConfirming(false)
+      // Le recalcul de charge est best effort : quand il n'a pas pu se faire, on le dit
+      // plutôt que de rediriger vers un cockpit encore faux sans explication.
+      if (!result.loadRecomputed) {
+        setNotice(
+          'Enregistré. La charge et la forme seront recalculées au prochain sync (05:00 UTC).'
+        )
+        router.refresh()
+        return
+      }
       if (redirectTo) router.push(redirectTo)
       else router.refresh()
     })
@@ -61,6 +76,7 @@ export function ActivityDeleteForm({ activityId, excludedAt, excludedReason }: R
         >
           <RotateCcw size={14} /> Restaurer cette activité
         </Button>
+        {notice && <p className="text-muted-foreground mt-2 text-sm">{notice}</p>}
         {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
       </section>
     )
@@ -126,6 +142,7 @@ export function ActivityDeleteForm({ activityId, excludedAt, excludedReason }: R
         </Button>
       )}
 
+      {notice && <p className="text-muted-foreground mt-2 text-sm">{notice}</p>}
       {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
     </section>
   )

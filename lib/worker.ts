@@ -133,6 +133,20 @@ export async function workerTriggerSync(
   return workerPost<SyncTriggerResult>(`/garmin/sync?trigger=${trigger}`, {}, jwt)
 }
 
+export type RecomputeStateResult =
+  | { status: 'ok'; days?: number }
+  | { status: 'unexpected_error'; error_id: string; type: string }
+
+/**
+ * Recalcule CTL/ATL/TSB pour l'utilisateur courant (E24.5). Appelé après la
+ * suppression ou la restauration d'une activité : la charge doit refléter la
+ * correction tout de suite, pas au cron du lendemain.
+ */
+export async function workerRecomputeState(jwt: string): Promise<RecomputeStateResult> {
+  // Court : le recalcul est un confort, l'action ne doit pas attendre indéfiniment.
+  return workerPost<RecomputeStateResult>('/coach/recompute-state', {}, jwt, 20_000)
+}
+
 export type StravaConnectResult =
   | { status: 'connected' }
   | { status: 'strava_auth_error' }

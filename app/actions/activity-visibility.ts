@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { workerRecomputeState } from '@/lib/worker'
 
 /**
  * Suppression (réversible) d'une activité — E24.
@@ -25,12 +26,33 @@ const deleteSchema = z.object({
 
 export type DeleteActivityInput = z.input<typeof deleteSchema>
 
-export type ActivityVisibilityResult = { success: true } | { success: false; error: string }
+export type ActivityVisibilityResult =
+  | { success: true; loadRecomputed: boolean }
+  | { success: false; error: string }
 
-async function currentUserId(): Promise<string | null> {
+async function currentSession(): Promise<{ userId: string; jwt: string } | null> {
   const supabase = await createClient()
   const { data } = await supabase.auth.getSession()
-  return data.session?.user.id ?? null
+  const session = data.session
+  return session ? { userId: session.user.id, jwt: session.access_token } : null
+}
+
+/**
+ * Recalcule la charge après coup — best effort.
+ *
+ * Supprimer une activité en double corrige le TSS du jour, donc CTL/ATL/TSB : les
+ * laisser faux jusqu'au cron de 05:00 UTC, c'est afficher une forme erronée à
+ * l'athlète qui vient précisément de corriger la donnée. Si le worker ne répond
+ * pas, la suppression reste acquise et le cron rattrapera — l'action ne doit pas
+ * échouer pour autant.
+ */
+async function recomputeLoad(jwt: string): Promise<boolean> {
+  try {
+    const result = await workerRecomputeState(jwt)
+    return result.status === 'ok'
+  } catch {
+    return false
+  }
 }
 
 function revalidateActivityViews(activityId: string): void {
@@ -45,7 +67,8 @@ async function setExcluded(
   excluded: boolean,
   reason: string | null
 ): Promise<ActivityVisibilityResult> {
-  if (!(await currentUserId())) return { success: false, error: 'unauthenticated' }
+  const session = await currentSession()
+  if (!session) return { success: false, error: 'unauthenticated' }
 
   const supabase = await createClient()
   const { error } = await supabase.rpc('set_activity_excluded', {
@@ -55,8 +78,9 @@ async function setExcluded(
   })
   if (error) return { success: false, error: error.message }
 
+  const loadRecomputed = await recomputeLoad(session.jwt)
   revalidateActivityViews(activityId)
-  return { success: true }
+  return { success: true, loadRecomputed }
 }
 
 /** Retire l'activité de l'historique et des statistiques. */

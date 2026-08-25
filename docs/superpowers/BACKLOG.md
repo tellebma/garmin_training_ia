@@ -1100,6 +1100,12 @@ Il faut pouvoir **retirer une activité** de son historique et de ses statistiqu
 - **E24.3 P1 — Bouton et restauration — V1 livrée** : depuis `/history/[id]`, bouton de suppression avec sa
   conséquence annoncée ; les activités exclues restent listables et restaurables depuis
   `/history` (filtre dédié), pour qu'une erreur ne soit jamais définitive.
+- **E24.5 P1 — Recalcul automatique de la charge — V1 livrée (PR #210)** : supprimer une
+  activité corrige le TSS du jour, donc CTL/ATL/TSB. Attendre le cron de 05:00 UTC afficherait
+  une forme fausse à l'athlète qui vient précisément de corriger la donnée. L'app appelle donc
+  `POST /coach/recompute-state` sur le worker juste après la suppression **et** la restauration.
+  Best effort : si le worker ne répond pas, l'exclusion reste acquise, l'écran le dit et le cron
+  rattrape.
 - **E24.4 P2 — Détection de doublon (Todo)** : signaler deux activités qui se chevauchent (même
   créneau, même sport) et proposer d'en exclure une, au lieu d'attendre que l'athlète le
   remarque. La fenêtre de recouvrement de `dedup.py` (±5 min) est réutilisable telle quelle.
