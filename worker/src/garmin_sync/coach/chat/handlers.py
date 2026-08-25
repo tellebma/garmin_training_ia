@@ -15,6 +15,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from garmin_sync.activities_scope import counted
+
 # --- Plafonds serveur (non négociables par le modèle) -----------------------
 
 MAX_ACTIVITIES = 30
@@ -162,7 +164,7 @@ def _get_recent_activities(
     n = _clamp(limit, 1, MAX_ACTIVITIES, 15)
     window = _clamp(days, 1, MAX_HISTORY_DAYS, 90)
     start = datetime.now(UTC) - timedelta(days=window)
-    query = (
+    query = counted(
         db.table("activities")
         .select(
             "id, start_time, sport, duration_s, distance_m, elevation_gain_m, "

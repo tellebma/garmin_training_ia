@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.briefing import build_next_session_adjustment
 from garmin_sync.coach.discipline_level import load_effective_strengths
@@ -111,10 +112,12 @@ def _race_context(
 def _load_activity_review(db: Any, user_id: str, today: date) -> ActivityReview:
     start = today - timedelta(days=90)
     resp = (
-        db.table("activities")
-        .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
-        .eq("user_id", user_id)
-        .gte("start_time", start.isoformat())
+        counted(
+            db.table("activities")
+            .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
+            .eq("user_id", user_id)
+            .gte("start_time", start.isoformat())
+        )
         .order("start_time", desc=True)
         .execute()
     )

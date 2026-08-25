@@ -26,6 +26,8 @@ def _mock_supabase_chain(db, *, profile=None, activities=None):
     act_chain.select.return_value = act_chain
     act_chain.eq.return_value = act_chain
     act_chain.gte.return_value = act_chain
+    # E24 : les lectures qui comptent filtrent les activités exclues.
+    act_chain.is_.return_value = act_chain
     act_chain.execute.return_value = MagicMock(data=activities or [])
 
     upsert_chain = MagicMock()

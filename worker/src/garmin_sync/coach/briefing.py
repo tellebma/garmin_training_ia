@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, cast
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.session_feedback import SessionFeedback, activity_day, build_session_feedback
 from garmin_sync.supabase_client import get_admin_client
@@ -823,10 +824,12 @@ def _load_tsb(db: Any, user_id: str, today: date) -> float | None:
 def _load_recent_activities(db: Any, user_id: str, today: date) -> list[dict[str, Any]]:
     start = today - timedelta(days=90)
     resp = (
-        db.table("activities")
-        .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
-        .eq("user_id", user_id)
-        .gte("start_time", start.isoformat())
+        counted(
+            db.table("activities")
+            .select("start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg")
+            .eq("user_id", user_id)
+            .gte("start_time", start.isoformat())
+        )
         .order("start_time", desc=True)
         .execute()
     )

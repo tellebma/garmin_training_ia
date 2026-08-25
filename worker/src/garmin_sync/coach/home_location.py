@@ -6,6 +6,7 @@ import statistics
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.supabase_client import get_admin_client
 
 # Médiane sur les N sorties GPS les plus récentes : borne le payload (route_polyline
@@ -26,10 +27,12 @@ def compute_home_location(user_id: str) -> tuple[float, float] | None:
     db = get_admin_client()
     rows = cast(
         "list[dict[str, Any]]",
-        db.table("activities")
-        .select("route_polyline")
-        .eq("user_id", user_id)
-        .not_.is_("route_polyline", "null")
+        counted(
+            db.table("activities")
+            .select("route_polyline")
+            .eq("user_id", user_id)
+            .not_.is_("route_polyline", "null")
+        )
         .order("start_time", desc=True)
         .limit(_RECENT_GPS_ACTIVITIES_LIMIT)
         .execute()

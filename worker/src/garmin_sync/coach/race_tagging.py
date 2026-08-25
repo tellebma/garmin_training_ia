@@ -27,6 +27,8 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
+from garmin_sync.activities_scope import counted
+
 log = logging.getLogger(__name__)
 
 # Part de la distance attendue en dessous de laquelle l'activité n'est pas la course.
@@ -264,11 +266,15 @@ def _fetch_activities(db: Any, user_id: str, race_dates: list[str]) -> list[dict
     rows = cast(
         "list[dict[str, Any]]",
         (
-            db.table("activities")
-            .select("id, start_time, sport, distance_m, duration_s, race_goal_id, race_tag_source")
-            .eq("user_id", user_id)
-            .gte("start_time", window_start)
-            .lte("start_time", window_end)
+            counted(
+                db.table("activities")
+                .select(
+                    "id, start_time, sport, distance_m, duration_s, race_goal_id, race_tag_source"
+                )
+                .eq("user_id", user_id)
+                .gte("start_time", window_start)
+                .lte("start_time", window_end)
+            )
             .execute()
             .data
             or []

@@ -260,9 +260,9 @@ def _mock_db_with(
             )
             decision_single.return_value.execute.return_value.data = adjustment_decision
         elif table_name == "activities":
-            activities_query = (
-                m.select.return_value.eq.return_value.gte.return_value.order.return_value
-            )
+            # E24 : `.is_("excluded_at", "null")` s'intercale avant l'ordre.
+            counted_q = m.select.return_value.eq.return_value.gte.return_value.is_.return_value
+            activities_query = counted_q.order.return_value
             rows_q = activities_query.execute.return_value
             rows_q.data = activities or []
         elif table_name == "recovery_baselines":

@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any, cast
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.coach.banister import (
     cold_start_state,
     compute_banister_history,
@@ -34,13 +35,12 @@ def recompute_daily_state(user_id: str, days_back: int = 180) -> dict[str, int]:
     )
     profile = cast("dict[str, Any]", profile_resp.data or {})
 
-    activities_resp = (
+    activities_resp = counted(
         db.table("activities")
         .select("start_time, sport, duration_s, power_avg, hr_avg, hr_max")
         .eq("user_id", user_id)
         .gte("start_time", start.isoformat())
-        .execute()
-    )
+    ).execute()
     activities = cast("list[dict[str, Any]]", activities_resp.data or [])
     fc_max = resolve_fc_max_bpm(profile.get("fc_max_bpm"), activities, today=today)
 
