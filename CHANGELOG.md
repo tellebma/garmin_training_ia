@@ -1,3 +1,9 @@
+## [1.23.0](https://github.com/tellebma/garmin_training_ia/compare/v1.22.0...v1.23.0) (2026-08-25)
+
+### Features
+
+* **activities:** supprimer une activité de son historique et de ses statistiques (E24) ([#209](https://github.com/tellebma/garmin_training_ia/issues/209)) ([5449f94](https://github.com/tellebma/garmin_training_ia/commit/5449f940e2077614e9ffac2140d0d426d0c7dddc))
+
 ## [1.22.0](https://github.com/tellebma/garmin_training_ia/compare/v1.21.0...v1.22.0) (2026-08-24)
 
 ### Features
