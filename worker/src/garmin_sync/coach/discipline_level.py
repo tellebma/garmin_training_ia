@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.coach.sports import CORE_DISCIPLINES, contributing_disciplines
 
 WINDOW_DAYS = 90
@@ -180,12 +181,11 @@ def load_effective_strengths(
     today = today or date.today()
     if activities is None:
         start = (today - timedelta(days=WINDOW_DAYS)).isoformat()
-        resp = (
+        resp = counted(
             db.table("activities")
             .select("start_time, sport, duration_s, tss")
             .eq("user_id", user_id)
             .gte("start_time", start)
-            .execute()
-        )
+        ).execute()
         activities = list(resp.data or [])
     return compute_discipline_levels(declared, activities, today=today).effective_strengths

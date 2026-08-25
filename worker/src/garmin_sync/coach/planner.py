@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 from itertools import pairwise
 from typing import Any, cast
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.coach.activity_review import ActivityReview, build_activity_review
 from garmin_sync.coach.banister import (
     BanisterState,
@@ -1054,10 +1055,14 @@ def _load_today_banister_state(
     history_start = today - timedelta(days=180)
     activities = cast(
         DbRows,
-        db.table("activities")
-        .select("start_time, sport, duration_s, power_avg, hr_avg, hr_max, tss, elevation_gain_m")
-        .eq("user_id", user_id)
-        .gte("start_time", history_start.isoformat())
+        counted(
+            db.table("activities")
+            .select(
+                "start_time, sport, duration_s, power_avg, hr_avg, hr_max, tss, elevation_gain_m"
+            )
+            .eq("user_id", user_id)
+            .gte("start_time", history_start.isoformat())
+        )
         .execute()
         .data
         or [],

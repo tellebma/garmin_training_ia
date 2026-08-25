@@ -23,6 +23,7 @@ import {
 import { formatDistanceKm, formatDuration } from '@/lib/dashboard/format'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import { countedActivities } from '@/lib/activities/scope'
 
 export const revalidate = 300
 
@@ -116,12 +117,13 @@ async function RaceBody({ userId, race }: { readonly userId: string; readonly ra
   const supabase = await createClient()
 
   const [activitiesRes, resultsRes, previousRaceRes, firstTaggedRes] = await Promise.all([
-    supabase
-      .from('activities')
-      .select(ACTIVITY_COLUMNS)
-      .eq('user_id', userId)
-      .eq('race_goal_id', race.id)
-      .order('start_time', { ascending: true }),
+    countedActivities(
+      supabase
+        .from('activities')
+        .select(ACTIVITY_COLUMNS)
+        .eq('user_id', userId)
+        .eq('race_goal_id', race.id)
+    ).order('start_time', { ascending: true }),
     supabase
       .from('race_results')
       .select(RESULTS_COLUMNS)
@@ -138,10 +140,9 @@ async function RaceBody({ userId, race }: { readonly userId: string; readonly ra
       .limit(1)
       .maybeSingle()
       .overrideTypes<{ id: string; race_date: string; name: string | null }, { merge: false }>(),
-    supabase
-      .from('activities')
-      .select('race_goal_id, start_time')
-      .eq('user_id', userId)
+    countedActivities(
+      supabase.from('activities').select('race_goal_id, start_time').eq('user_id', userId)
+    )
       .not('race_goal_id', 'is', null)
       .order('start_time', { ascending: true })
       .limit(1)
@@ -313,12 +314,13 @@ async function fetchRaceTimeline(
   userId: string,
   raceGoalId: string
 ) {
-  const { data } = await supabase
-    .from('activities')
-    .select(ACTIVITY_COLUMNS)
-    .eq('user_id', userId)
-    .eq('race_goal_id', raceGoalId)
-    .order('start_time', { ascending: true })
+  const { data } = await countedActivities(
+    supabase
+      .from('activities')
+      .select(ACTIVITY_COLUMNS)
+      .eq('user_id', userId)
+      .eq('race_goal_id', raceGoalId)
+  ).order('start_time', { ascending: true })
   const activities: RaceActivityRow[] = data ?? []
   if (activities.length === 0) return null
   const segments = await fetchSegments(supabase, userId, activities)
@@ -331,11 +333,13 @@ async function fetchPreparationActivities(
   race: RaceGoalRow
 ): Promise<RaceActivityRow[]> {
   if (!race.prep_start_date) return []
-  const { data } = await supabase
-    .from('activities')
-    .select(ACTIVITY_COLUMNS)
-    .eq('user_id', userId)
-    .gte('start_time', `${race.prep_start_date}T00:00:00Z`)
-    .lt('start_time', `${race.race_date}T00:00:00Z`)
+  const { data } = await countedActivities(
+    supabase
+      .from('activities')
+      .select(ACTIVITY_COLUMNS)
+      .eq('user_id', userId)
+      .gte('start_time', `${race.prep_start_date}T00:00:00Z`)
+      .lt('start_time', `${race.race_date}T00:00:00Z`)
+  )
   return data ?? []
 }

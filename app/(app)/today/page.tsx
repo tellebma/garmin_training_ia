@@ -12,6 +12,7 @@ import { getDailyBriefing } from '@/app/actions/briefing'
 import { ensureGeneratedSessions } from '@/app/actions/sessions'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import { countedActivities } from '@/lib/activities/scope'
 import type { Sport as CoachSport } from '@/lib/coach/session-templates'
 import type { Workout } from '@/lib/coach/workout-types'
 import { BriefingCard } from '../_components/briefing-card'
@@ -175,12 +176,14 @@ export default async function TodayPage() {
       .eq('user_id', userId)
       .gte('date', ninetyDaysAgo)
       .order('date', { ascending: true }),
-    supabase
-      .from('activities')
-      .select(
-        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
-      )
-      .eq('user_id', userId)
+    countedActivities(
+      supabase
+        .from('activities')
+        .select(
+          'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
+        )
+        .eq('user_id', userId)
+    )
       .order('start_time', { ascending: false })
       .limit(1)
       .maybeSingle(),

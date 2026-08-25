@@ -96,7 +96,10 @@ def test_clamp_falls_back_on_unreadable_values():
 def test_recent_activities_caps_limit_at_thirty(mock_db):
     db = MagicMock()
     mock_db.return_value = db
-    chain = db.table.return_value.select.return_value.eq.return_value.gte.return_value
+    # E24 : `.is_("excluded_at", "null")` avant l'ordre et la limite.
+    chain = (
+        db.table.return_value.select.return_value.eq.return_value.gte.return_value.is_.return_value
+    )
     chain.order.return_value.limit.return_value.execute.return_value.data = []
 
     execute_tool("get_recent_activities", {"limit": 9999}, user_id=_USER)
@@ -132,7 +135,9 @@ def test_profile_never_selects_home_coordinates(mock_db):
 def test_recent_activities_never_selects_the_gps_track(mock_db):
     db = MagicMock()
     mock_db.return_value = db
-    chain = db.table.return_value.select.return_value.eq.return_value.gte.return_value
+    chain = (
+        db.table.return_value.select.return_value.eq.return_value.gte.return_value.is_.return_value
+    )
     chain.order.return_value.limit.return_value.execute.return_value.data = []
 
     execute_tool("get_recent_activities", {}, user_id=_USER)

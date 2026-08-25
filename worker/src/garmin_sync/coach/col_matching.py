@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from typing import Any, cast
 
+from garmin_sync.activities_scope import counted
 from garmin_sync.coach.geo import haversine_m
 from garmin_sync.coach.overpass import fetch_cols_in_bbox
 from garmin_sync.supabase_client import get_admin_client
@@ -94,7 +95,7 @@ def _fetch_cursor(db: Any, user_id: str) -> str | None:
 
 
 def _fetch_pending_activities(db: Any, user_id: str, cursor: str | None) -> DbRows:
-    query = (
+    query = counted(
         db.table("activities")
         .select("garmin_activity_id, start_time")
         .eq("user_id", user_id)

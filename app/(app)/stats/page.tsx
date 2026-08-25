@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Activity as ActivityIcon, HeartPulse, Moon } from 'lucide-react'
 import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
+import { countedActivities } from '@/lib/activities/scope'
 import { CockpitSkeleton } from '../_components/skeletons/cockpit-skeleton'
 import { ChartCard } from '../_components/chart-card'
 import { EmptyState } from '../_components/empty-state'
@@ -128,14 +129,16 @@ async function CockpitBody({
         .eq('user_id', userId)
         .gte('date', startDate)
         .order('date', { ascending: true }),
-      supabase
-        .from('activities')
-        .select(
-          'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
-        )
-        .eq('user_id', userId)
-        .gte('start_time', `${startDate}T00:00:00Z`)
-        .lte('start_time', `${today}T23:59:59Z`),
+      countedActivities(
+        supabase
+          .from('activities')
+          .select(
+            'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg'
+          )
+          .eq('user_id', userId)
+          .gte('start_time', `${startDate}T00:00:00Z`)
+          .lte('start_time', `${today}T23:59:59Z`)
+      ),
       supabase
         .from('planned_sessions')
         .select(
@@ -167,11 +170,9 @@ async function CockpitBody({
       supabase.from('recovery_baselines').select('*').eq('user_id', userId).maybeSingle(),
     ])
 
-  const { data: routeRows } = await supabase
-    .from('activities')
-    .select('route_polyline')
-    .eq('user_id', userId)
-    .not('route_polyline', 'is', null)
+  const { data: routeRows } = await countedActivities(
+    supabase.from('activities').select('route_polyline').eq('user_id', userId)
+  ).not('route_polyline', 'is', null)
 
   const polylines = (routeRows ?? []).map((r): unknown => r.route_polyline)
   const hasGpsPoints = polylines.some((p) => Array.isArray(p) && p.length > 0)
@@ -400,12 +401,14 @@ async function RacesWidgetLoader({ userId }: { readonly userId: string }) {
       )
       .eq('user_id', userId)
       .overrideTypes<RaceGoalRow[], { merge: false }>(),
-    supabase
-      .from('activities')
-      .select(
-        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, hr_avg, pace_avg_s_per_km, tss, race_goal_id'
-      )
-      .eq('user_id', userId)
+    countedActivities(
+      supabase
+        .from('activities')
+        .select(
+          'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, hr_avg, pace_avg_s_per_km, tss, race_goal_id'
+        )
+        .eq('user_id', userId)
+    )
       .not('race_goal_id', 'is', null)
       .overrideTypes<(RaceActivityRow & { race_goal_id: string })[], { merge: false }>(),
     supabase
