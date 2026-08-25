@@ -287,6 +287,25 @@ async def coach_generate_plan(
         return report_endpoint_error(e, endpoint="coach_generate_plan", user_id=user_id)
 
 
+@router.post("/coach/recompute-state")
+async def coach_recompute_state(
+    authorization: _AuthHeader = None,
+) -> dict[str, Any]:
+    """Recalcule CTL/ATL/TSB pour l'appelant (E24.5).
+
+    Appelé par l'app juste après la suppression ou la restauration d'une activité :
+    sans ça, la charge resterait fausse jusqu'au cron du lendemain, alors que
+    l'athlète vient précisément de corriger ce qui la faussait.
+    """
+    user_id = _require_user_jwt(authorization)
+    try:
+        from garmin_sync.coach.state import recompute_daily_state
+
+        return {"status": "ok", **recompute_daily_state(user_id)}
+    except Exception as e:
+        return report_endpoint_error(e, endpoint="coach_recompute_state", user_id=user_id)
+
+
 @router.post("/coach/discipline-levels")
 async def coach_discipline_levels(
     authorization: _AuthHeader = None,

@@ -21,8 +21,8 @@ vi.mock('next/navigation', () => ({
 describe('ActivityDeleteForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    deleteActivity.mockResolvedValue({ success: true })
-    restoreActivity.mockResolvedValue({ success: true })
+    deleteActivity.mockResolvedValue({ success: true, loadRecomputed: true })
+    restoreActivity.mockResolvedValue({ success: true, loadRecomputed: true })
   })
 
   afterEach(() => {
@@ -75,6 +75,20 @@ describe('ActivityDeleteForm', () => {
       expect(restoreActivity).toHaveBeenCalledWith('act-1')
     })
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it('says so when the load could not be recomputed right away', async () => {
+    deleteActivity.mockResolvedValue({ success: true, loadRecomputed: false })
+    const user = userEvent.setup()
+    render(<ActivityDeleteForm activityId="act-1" excludedAt={null} excludedReason={null} />)
+
+    await user.click(screen.getByRole('button', { name: /Supprimer cette activité/ }))
+    await user.click(screen.getByRole('button', { name: /Confirmer la suppression/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/recalculées au prochain sync/)).toBeTruthy()
+    })
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('keeps the form open and explains when the action fails', async () => {

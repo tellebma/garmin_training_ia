@@ -665,3 +665,40 @@ def test_garmin_routes_unaffected_when_strava_disabled(client: ASGITestClient) -
     # 401 (not 404): the route still exists, it just needs a JWT.
     r = client.post("/garmin/connect", json={"email": "a@b.c", "password": "x"})
     assert r.status_code == 401
+
+
+def test_coach_recompute_state_requires_jwt(client: ASGITestClient) -> None:
+    r = client.post("/coach/recompute-state")
+    assert r.status_code == 401
+
+
+def test_coach_recompute_state_returns_the_recomputed_days(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    monkeypatch.setattr("garmin_sync.coach.state.recompute_daily_state", lambda _u: {"days": 180})
+
+    r = client.post("/coach/recompute-state", headers={"Authorization": "Bearer x"})
+
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "days": 180}
+
+
+def test_coach_recompute_state_catches_unexpected(
+    client: ASGITestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garmin_sync import main as main_mod
+
+    monkeypatch.setattr(main_mod, "verify_supabase_jwt", lambda _t: "u1")
+    monkeypatch.setattr(
+        "garmin_sync.coach.state.recompute_daily_state",
+        lambda _u: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    r = client.post("/coach/recompute-state", headers={"Authorization": "Bearer x"})
+
+    body = r.json()
+    assert body["status"] == "unexpected_error"
+    assert body["type"] == "RuntimeError"

@@ -1,5 +1,10 @@
 # Nouveautés
 
+## 1.24.0 — 2026-08-25
+
+- Quand tu supprimes (ou restaures) une activité, ta charge et ta forme sont recalculées dans la
+  foulée : le cockpit dit la vérité tout de suite, sans attendre la synchro du lendemain.
+
 ## 1.23.0 — 2026-08-24
 
 - Une activité en double, ça se supprime : bouton **Supprimer cette activité** sur sa fiche.
