@@ -1,5 +1,15 @@
 # Nouveautés
 
+## 1.23.0 — 2026-08-24
+
+- Une activité en double, ça se supprime : bouton **Supprimer cette activité** sur sa fiche.
+  Elle disparaît de l'historique et cesse de compter dans la charge, les volumes, le coach et
+  la vue course — typiquement quand le compteur du vélo tournait en même temps que la montre.
+- Rien n'est perdu : l'onglet **Supprimées** de l'historique les liste toutes et permet de les
+  restaurer d'un clic.
+- La suppression tient dans le temps : même resynchronisée depuis Garmin, l'activité supprimée
+  ne revient pas dans tes statistiques.
+
 ## 1.22.0 — 2026-08-24
 
 - Tes courses ne se perdent plus dans l'historique : l'activité du jour d'une épreuve est

@@ -5,6 +5,7 @@ import { requireOnboarded } from '@/lib/onboarding/guard'
 import { createClient } from '@/lib/supabase/server'
 import { ActivityRow } from '../_components/activity-row'
 import { EmptyState } from '../_components/empty-state'
+import { countedActivities, excludedActivities } from '@/lib/activities/scope'
 import type { ActivityRowDto } from '@/lib/dashboard/types'
 
 export const revalidate = 300
@@ -16,6 +17,7 @@ interface HistoryPageProps {
     readonly sport?: string
     readonly period?: string
     readonly offset?: string
+    readonly view?: string
   }>
 }
 
@@ -35,18 +37,29 @@ const PERIODS = [
 
 export default async function HistoryPage({ searchParams }: HistoryPageProps) {
   const userId = await requireOnboarded()
-  const { sport: sportParam, period: periodParam, offset: offsetParam } = await searchParams
+  const {
+    sport: sportParam,
+    period: periodParam,
+    offset: offsetParam,
+    view: viewParam,
+  } = await searchParams
+  // Vue « supprimées » : le seul endroit qui montre les activités exclues, pour pouvoir
+  // en restaurer une (E24.3).
+  const deletedView = viewParam === 'deleted'
   const sport = SPORTS.find((s) => s.value === sportParam)?.value ?? 'all'
   const period = PERIODS.find((p) => p.value === periodParam)?.value ?? '30'
   const offset = Math.max(0, Number.parseInt(offsetParam ?? '0', 10) || 0)
 
   const supabase = await createClient()
-  let query = supabase
-    .from('activities')
-    .select(
-      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, route_polyline, race_goal_id'
-    )
-    .eq('user_id', userId)
+  const scoped = deletedView ? excludedActivities : countedActivities
+  let query = scoped(
+    supabase
+      .from('activities')
+      .select(
+        'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, route_polyline, race_goal_id'
+      )
+      .eq('user_id', userId)
+  )
 
   if (sport !== 'all') {
     query = query.eq('sport', sport)
@@ -71,6 +84,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
     const params = new URLSearchParams()
     params.set('sport', sport)
     params.set('period', period)
+    if (deletedView) params.set('view', 'deleted')
     if (offset > 0) params.set('offset', String(offset))
     for (const [k, v] of Object.entries(updates)) params.set(k, v)
     return `/history?${params.toString()}`
@@ -113,7 +127,27 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
             </Link>
           ))}
         </div>
+        <Link
+          href={
+            deletedView
+              ? `/history?sport=${sport}&period=${period}`
+              : `/history?sport=${sport}&period=${period}&view=deleted`
+          }
+          className={
+            deletedView
+              ? 'bg-primary text-primary-foreground rounded-md border px-3 py-1.5 text-xs font-medium'
+              : 'text-muted-foreground hover:bg-accent/50 rounded-md border px-3 py-1.5 text-xs'
+          }
+        >
+          {deletedView ? 'Retour à l’historique' : 'Supprimées'}
+        </Link>
       </div>
+
+      {deletedView && (
+        <p className="text-muted-foreground text-sm">
+          Ces activités ne comptent plus dans tes statistiques. Ouvre-en une pour la restaurer.
+        </p>
+      )}
 
       {activities.length > 0 ? (
         <>
@@ -150,8 +184,12 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
       ) : (
         <EmptyState
           icon={ActivityIcon}
-          title="Aucune activité"
-          description="Élargis le filtre ou attends le prochain sync (05:00 UTC)."
+          title={deletedView ? 'Aucune activité supprimée' : 'Aucune activité'}
+          description={
+            deletedView
+              ? 'Tout ton historique compte dans tes statistiques.'
+              : 'Élargis le filtre ou attends le prochain sync (05:00 UTC).'
+          }
         />
       )}
     </div>

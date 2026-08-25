@@ -1078,7 +1078,9 @@ fiche `/history/[id]` et le coach (E9.4 progression par discipline) — la spec 
 la donnée est produite pour le seul calque ou exposée plus largement.
 ### EPIC E24 — Exclure une activité de son historique (demande owner 2026-08-24)
 
-**Priorité : P1 — Statut : V1 en cours**
+**Priorité : P1 — Statut : V1 livrée (PR #209)** — spec
+`docs/superpowers/specs/2026-08-24-e24-exclure-activite-design.md`, plan
+`docs/superpowers/plans/2026-08-24-e24-exclure-activite.md`.
 
 Cas vécu par l'owner le jour de sa course : compteur GPS du vélo lancé **en mode activité** en
 plus de la montre, pour avoir les métriques sous les yeux pendant l'épreuve. Résultat : deux
@@ -1087,19 +1089,25 @@ faussée, et une vue course qui additionne deux fois le même vélo.
 
 Il faut pouvoir **retirer une activité** de son historique et de ses statistiques.
 
-- **E24.1 P1 — Exclusion réversible plutôt que suppression sèche** : une suppression physique
+- **E24.1 P1 — Exclusion réversible plutôt que suppression sèche — V1 livrée** : une suppression physique
   serait **annulée au sync suivant** — l'activité existe toujours chez Garmin et l'upsert la
   recréerait. L'exclusion est donc portée par une colonne (`activities.excluded_at`) que le sync
   ne réécrit jamais : l'activité reste en base, cesse de compter, et peut être restaurée.
-- **E24.2 P1 — L'exclusion vaut partout** : charge et Banister, volumes, cockpit, briefing,
+- **E24.2 P1 — L'exclusion vaut partout — V1 livrée** : charge et Banister, volumes, cockpit, briefing,
   revue d'activités, niveau par discipline, plan, chat coach, vue course, dernière activité de
   `/today`, historique. Un seul point d'entrée dans le code (helper de portée) pour que le filtre
   ne s'oublie pas au prochain écran.
-- **E24.3 P1 — Bouton et restauration** : depuis `/history/[id]`, bouton de suppression avec sa
+- **E24.3 P1 — Bouton et restauration — V1 livrée** : depuis `/history/[id]`, bouton de suppression avec sa
   conséquence annoncée ; les activités exclues restent listables et restaurables depuis
   `/history` (filtre dédié), pour qu'une erreur ne soit jamais définitive.
-- **E24.4 P2 — Détection de doublon** : signaler deux activités qui se chevauchent (même créneau,
-  même sport) et proposer d'en exclure une, au lieu d'attendre que l'athlète le remarque.
+- **E24.4 P2 — Détection de doublon (Todo)** : signaler deux activités qui se chevauchent (même
+  créneau, même sport) et proposer d'en exclure une, au lieu d'attendre que l'athlète le
+  remarque. La fenêtre de recouvrement de `dedup.py` (±5 min) est réutilisable telle quelle.
+
+**Livré en V1** : colonne `activities.excluded_at` (+ `excluded_reason`) jamais réécrite par le
+sync, RPC `set_activity_excluded`, helpers de portée `counted()` (worker) et `countedActivities()`
+(front) appliqués à toutes les lectures qui alimentent une métrique, bouton de suppression avec
+confirmation sur `/history/[id]`, onglet « Supprimées » et restauration sur `/history`.
 
 ### EPIC E23 — Vue course : détection, débrief et jalon de progression (demande owner 2026-08-24)
 

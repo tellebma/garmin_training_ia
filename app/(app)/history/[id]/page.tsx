@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils'
 import type { ActivityFeedbackDto, PlannedSession, Sport } from '@/lib/dashboard/types'
 import { ActivityFeedbackForm } from './activity-feedback-form'
 import { RaceTagForm, type CandidateRace } from './race-tag-form'
+import { ActivityDeleteForm } from './activity-delete-form'
 
 export const revalidate = 300
 
@@ -98,7 +99,7 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   const { data: activityData } = await supabase
     .from('activities')
     .select(
-      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories, race_goal_id'
+      'id, garmin_activity_id, start_time, sport, duration_s, distance_m, elevation_gain_m, tss, hr_avg, hr_max, power_avg, power_max, pace_avg_s_per_km, calories, race_goal_id, excluded_at, excluded_reason'
     )
     .eq('user_id', userId)
     .eq('id', id)
@@ -109,6 +110,9 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
   const activity: ActivityDetail = activityData
   const raceGoalId =
     typeof activityData.race_goal_id === 'string' ? activityData.race_goal_id : null
+  const excludedAt = typeof activityData.excluded_at === 'string' ? activityData.excluded_at : null
+  const excludedReason =
+    typeof activityData.excluded_reason === 'string' ? activityData.excluded_reason : null
   const sportLabel = knownSport(activity.sport) ? SPORT_LABEL[activity.sport] : activity.sport
 
   return (
@@ -134,6 +138,16 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
         </div>
       </header>
 
+      {/* Activité supprimée : l'info passe avant tout le reste. Le bouton de
+          suppression, lui, vit en bas de page — c'est une action, pas un titre. */}
+      {excludedAt && (
+        <ActivityDeleteForm
+          activityId={activity.id}
+          excludedAt={excludedAt}
+          excludedReason={excludedReason}
+        />
+      )}
+
       <Suspense fallback={null}>
         <ActivityRaceTag userId={userId} activity={activity} raceGoalId={raceGoalId} />
       </Suspense>
@@ -145,6 +159,10 @@ export default async function ActivityDetailPage({ params }: ActivityDetailPageP
       <Suspense fallback={<ColsGravisSkeleton />}>
         <ActivityColsGravis userId={userId} garminActivityId={activity.garmin_activity_id} />
       </Suspense>
+
+      {!excludedAt && (
+        <ActivityDeleteForm activityId={activity.id} excludedAt={null} excludedReason={null} />
+      )}
     </div>
   )
 }
