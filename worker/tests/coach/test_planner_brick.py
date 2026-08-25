@@ -13,7 +13,7 @@ from itertools import pairwise
 import pytest
 
 from garmin_sync.coach.planner import (
-    RaceTarget,
+    TrainingTarget,
     _build_week_sessions,
     _tss_with_brick_share,
     race_has_bike_run_transition,
@@ -45,8 +45,8 @@ def _week(
         available_days=["mon", "tue", "wed", "thu", "sat", "sun"],
         hours_per_week=10,
         is_last_week=False,
-        race=RaceTarget(
-            day=today + timedelta(days=180),
+        target=TrainingTarget(
+            race_day=today + timedelta(days=180),
             sport="triathlon",
             has_bike_run_transition=has_transition,
         ),

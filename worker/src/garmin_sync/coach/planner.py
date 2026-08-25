@@ -50,15 +50,19 @@ _UTC_SUFFIX = "+00:00"
 
 
 @dataclass(frozen=True)
-class RaceTarget:
-    """Ce que la course impose au plan : sa date, son sport et son profil d'effort.
+class TrainingTarget:
+    """Ce que l'objectif impose au plan : sa date, son sport et son profil d'effort.
 
     Regroupé (plutôt que passé paramètre par paramètre) pour garder les signatures
     de construction de semaine sous la limite de lisibilité : elles portaient 16 et
     17 paramètres, dont ceux-là, toujours transmis ensemble.
+
+    ``race_day = None`` : entraînement SANS objectif daté (E27). Il n'y a alors ni
+    jour J, ni dernière semaine particulière — le reste du moteur (jours, sports,
+    types, budgets) est indifférent à l'existence d'une épreuve.
     """
 
-    day: date
+    race_day: date | None
     sport: str
     time_shares: dict[str, float] | None = None
     dplus_by_sport: dict[str, int] | None = None
@@ -272,14 +276,14 @@ def _race_day_sport(race: dict[str, Any]) -> str:
     return discipline or "run"
 
 
-def _race_day_session(*, day: date, race: RaceTarget, week_offset: int) -> dict[str, Any]:
+def _race_day_session(*, day: date, target: TrainingTarget, week_offset: int) -> dict[str, Any]:
     """Jour J : temps estimé, TSS et déroulé par segment (cf. ``coach.race_day``)."""
     return build_race_day_session(
         day=day,
-        race_sport=race.sport,
+        race_sport=target.sport,
         week_offset=week_offset,
-        legs=race.legs,
-        athlete=race.athlete,
+        legs=target.legs,
+        athlete=target.athlete,
     )
 
 
@@ -720,7 +724,7 @@ def _build_training_day_plan(
     sport_by_day: dict[int, str],
     types_by_sport: dict[str, list[str]],
     is_last_week: bool,
-    race_date: date,
+    race_date: date | None,
     long_day_idx: int | None = None,
 ) -> dict[int, tuple[str, str]]:
     """Single-pass day plan: weekday index -> (sport, session_type).
@@ -740,7 +744,7 @@ def _build_training_day_plan(
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
-        if is_last_week and day == race_date:
+        if is_last_week and race_date is not None and day == race_date:
             continue
         if day_idx not in training_idx:
             continue
@@ -899,7 +903,7 @@ def _build_week_sessions(
     available_days: list[str],
     hours_per_week: float | None,
     is_last_week: bool,
-    race: RaceTarget,
+    target: TrainingTarget,
     weekly_elevation_by_sport: dict[str, int] | None = None,
     progress: float = 1.0,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
@@ -944,13 +948,13 @@ def _build_week_sessions(
     # Répartition des séances par l'enjeu de course (#130), pas par l'ordre des
     # legs. Sans parts fournies (anciens appels), parts égales.
     equal = {s: 1.0 / len(sports_in_race) for s in sports_in_race} if sports_in_race else {}
-    shares = race.time_shares or equal
+    shares = target.time_shares or equal
     # Cap course PAR discipline (#129) : c'est le niveau run — pas le niveau
     # global — qui borne l'impact traumatisant de la course a pied.
     run_level = level_label_for_score(sports_strengths.get("run", 3))
     # Enchaînement vélo->CAP (#154) : réservé aux phases build/peak d'une course
     # à transition — jamais en taper (semaine de course) ni en base.
-    with_brick = race.has_bike_run_transition and phase in _BRICK_PHASES
+    with_brick = target.has_bike_run_transition and phase in _BRICK_PHASES
     sport_counts = allocate_sport_sessions(
         count=count,
         time_shares=shares,
@@ -972,7 +976,7 @@ def _build_week_sessions(
         sport_by_day=sport_by_day,
         types_by_sport=types_by_sport,
         is_last_week=is_last_week,
-        race_date=race.day,
+        race_date=target.race_day,
         long_day_idx=long_day_idx,
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
@@ -982,8 +986,8 @@ def _build_week_sessions(
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
 
-        if is_last_week and day == race.day:
-            sessions.append(_race_day_session(day=day, race=race, week_offset=week_offset))
+        if is_last_week and target.race_day is not None and day == target.race_day:
+            sessions.append(_race_day_session(day=day, target=target, week_offset=week_offset))
             continue
         if day_idx not in day_plan:
             sessions.append(_rest_day_session(day=day, phase=phase, week_offset=week_offset))
@@ -1099,7 +1103,7 @@ def _build_all_week_sessions(
     available_days: list[str],
     weeks_count: int,
     week_start: date,
-    race: RaceTarget,
+    target: TrainingTarget,
     current_offset: int = 0,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
 ) -> list[dict[str, Any]]:
@@ -1120,7 +1124,7 @@ def _build_all_week_sessions(
         # Cible D+ par semaine : progression ancrée vers un pic en fin de build,
         # partant du D+ réellement encaissé, réduite en taper (#131).
         weekly_elevation_by_sport = compute_weekly_elevation_targets(
-            race_dplus_by_sport=race.dplus_by_sport or {},
+            race_dplus_by_sport=target.dplus_by_sport or {},
             week_offset=offset,
             phases=phases,
             observed_weekly_dplus=observed.weekly_dplus,
@@ -1154,7 +1158,7 @@ def _build_all_week_sessions(
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
             is_last_week=is_last,
-            race=race,
+            target=target,
             weekly_elevation_by_sport=weekly_elevation_by_sport,
             progress=progress,
             observed=observed,
@@ -1376,8 +1380,8 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         available_days=available_days,
         weeks_count=weeks_count,
         week_start=week_start,
-        race=RaceTarget(
-            day=race_date,
+        target=TrainingTarget(
+            race_day=race_date,
             sport=race_sport,
             time_shares=race_time_shares,
             dplus_by_sport=race_dplus_by_sport,
