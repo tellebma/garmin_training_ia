@@ -16,6 +16,8 @@ import { PersoEditForm } from './_components/perso-edit-form'
 import { RaceEditForm } from './_components/race-edit-form'
 import { PerfEditForm } from './_components/perf-edit-form'
 import { DispoEditForm } from './_components/dispo-edit-form'
+import { TrainingModeSection } from './_components/training-mode-section'
+import { effectiveTrainingMode, isTrainingMode } from '@/lib/coach/training-mode'
 import type { PersonInput, RaceInput, PerfInput, DispoInput } from '@/lib/onboarding/schemas'
 
 interface AthleteProfileRow {
@@ -33,6 +35,7 @@ interface AthleteProfileRow {
   available_days: string[] | null
   hours_per_week: number | null
   sports_strengths: { swim: number; bike: number; run: number } | null
+  training_mode: string | null
 }
 
 interface RaceGoalRow {
@@ -88,7 +91,7 @@ export default async function ProfilePage() {
     supabase
       .from('athlete_profiles')
       .select(
-        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, css_per_100m_s, garmin_synced_at, available_days, hours_per_week, sports_strengths'
+        'first_name, dob, sex, city, country, consent_data_processing, ftp_watts, vma_kmh, fc_max_bpm, css_per_100m_s, garmin_synced_at, available_days, hours_per_week, sports_strengths, training_mode'
       )
       .eq('user_id', userId)
       .single<AthleteProfileRow>(),
@@ -122,6 +125,9 @@ export default async function ProfilePage() {
       .limit(10)
       .overrideTypes<CoachAdjustmentDecisionRow[], { merge: false }>(),
   ])
+
+  const declaredMode = isTrainingMode(profile?.training_mode) ? profile.training_mode : 'race'
+  const effectiveMode = effectiveTrainingMode(declaredMode, race?.race_date ?? null)
 
   const garminConnected = garmin !== null
   const garminAuthStale = garmin !== null && garmin.token_refresh_failed_at !== null
@@ -173,6 +179,12 @@ export default async function ProfilePage() {
         <h1 className="text-2xl font-semibold">Profil</h1>
         <p className="text-muted-foreground text-sm">{user?.email}</p>
       </header>
+
+      <TrainingModeSection
+        current={declaredMode}
+        effective={effectiveMode}
+        hasUpcomingRace={effectiveMode === 'race'}
+      />
 
       {/* Garmin Connect section */}
       <section className="space-y-3 rounded-lg border p-6">

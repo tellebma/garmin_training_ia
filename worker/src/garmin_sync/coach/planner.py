@@ -19,6 +19,14 @@ from garmin_sync.coach.banister import (
     compute_banister_history,
     is_cold_start,
 )
+from garmin_sync.coach.cycles import (
+    DEFAULT_HORIZON_WEEKS,
+    compute_cycle_phases,
+    cycle_load_multipliers,
+    cycle_week,
+    is_cycle_mode,
+    is_deload_week,
+)
 from garmin_sync.coach.discipline_level import load_effective_strengths
 from garmin_sync.coach.duration_bounds import clamp_duration_to_bounds
 from garmin_sync.coach.phases import Phase, compute_phases
@@ -28,7 +36,12 @@ from garmin_sync.coach.race_day import (
     RACE_SPEED_KMH,
     build_race_day_session,
 )
-from garmin_sync.coach.sports import elevation_discipline
+from garmin_sync.coach.recovery_window import (
+    RECOVERY_SESSION_TYPES,
+    RecoveryWindow,
+    post_race_recovery,
+)
+from garmin_sync.coach.sports import contributing_disciplines, elevation_discipline
 from garmin_sync.coach.training_days import (
     allocate_sport_sessions,
     assign_sports,
@@ -50,15 +63,19 @@ _UTC_SUFFIX = "+00:00"
 
 
 @dataclass(frozen=True)
-class RaceTarget:
-    """Ce que la course impose au plan : sa date, son sport et son profil d'effort.
+class TrainingTarget:
+    """Ce que l'objectif impose au plan : sa date, son sport et son profil d'effort.
 
     Regroupé (plutôt que passé paramètre par paramètre) pour garder les signatures
     de construction de semaine sous la limite de lisibilité : elles portaient 16 et
     17 paramètres, dont ceux-là, toujours transmis ensemble.
+
+    ``race_day = None`` : entraînement SANS objectif daté (E27). Il n'y a alors ni
+    jour J, ni dernière semaine particulière — le reste du moteur (jours, sports,
+    types, budgets) est indifférent à l'existence d'une épreuve.
     """
 
-    day: date
+    race_day: date | None
     sport: str
     time_shares: dict[str, float] | None = None
     dplus_by_sport: dict[str, int] | None = None
@@ -87,6 +104,47 @@ class ObservedHabits:
 # Défaut partagé : la dataclass est frozen, donc sûre en singleton de module
 # (et ruff B008 interdit de l'instancier dans une signature).
 NO_OBSERVED_HABITS = ObservedHabits()
+
+
+@dataclass(frozen=True)
+class LoadShape:
+    """Comment la charge hebdomadaire est modulée sur l'horizon du plan.
+
+    Les trois signaux voyagent toujours ensemble — de la grille jusqu'à la
+    construction des semaines — et sont regroupés pour la même raison que
+    ``TrainingTarget`` : les signatures de construction repassaient au-dessus de
+    la limite de lisibilité à chaque mode ajouté.
+
+    Tout absent : courbe de préparation course (rampe composée + deload toutes les
+    4 semaines, calculés à la volée). Le mode cycle (E27) fournit les siens.
+    """
+
+    multipliers: Sequence[float] | None = None
+    reduction_offsets: set[int] | None = None
+    # Fenêtre de récupération post-course : elle écrase la charge des jours qu'elle
+    # couvre, quel que soit le mode — y compris une prépa déjà relancée.
+    recovery: RecoveryWindow | None = None
+
+
+NO_LOAD_SHAPE = LoadShape()
+
+
+@dataclass(frozen=True)
+class WeekSlot:
+    """Où se situe une semaine dans le plan : son rang, sa phase, ses dates.
+
+    Ces cinq coordonnées ne se séparent jamais — elles décrivent la même semaine —
+    et sont regroupées pour la même raison que ``TrainingTarget`` et ``LoadShape``.
+
+    ``is_last`` : seule la dernière semaine porte le jour J, quand il y en a un.
+    ``progress`` : avancement dans la phase (0 -> 1), qui module les types de séance.
+    """
+
+    offset: int
+    phase: Phase
+    start: date
+    is_last: bool = False
+    progress: float = 1.0
 
 
 def _activity_day(raw: Any) -> date | None:
@@ -272,14 +330,14 @@ def _race_day_sport(race: dict[str, Any]) -> str:
     return discipline or "run"
 
 
-def _race_day_session(*, day: date, race: RaceTarget, week_offset: int) -> dict[str, Any]:
+def _race_day_session(*, day: date, target: TrainingTarget, week_offset: int) -> dict[str, Any]:
     """Jour J : temps estimé, TSS et déroulé par segment (cf. ``coach.race_day``)."""
     return build_race_day_session(
         day=day,
-        race_sport=race.sport,
+        race_sport=target.sport,
         week_offset=week_offset,
-        legs=race.legs,
-        athlete=race.athlete,
+        legs=target.legs,
+        athlete=target.athlete,
     )
 
 
@@ -720,7 +778,7 @@ def _build_training_day_plan(
     sport_by_day: dict[int, str],
     types_by_sport: dict[str, list[str]],
     is_last_week: bool,
-    race_date: date,
+    race_date: date | None,
     long_day_idx: int | None = None,
 ) -> dict[int, tuple[str, str]]:
     """Single-pass day plan: weekday index -> (sport, session_type).
@@ -740,7 +798,7 @@ def _build_training_day_plan(
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         day_idx = day.weekday()
-        if is_last_week and day == race_date:
+        if is_last_week and race_date is not None and day == race_date:
             continue
         if day_idx not in training_idx:
             continue
@@ -775,6 +833,44 @@ _ELEVATION_TAPER_FACTOR = 0.3
 
 # Fenêtre d'observation du D+ réellement encaissé par l'athlète.
 _ELEVATION_OBSERVED_WINDOW_DAYS = 28
+
+
+_OBSERVED_SPORTS_WINDOW_DAYS = 90
+_MIN_OBSERVED_SHARE = 0.05
+
+
+def observed_sport_time_shares(
+    activities: list[dict[str, Any]],
+    *,
+    today: date,
+    window_days: int = _OBSERVED_SPORTS_WINDOW_DAYS,
+) -> dict[str, float]:
+    """Part du temps d'entraînement par discipline, mesurée sur la fenêtre récente.
+
+    Remplace ``estimate_race_time_shares`` quand il n'y a pas de course (E27) : sans
+    épreuve à préparer, la répartition juste est celle que l'athlète pratique déjà —
+    pas une répartition triathlon inventée.
+
+    Les disciplines marginales (< 5 % du temps) sont écartées : une seule sortie
+    natation en trois mois ne justifie pas une séance de natation par semaine.
+    """
+    start = today - timedelta(days=window_days)
+    totals: dict[str, float] = {}
+    for a in activities:
+        d = _activity_day(a.get("start_time"))
+        if d is None or not (start <= d <= today):
+            continue
+        duration = float(a.get("duration_s") or 0)
+        if duration <= 0:
+            continue
+        for discipline in contributing_disciplines(str(a.get("sport") or "")):
+            totals[discipline] = totals.get(discipline, 0.0) + duration
+    total = sum(totals.values())
+    if total <= 0:
+        return {}
+    shares = {s: v / total for s, v in totals.items() if v / total >= _MIN_OBSERVED_SHARE}
+    kept = sum(shares.values())
+    return {s: v / kept for s, v in shares.items()} if kept > 0 else {}
 
 
 def observed_weekly_elevation_by_sport(
@@ -890,19 +986,16 @@ def compute_weekly_elevation_targets(
 
 def _build_week_sessions(
     *,
-    week_offset: int,
-    phase: Phase,
-    week_start: date,
+    slot: WeekSlot,
     sports_in_race: list[str],
     sports_strengths: dict[str, int],
     tss_by_sport: dict[str, float],
     available_days: list[str],
     hours_per_week: float | None,
-    is_last_week: bool,
-    race: RaceTarget,
+    target: TrainingTarget,
     weekly_elevation_by_sport: dict[str, int] | None = None,
-    progress: float = 1.0,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
+    allowed_types: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate one week's planned sessions.
 
@@ -922,16 +1015,20 @@ def _build_week_sessions(
     # Plafond d'intensité PAR discipline (#121) : le min global verrouillait
     # l'intensité de TOUS les sports sur la discipline la plus faible.
     types_by_sport = {
-        s: pick_session_types_for_phase(
-            phase, max_level=sports_strengths.get(s, 3), progress=progress
+        s: (
+            list(allowed_types)
+            if allowed_types
+            else pick_session_types_for_phase(
+                slot.phase, max_level=sports_strengths.get(s, 3), progress=slot.progress
+            )
         )
         for s in sports_in_race
     }
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
 
     # Deload weeks (every 4th, except taper) need a stricter rest floor.
-    is_deload = (week_offset + 1) % 4 == 0
-    phase_for_rest = "deload" if is_deload and phase != "taper" else phase
+    is_deload = (slot.offset + 1) % 4 == 0
+    phase_for_rest = "deload" if is_deload and slot.phase != "taper" else slot.phase
     count = training_days_count(
         n_available=len(available_idx), hours=hours_per_week, level=level, phase=phase_for_rest
     )
@@ -944,13 +1041,13 @@ def _build_week_sessions(
     # Répartition des séances par l'enjeu de course (#130), pas par l'ordre des
     # legs. Sans parts fournies (anciens appels), parts égales.
     equal = {s: 1.0 / len(sports_in_race) for s in sports_in_race} if sports_in_race else {}
-    shares = race.time_shares or equal
+    shares = target.time_shares or equal
     # Cap course PAR discipline (#129) : c'est le niveau run — pas le niveau
     # global — qui borne l'impact traumatisant de la course a pied.
     run_level = level_label_for_score(sports_strengths.get("run", 3))
     # Enchaînement vélo->CAP (#154) : réservé aux phases build/peak d'une course
     # à transition — jamais en taper (semaine de course) ni en base.
-    with_brick = race.has_bike_run_transition and phase in _BRICK_PHASES
+    with_brick = target.has_bike_run_transition and slot.phase in _BRICK_PHASES
     sport_counts = allocate_sport_sessions(
         count=count,
         time_shares=shares,
@@ -967,34 +1064,34 @@ def _build_week_sessions(
 
     # Single-pass day plan so weight tallies and emitted sessions never diverge.
     day_plan = _build_training_day_plan(
-        week_start=week_start,
+        week_start=slot.start,
         training_idx=training_idx,
         sport_by_day=sport_by_day,
         types_by_sport=types_by_sport,
-        is_last_week=is_last_week,
-        race_date=race.day,
+        is_last_week=slot.is_last,
+        race_date=target.race_day,
         long_day_idx=long_day_idx,
     )
     sport_weight_total = _tally_sport_weights(day_plan, _SESSION_TYPE_WEIGHT)
     sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
 
     for offset in range(7):
-        day = week_start + timedelta(days=offset)
+        day = slot.start + timedelta(days=offset)
         day_idx = day.weekday()
 
-        if is_last_week and day == race.day:
-            sessions.append(_race_day_session(day=day, race=race, week_offset=week_offset))
+        if slot.is_last and target.race_day is not None and day == target.race_day:
+            sessions.append(_race_day_session(day=day, target=target, week_offset=slot.offset))
             continue
         if day_idx not in day_plan:
-            sessions.append(_rest_day_session(day=day, phase=phase, week_offset=week_offset))
+            sessions.append(_rest_day_session(day=day, phase=slot.phase, week_offset=slot.offset))
             continue
 
         sport, stype = day_plan[day_idx]
         sessions.append(
             _training_day_session(
                 day=day,
-                phase=phase,
-                week_offset=week_offset,
+                phase=slot.phase,
+                week_offset=slot.offset,
                 stype=stype,
                 sport=sport,
                 tss_by_sport=tss_by_sport,
@@ -1088,30 +1185,59 @@ def _load_today_banister_state(
     return tss_by_date, states[-1], activity_review, activities
 
 
+def _week_tss_budget(
+    *,
+    base_weekly: float,
+    week_day: date,
+    recovery: RecoveryWindow | None,
+    hours_cap: float,
+    first_week_multiplier: float,
+) -> float:
+    """Budget de charge d'une semaine, une fois tous ses plafonds appliqués.
+
+    L'ordre compte : la récupération plafonne avant les heures dispo (elle n'est
+    pas une option de plus dans la courbe, elle écrase ce que le mode voudrait
+    charger), et le multiplicateur prudent de reprise s'applique en dernier.
+    """
+    weekly_tss = base_weekly
+    if recovery is not None:
+        weekly_tss *= recovery.week_load_multiplier(week_day)
+    if hours_cap > 0:
+        # Le ramp converge vers le budget déclaré mais ne le dépasse pas :
+        # les heures dispo restent un plafond de faisabilité (#128).
+        weekly_tss = min(weekly_tss, float(hours_cap))
+    return weekly_tss * first_week_multiplier
+
+
 def _build_all_week_sessions(
     *,
-    phases: Sequence[tuple[int, Phase]],
+    grid: _PlanGrid,
     today_state: BanisterState,
     profile: dict[str, Any],
     first_week_tss_multiplier: float,
-    sports_in_race: list[str],
     effective_strengths: dict[str, int],
     available_days: list[str],
-    weeks_count: int,
-    week_start: date,
-    race: RaceTarget,
-    current_offset: int = 0,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
 ) -> list[dict[str, Any]]:
     """Build planned sessions for all weeks of the plan.
 
-    ``current_offset`` est la semaine qui contient `today` dans la grille ancrée
-    (#123) : c'est elle — et non plus l'offset 0, potentiellement passé — qui
-    reçoit le multiplicateur prudent de première semaine.
+    ``grid`` porte tout ce qui vient du découpage temporel — phases, semaines,
+    cible, sports, modulation de charge — sans que l'aval ait à savoir si c'est
+    une préparation de course ou un cycle d'entretien (cf. ``_PlanGrid``).
+
+    ``grid.current_offset`` est la semaine qui contient `today` dans la grille
+    ancrée (#123) : c'est elle — et non plus l'offset 0, potentiellement passé —
+    qui reçoit le multiplicateur prudent de première semaine.
     """
+    phases = grid.phases
+    week_start = grid.week_start
+    target = grid.target
+    load = grid.load
     all_sessions: list[dict[str, Any]] = []
     prev_tss_by_sport: dict[str, float] | None = None
-    load_multipliers = compute_week_load_multipliers(phases)
+    load_multipliers = load.multipliers
+    if load_multipliers is None:
+        load_multipliers = compute_week_load_multipliers(phases)
     base_weekly = compute_base_weekly_tss(
         ctl=today_state.ctl, hours_per_week=profile.get("hours_per_week")
     )
@@ -1120,44 +1246,60 @@ def _build_all_week_sessions(
         # Cible D+ par semaine : progression ancrée vers un pic en fin de build,
         # partant du D+ réellement encaissé, réduite en taper (#131).
         weekly_elevation_by_sport = compute_weekly_elevation_targets(
-            race_dplus_by_sport=race.dplus_by_sport or {},
+            race_dplus_by_sport=target.dplus_by_sport or {},
             week_offset=offset,
             phases=phases,
             observed_weekly_dplus=observed.weekly_dplus,
         )
-        weekly_tss = base_weekly * load_multipliers[i]
-        if hours_cap > 0:
-            # Le ramp converge vers le budget déclaré mais ne le dépasse pas :
-            # les heures dispo restent un plafond de faisabilité (#128).
-            weekly_tss = min(weekly_tss, float(hours_cap))
-        if offset == current_offset:
-            weekly_tss *= first_week_tss_multiplier
+        weekly_tss = _week_tss_budget(
+            base_weekly=base_weekly * load_multipliers[i],
+            week_day=week_start + timedelta(weeks=offset),
+            recovery=load.recovery,
+            hours_cap=hours_cap,
+            first_week_multiplier=(
+                first_week_tss_multiplier if offset == grid.current_offset else 1.0
+            ),
+        )
         progress = _progress_for_offset(offset, phases)
         tss_by_sport = distribute_weekly_tss_by_sport(
             weekly_tss=weekly_tss,
-            sports_in_race=sports_in_race,
+            sports_in_race=grid.sports,
             sports_strengths=effective_strengths,
             progress=progress,
         )
         tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
-        is_reduction_week = phase == "taper" or (offset + 1) % 4 == 0
+        is_reduction_week = (
+            offset in load.reduction_offsets
+            if load.reduction_offsets is not None
+            else (phase == "taper" or (offset + 1) % 4 == 0)
+        )
         if not is_reduction_week:
             prev_tss_by_sport = tss_by_sport
-        is_last = offset == weeks_count - 1
+        is_last = offset == grid.weeks_count - 1
         sessions = _build_week_sessions(
-            week_offset=offset,
-            phase=phase,
-            week_start=week_start + timedelta(weeks=offset),
-            sports_in_race=sports_in_race,
+            slot=WeekSlot(
+                offset=offset,
+                phase=phase,
+                start=week_start + timedelta(weeks=offset),
+                is_last=is_last,
+                progress=progress,
+            ),
+            sports_in_race=grid.sports,
             sports_strengths=effective_strengths,
             tss_by_sport=tss_by_sport,
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
-            is_last_week=is_last,
-            race=race,
+            target=target,
             weekly_elevation_by_sport=weekly_elevation_by_sport,
-            progress=progress,
             observed=observed,
+            # Fenêtre de récupération : ni qualité ni séance longue, quel que soit
+            # ce que la phase autoriserait par ailleurs.
+            allowed_types=(
+                RECOVERY_SESSION_TYPES
+                if load.recovery is not None
+                and load.recovery.covers_week(week_start + timedelta(weeks=offset))
+                else None
+            ),
         )
         all_sessions.extend(sessions)
     return all_sessions
@@ -1261,15 +1403,47 @@ def _realign_past_week_offsets(db: Any, *, plan_id: str, grid_start: date, today
 
 @dataclass(frozen=True)
 class _PlanInputs:
-    """Entrées validées d'une génération : profil, course A et sa date."""
+    """Entrées validées d'une génération.
+
+    ``race`` et ``race_date`` sont absentes en mode cycle (E27) : le plan n'a alors ni
+    jour J ni date de fin imposée. ``mode`` est le mode EFFECTIF — il peut différer du
+    mode déclaré quand une course est passée sans que l'athlète ait choisi la suite.
+    """
 
     profile: dict[str, Any]
-    race: dict[str, Any]
-    race_date: date
+    race: dict[str, Any] | None
+    race_date: date | None
+    mode: str
+    mode_since: date | None
+    last_race: dict[str, Any] | None = None
+
+
+def _profile_mode(profile: dict[str, Any]) -> tuple[str, date | None]:
+    mode = str(profile.get("training_mode") or "race")
+    raw_since = profile.get("training_mode_since")
+    since = date.fromisoformat(str(raw_since)) if raw_since else None
+    return mode, since
+
+
+def _last_past_race(db: Any, user_id: str, *, today: date) -> dict[str, Any] | None:
+    """Dernière course déjà courue — sert à imposer la récupération (E27.1)."""
+    rows = cast(
+        DbRows,
+        db.table("race_goals")
+        .select("id, race_date, race_distance")
+        .eq("user_id", user_id)
+        .lte("race_date", today.isoformat())
+        .order("race_date", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or [],
+    )
+    return dict(rows[0]) if rows else None
 
 
 def _load_plan_inputs(db: Any, user_id: str, *, today: date) -> _PlanInputs | dict[str, Any]:
-    """Charge profil et course A, ou renvoie le statut d'erreur à retourner tel quel."""
+    """Charge profil, mode et course A, ou renvoie le statut d'erreur à retourner tel quel."""
     profile = cast(
         "dict[str, Any] | None",
         db.table("athlete_profiles")
@@ -1277,7 +1451,7 @@ def _load_plan_inputs(db: Any, user_id: str, *, today: date) -> _PlanInputs | di
         # au jour J des allures cibles mesurées plutôt que des vitesses de référence.
         .select(
             "user_id, hours_per_week, ftp_watts, fc_max_bpm, sports_strengths, "
-            "available_days, vma_kmh, css_per_100m_s"
+            "available_days, vma_kmh, css_per_100m_s, training_mode, training_mode_since"
         )
         .eq("user_id", user_id)
         .single()
@@ -1287,9 +1461,22 @@ def _load_plan_inputs(db: Any, user_id: str, *, today: date) -> _PlanInputs | di
     if not profile:
         return {"status": "no_profile"}
 
+    mode, mode_since = _profile_mode(profile)
+    if is_cycle_mode(mode):
+        # La colonne fait foi (E27, §3 de la spec) : même si une course future traînait,
+        # c'est le cap déclaré qui décide. Créer un objectif écrit `race` ici même.
+        return _PlanInputs(
+            profile=profile,
+            race=None,
+            race_date=None,
+            mode=mode,
+            mode_since=mode_since,
+            last_race=_last_past_race(db, user_id, today=today),
+        )
+
     _race_builder = (
         db.table("race_goals")
-        .select("id, race_date, discipline, legs, prep_start_date")
+        .select("id, race_date, race_distance, discipline, legs, prep_start_date")
         .eq("user_id", user_id)
         .eq("is_primary", True)
         .maybe_single()
@@ -1297,12 +1484,198 @@ def _load_plan_inputs(db: Any, user_id: str, *, today: date) -> _PlanInputs | di
     _race_executed = _race_builder.execute()
     race = cast("dict[str, Any] | None", _race_executed.data)
     if not race:
+        # Onboarding jamais terminé : un plan par défaut serait une réponse à une
+        # question que l'athlète n'a pas posée. Reste une impasse, volontairement.
         return {"status": "no_race_goal"}
 
     race_date = date.fromisoformat(race["race_date"])
     if race_date <= today:
-        return {"status": "race_in_past"}
-    return _PlanInputs(profile=profile, race=race, race_date=race_date)
+        # Course passée sans cap choisi : l'app ne se fige plus (E26.6). Le mode
+        # DÉCLARÉ reste 'race' — la question « et maintenant ? » reste donc posée —
+        # mais le plan produit est un plan de maintien.
+        return _PlanInputs(
+            profile=profile,
+            race=None,
+            race_date=None,
+            mode="maintain",
+            mode_since=mode_since,
+            last_race=race,
+        )
+    return _PlanInputs(
+        profile=profile, race=race, race_date=race_date, mode="race", mode_since=mode_since
+    )
+
+
+@dataclass(frozen=True)
+class _PlanGrid:
+    """Grille temporelle d'une génération : quand, combien de semaines, quelle charge.
+
+    C'est le seul endroit où les deux moteurs divergent. Tout l'aval — construction des
+    semaines, séances, workouts, persistance — consomme cette structure sans savoir s'il
+    prépare une course ou entretient une forme.
+    """
+
+    phases: list[tuple[int, Phase]]
+    weeks_count: int
+    week_start: date
+    current_offset: int
+    anchor: date
+    end_date: date
+    target: TrainingTarget
+    sports: list[str]
+    load: LoadShape = NO_LOAD_SHAPE
+
+
+def _race_grid(
+    db: Any,
+    *,
+    race: dict[str, Any],
+    race_date: date,
+    profile: dict[str, Any],
+    effective_strengths: dict[str, int],
+    today: date,
+) -> _PlanGrid:
+    """Grille de préparation d'une course — comportement historique, inchangé."""
+    # Phases ancrées sur le début de préparation immuable, pas sur `today` :
+    # la régénération hebdo recalcule les charges, plus jamais le découpage.
+    anchor = _ensure_prep_anchor(db, race, today=today, race_date=race_date)
+    phases = compute_phases(anchor, race_date)
+    weeks_count = len(phases)
+    # Anchor the week grid so the LAST week ENDS on race_date (race day = last day
+    # of the last week). Previously week_start was pinned to the Monday of the
+    # current week while phases were counted from ``today`` — the two origins
+    # diverged, leaving the plan ending up to 13 days before the race with no
+    # taper and no race session (prod bug 2026-07). Days before ``today`` (when the
+    # grid starts slightly in the past) are dropped just before insert.
+    week_start = race_date - timedelta(days=weeks_count * 7 - 1)
+    # Dédupliqué en préservant l'ordre : un duathlon run-bike-run ne doit pas
+    # peser la course deux fois dans la rotation (les parts de temps s'en
+    # chargent via estimate_race_time_shares).
+    sports_in_race = list(dict.fromkeys(leg["discipline"] for leg in race["legs"]))
+    return _PlanGrid(
+        phases=phases,
+        weeks_count=weeks_count,
+        week_start=week_start,
+        # Avec l'ancre, la semaine « courante » n'est plus forcément l'offset 0 : le
+        # multiplicateur prudent de reprise s'applique à la première semaine générée.
+        current_offset=min(weeks_count - 1, max(0, (today - week_start).days // 7)),
+        anchor=anchor,
+        end_date=race_date,
+        sports=sports_in_race,
+        target=TrainingTarget(
+            race_day=race_date,
+            sport=_race_day_sport(race),
+            time_shares=estimate_race_time_shares(race["legs"]),
+            # Per-sport race D+ — la cible hebdo est dérivée par semaine (progression
+            # ancrée) dans _build_all_week_sessions, en partant du D+ observé.
+            dplus_by_sport=compute_elevation_per_sport(race.get("legs") or []),
+            has_bike_run_transition=race_has_bike_run_transition(race.get("legs") or []),
+            legs=race.get("legs") or [],
+            # Niveaux EFFECTIFS (historique 90 j), pas déclarés : le temps estimé
+            # du jour J doit refléter l'athlète tel qu'il s'entraîne réellement.
+            athlete={**profile, "sports_strengths": effective_strengths},
+        ),
+    )
+
+
+def _race_elapsed_s(db: Any, user_id: str, race_goal_id: str) -> float | None:
+    """Temps passé à l'effort sur cette course, d'après les activités rattachées."""
+    rows = cast(
+        DbRows,
+        counted(
+            db.table("activities")
+            .select("duration_s")
+            .eq("user_id", user_id)
+            .eq("race_goal_id", race_goal_id)
+        )
+        .execute()
+        .data
+        or [],
+    )
+    total = sum(float(r.get("duration_s") or 0) for r in rows)
+    return total or None
+
+
+def _cycle_sports(
+    activities: list[dict[str, Any]],
+    *,
+    effective_strengths: dict[str, int],
+    today: date,
+) -> tuple[list[str], dict[str, float]]:
+    """Disciplines à planifier et leur part de temps, sans course pour les dicter.
+
+    Sans épreuve, la répartition juste est celle que l'athlète pratique déjà. Sans
+    historique exploitable, on retombe sur ses disciplines déclarées à parts égales —
+    un plan de maintien sans discipline serait un plan vide.
+    """
+    shares = observed_sport_time_shares(activities, today=today)
+    if shares:
+        return list(shares.keys()), shares
+    declared = [s for s in ("swim", "bike", "run") if s in effective_strengths] or ["run"]
+    return declared, {s: 1.0 / len(declared) for s in declared}
+
+
+def _cycle_grid(
+    db: Any,
+    *,
+    user_id: str,
+    loaded: _PlanInputs,
+    effective_strengths: dict[str, int],
+    activities: list[dict[str, Any]],
+    observed_weekly_dplus: dict[str, int],
+    today: date,
+) -> _PlanGrid:
+    """Grille d'un entraînement sans objectif daté (E27) : horizon roulant, cycles 3+1."""
+    start_cycle_week = cycle_week(loaded.mode_since, today)
+    weeks_count = DEFAULT_HORIZON_WEEKS
+    phases = compute_cycle_phases(weeks_count, loaded.mode, start_cycle_week=start_cycle_week)
+    multipliers = cycle_load_multipliers(
+        loaded.mode, start_cycle_week=start_cycle_week, weeks=weeks_count
+    )
+    # Grille calée sur le lundi de la semaine courante : sans date d'arrivée, l'origine
+    # naturelle est la semaine en cours, et non un compte à rebours.
+    week_start = today - timedelta(days=today.weekday())
+    sports, shares = _cycle_sports(activities, effective_strengths=effective_strengths, today=today)
+    last_race = loaded.last_race
+    recovery = (
+        post_race_recovery(
+            race_date=date.fromisoformat(str(last_race["race_date"])),
+            elapsed_s=_race_elapsed_s(db, user_id, str(last_race["id"])),
+            today=today,
+            race_distance=last_race.get("race_distance"),
+        )
+        if last_race
+        else None
+    )
+    return _PlanGrid(
+        phases=phases,
+        weeks_count=weeks_count,
+        week_start=week_start,
+        current_offset=0,
+        anchor=week_start,
+        end_date=week_start + timedelta(days=weeks_count * 7 - 1),
+        sports=sports,
+        target=TrainingTarget(
+            race_day=None,
+            sport=sports[0],
+            time_shares=shares,
+            # On maintient le dénivelé déjà encaissé : sans course, il n'y a pas de
+            # profil de terrain vers lequel progresser.
+            dplus_by_sport=observed_weekly_dplus,
+            has_bike_run_transition=False,
+            legs=[],
+            athlete={**loaded.profile, "sports_strengths": effective_strengths},
+        ),
+        load=LoadShape(
+            multipliers=multipliers,
+            reduction_offsets={
+                offset
+                for offset in range(weeks_count)
+                if is_deload_week(loaded.mode, start_cycle_week + offset)
+            },
+            recovery=recovery,
+        ),
+    )
 
 
 def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
@@ -1330,63 +1703,45 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     )
     first_week_tss_multiplier = compute_first_week_tss_multiplier(activity_review)
 
-    # Phases ancrées sur le début de préparation immuable, pas sur `today` :
-    # la régénération hebdo recalcule les charges, plus jamais le découpage.
-    anchor = _ensure_prep_anchor(db, race, today=today, race_date=race_date)
-    phases = compute_phases(anchor, race_date)
-    weeks_count = len(phases)
-    # Dédupliqué en préservant l'ordre : un duathlon run-bike-run ne doit pas
-    # peser la course deux fois dans la rotation (les parts de temps s'en
-    # chargent via estimate_race_time_shares).
-    sports_in_race = list(dict.fromkeys(leg["discipline"] for leg in race["legs"]))
-    race_time_shares = estimate_race_time_shares(race["legs"])
-    race_sport = _race_day_sport(race)
     sports_strengths = profile.get("sports_strengths") or {"swim": 3, "bike": 3, "run": 3}
     effective_strengths = load_effective_strengths(
         db, user_id, sports_strengths, today=today, activities=activities
     )
     available_days = profile.get("available_days") or ["mon", "wed", "fri"]
-
-    # Per-sport race D+ — la cible hebdo est dérivée par semaine (progression
-    # ancrée) dans _build_all_week_sessions, en partant du D+ observé.
-    race_dplus_by_sport = compute_elevation_per_sport(race.get("legs") or [])
     observed_weekly_dplus = observed_weekly_elevation_by_sport(activities, today=today)
     observed_weekday_counts, observed_weekday_durations = observed_weekday_usage(
         activities, today=today
     )
 
-    # Anchor the week grid so the LAST week ENDS on race_date (race day = last day
-    # of the last week). Previously week_start was pinned to the Monday of the
-    # current week while phases were counted from ``today`` — the two origins
-    # diverged, leaving the plan ending up to 13 days before the race with no
-    # taper and no race session (prod bug 2026-07). Days before ``today`` (when the
-    # grid starts slightly in the past) are dropped just before insert.
-    week_start = race_date - timedelta(days=weeks_count * 7 - 1)
-    # Avec l'ancre, la semaine « courante » n'est plus forcément l'offset 0 : le
-    # multiplicateur prudent de reprise s'applique à la première semaine générée.
-    current_offset = min(weeks_count - 1, max(0, (today - week_start).days // 7))
+    grid = (
+        _race_grid(
+            db,
+            race=race,
+            race_date=cast(date, race_date),
+            profile=profile,
+            effective_strengths=effective_strengths,
+            today=today,
+        )
+        if race is not None
+        else _cycle_grid(
+            db,
+            user_id=user_id,
+            loaded=loaded,
+            effective_strengths=effective_strengths,
+            activities=activities,
+            observed_weekly_dplus=observed_weekly_dplus,
+            today=today,
+        )
+    )
+    anchor, weeks_count, week_start = grid.anchor, grid.weeks_count, grid.week_start
+    current_offset = grid.current_offset
     all_sessions = _build_all_week_sessions(
-        phases=phases,
+        grid=grid,
         today_state=today_state,
         profile=profile,
         first_week_tss_multiplier=first_week_tss_multiplier,
-        current_offset=current_offset,
-        sports_in_race=sports_in_race,
         effective_strengths=effective_strengths,
         available_days=available_days,
-        weeks_count=weeks_count,
-        week_start=week_start,
-        race=RaceTarget(
-            day=race_date,
-            sport=race_sport,
-            time_shares=race_time_shares,
-            dplus_by_sport=race_dplus_by_sport,
-            has_bike_run_transition=race_has_bike_run_transition(race.get("legs") or []),
-            legs=race.get("legs") or [],
-            # Niveaux EFFECTIFS (historique 90 j), pas déclarés : le temps estimé
-            # du jour J doit refléter l'athlète tel qu'il s'entraîne réellement.
-            athlete={**profile, "sports_strengths": effective_strengths},
-        ),
         observed=ObservedHabits(
             weekday_counts=observed_weekday_counts,
             weekday_durations=observed_weekday_durations,
@@ -1447,11 +1802,12 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         .insert(
             {
                 "user_id": user_id,
-                "race_goal_id": race["id"],
+                # NULL = plan sans objectif daté (E27) : il ne prépare aucune épreuve.
+                "race_goal_id": race["id"] if race else None,
                 # start_date = ancre de prep : cohérent avec weeks_count/end_date
                 # (les week_offset se lisent depuis cette origine).
                 "start_date": anchor.isoformat(),
-                "end_date": race_date.isoformat(),
+                "end_date": grid.end_date.isoformat(),
                 "weeks_count": weeks_count,
                 "ctl_initial": round(today_state.ctl, 2),
                 "atl_initial": round(today_state.atl, 2),
@@ -1465,6 +1821,12 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
                     "current_week_offset": current_offset,
                     "declared_hours_per_week": profile.get("hours_per_week"),
                     "planned_hours_reference_week": planned_hours_reference_week,
+                    # Mode EFFECTIF : dit quel moteur a produit ce plan, y compris
+                    # quand il diffère du mode déclaré (course passée sans cap choisi).
+                    "training_mode": loaded.mode,
+                    "recovery_until": (
+                        grid.load.recovery.end_date.isoformat() if grid.load.recovery else None
+                    ),
                 },
             }
         )
@@ -1495,4 +1857,5 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
         "weeks_count": weeks_count,
         "sessions_count": len(all_sessions),
         "reused_workouts": reused_workouts,
+        "mode": loaded.mode,
     }

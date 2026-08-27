@@ -11,7 +11,8 @@ from garmin_sync.coach.planner import (
     NORMAL_RAMP_RATE,
     TAPER_RAMP_RATE,
     ObservedHabits,
-    RaceTarget,
+    TrainingTarget,
+    WeekSlot,
     _pick_session_type,
     _progress_for_offset,
     cap_weekly_ramp_by_sport,
@@ -397,16 +398,18 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
     # 6 available days, weekly_tss = 420 (= 8h/wk * 50 / 7 * 7 * ramp 1.05 = ~420)
     # With equal strengths=3, each sport gets an equal share: 420 / 3 = 140.0
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=week_start,
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=week_start,
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
+        target=TrainingTarget(race_day=today + timedelta(days=365), sport="run"),
     )
 
     # Le dernier jour d'entraînement porte la séance 'long' (cf. long_session_day)
@@ -637,16 +640,18 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
     week_start = today - timedelta(days=today.weekday())
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=week_start,
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=week_start,
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
+        target=TrainingTarget(race_day=today + timedelta(days=365), sport="run"),
         weekly_elevation_by_sport={"swim": 0, "bike": 200, "run": 30},
     )
 
@@ -674,16 +679,18 @@ def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
     week_start = today - timedelta(days=today.weekday())
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=week_start,
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=week_start,
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=today + timedelta(days=365), sport="run"),
+        target=TrainingTarget(race_day=today + timedelta(days=365), sport="run"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     assert training
@@ -844,16 +851,18 @@ def test_build_week_caps_training_days_when_all_available() -> None:
 
     # With equal strengths=3, each sport gets an equal share: round(400/3, 2) = 133.33
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="build",
-        week_start=date(2026, 6, 22),  # Monday
+        slot=WeekSlot(
+            offset=0,
+            phase="build",
+            start=date(2026, 6, 22),  # Monday,
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         tss_by_sport={"swim": 133.33, "bike": 133.33, "run": 133.33},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=date(2026, 9, 1), sport="run"),
+        target=TrainingTarget(race_day=date(2026, 9, 1), sport="run"),
     )
     assert len(sessions) == 7
     assert _count(sessions, "rest") >= 1
@@ -865,16 +874,18 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=date(2026, 6, 22),
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=date(2026, 6, 22),
+            is_last=False,
+        ),
         sports_in_race=["bike"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
         tss_by_sport={"bike": 120.0},
         available_days=["mon", "wed", "fri"],
         hours_per_week=6,
-        is_last_week=False,
-        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
+        target=TrainingTarget(race_day=date(2026, 9, 1), sport="bike"),
     )
     bike_end = [s for s in sessions if s["sport"] == "bike" and s["session_type"] == "endurance"]
     assert bike_end
@@ -982,17 +993,19 @@ def test_build_week_strong_bike_gets_threshold_despite_weak_run() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="build",
-        week_start=date(2026, 6, 22),  # Monday
+        slot=WeekSlot(
+            offset=0,
+            phase="build",
+            start=date(2026, 6, 22),  # Monday,
+            is_last=False,
+            progress=1.0,
+        ),
         sports_in_race=["bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
         tss_by_sport={"bike": 200.0, "run": 80.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
-        progress=1.0,
+        target=TrainingTarget(race_day=date(2026, 9, 1), sport="bike"),
     )
     bike_types = {s["session_type"] for s in sessions if s["sport"] == "bike"}
     run_types = {s["session_type"] for s in sessions if s["sport"] == "run"}
@@ -1011,16 +1024,18 @@ def test_build_week_four_days_without_sunday_still_has_long() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=date(2026, 6, 22),  # Monday
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=date(2026, 6, 22),  # Monday,
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
         tss_by_sport={"swim": 50.0, "bike": 50.0, "run": 50.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=date(2026, 9, 1), sport="run"),
+        target=TrainingTarget(race_day=date(2026, 9, 1), sport="run"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     trained_days = {date.fromisoformat(s["date"]).weekday() for s in training}
@@ -1065,17 +1080,19 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="build",
-        week_start=date(2026, 6, 22),
+        slot=WeekSlot(
+            offset=0,
+            phase="build",
+            start=date(2026, 6, 22),
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
         tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(
-            day=date(2026, 9, 1),
+        target=TrainingTarget(
+            race_day=date(2026, 9, 1),
             sport="bike",
             time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
         ),
@@ -1098,16 +1115,18 @@ def test_build_week_uses_declared_budget_with_five_days() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=date(2026, 6, 22),
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=date(2026, 6, 22),
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
         tss_by_sport={"swim": 40.0, "bike": 100.0, "run": 40.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(day=date(2026, 9, 1), sport="bike"),
+        target=TrainingTarget(race_day=date(2026, 9, 1), sport="bike"),
     )
     training = [s for s in sessions if s["session_type"] not in ("rest", "race")]
     assert len(training) == 5, f"attendu 5 jours (intermediate), obtenu {len(training)}"
@@ -1141,17 +1160,19 @@ def test_build_week_places_sessions_on_athlete_observed_days() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="base",
-        week_start=date(2026, 6, 22),
+        slot=WeekSlot(
+            offset=0,
+            phase="base",
+            start=date(2026, 6, 22),
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
         tss_by_sport={"swim": 50.0, "bike": 120.0, "run": 50.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(
-            day=date(2026, 9, 1),
+        target=TrainingTarget(
+            race_day=date(2026, 9, 1),
             sport="bike",
             time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
         ),
@@ -1199,17 +1220,19 @@ def test_build_week_peak_phase_has_quality_session_for_strong_sport() -> None:
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
-        week_offset=0,
-        phase="peak",
-        week_start=date(2026, 6, 22),
+        slot=WeekSlot(
+            offset=0,
+            phase="peak",
+            start=date(2026, 6, 22),
+            is_last=False,
+        ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
         tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
-        is_last_week=False,
-        race=RaceTarget(
-            day=date(2026, 9, 1),
+        target=TrainingTarget(
+            race_day=date(2026, 9, 1),
             sport="bike",
             time_shares={"swim": 0.11, "bike": 0.66, "run": 0.23},
         ),
