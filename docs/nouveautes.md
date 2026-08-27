@@ -5,6 +5,14 @@
 - Au retour d'une course, l'app te dit un mot sur ta performance et te demande la suite :
   viser une nouvelle épreuve, maintenir, ou progresser sans objectif. Tu peux répondre plus
   tard — la question revient deux fois, puis reste disponible sans t'interrompre.
+- Ta semaine ne dépasse plus la charge prévue : jusqu'ici la durée minimale d'une séance pouvait
+  faire gonfler le total (jusqu'à 2,5× sur le vélo). Le plan répartit désormais vraiment son
+  budget : c'est la séance d'à-côté qui est allégée, jamais ta sortie longue — elle reste au
+  programme (raccourcie si besoin), parce que c'est elle qui prépare ta course.
+- Ta fatigue compte enfin dans le dimensionnement : quand ta forme (TSB) est très négative, la
+  semaine en cours passe automatiquement en décharge au lieu de continuer à monter.
+- Ton plan ne change plus de tête chaque lundi : l'allègement de reprise est calé sur la date de
+  début de préparation, il ne glisse plus d'une semaine à chaque régénération.
 
 ## 1.25.0 — 2026-08-26
 
@@ -77,14 +85,6 @@
   le retour sur ta dernière séance et la revue de tes 7 derniers jours — plus une carte muette.
 - Le panneau Récupération affiche tes chiffres (valeur récente contre moyenne 28 jours) et
   ne dit plus l'inverse de la vérité quand ta FC de repos ou ton stress baissent.
-- Ta semaine ne dépasse plus la charge prévue : jusqu'ici la durée minimale d'une séance pouvait
-  faire gonfler le total (jusqu'à 2,5× sur le vélo). Le plan répartit désormais vraiment son
-  budget : c'est la séance d'à-côté qui est allégée, jamais ta sortie longue — elle reste au
-  programme (raccourcie si besoin), parce que c'est elle qui prépare ta course.
-- Ta fatigue compte enfin dans le dimensionnement : quand ta forme (TSB) est très négative, la
-  semaine en cours passe automatiquement en décharge au lieu de continuer à monter.
-- Ton plan ne change plus de tête chaque lundi : l'allègement de reprise est calé sur la date de
-  début de préparation, il ne glisse plus d'une semaine à chaque régénération.
 
 ## 1.17.1 — 2026-08-14
 
