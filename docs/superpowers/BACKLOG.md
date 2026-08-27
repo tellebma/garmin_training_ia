@@ -1243,11 +1243,13 @@ Critère : plus aucune migration oubliée ; l'application du schéma est standar
 
 ### EPIC E26 — Après-course : célébration et choix du cap (demande owner 2026-08-25)
 
-**Priorité : P1 — Statut : spec + plan écrits, implémentation à faire** — spec
+**Priorité : P1 — Statut : V1 livrée (PR #213)** — spec
 `docs/superpowers/specs/2026-08-25-e26-apres-course-design.md`, plan
-`docs/superpowers/plans/2026-08-25-e26-apres-course.md`. Dépend d'E23 (détection et débrief
-livrés) et **se livre après E27** : sans le moteur, « maintenir » et « progresser » enregistrent
-une intention sans effet.
+`docs/superpowers/plans/2026-08-25-e26-apres-course.md`. Dépendait d'E23 (détection et débrief
+livrés) et d'E27 pour le moteur, livré juste avant (PR #212).
+
+**Reste à faire** : E26.7 (une seule interruption par session — arbitrage entre la modale
+post-course et le badge de nouveautés E21), non couvert par la V1.
 
 E23 a fait de la course un objet de première classe **jusqu'au débrief**. Ce qui vient
 **après** n'existe pas : rien ne félicite l'athlète, rien ne lui demande ce qu'il veut faire
@@ -1303,10 +1305,13 @@ trois tons ; comportement quand deux courses sont détectées coup sur coup (wee
 
 ### EPIC E27 — Entraînement sans objectif : maintien et progression continue (demande owner 2026-08-25)
 
-**Priorité : P1 — Statut : spec + plan écrits, implémentation à faire** — spec
+**Priorité : P1 — Statut : V1 livrée (PR #212)** — spec
 `docs/superpowers/specs/2026-08-25-e27-entrainement-sans-objectif-design.md`, plan
 `docs/superpowers/plans/2026-08-25-e27-entrainement-sans-objectif.md`. Prérequis fonctionnel
-d'E26.4 et E26.6, **à livrer en premier**.
+d'E26.4 et E26.6, livré avant eux comme prévu.
+
+**Reste à faire** : E27.6 (transition `maintain` -> `race` sans repartir de zéro : la CTL
+atteinte devient le point de départ de la préparation), non couvert par la V1.
 
 Tout le moteur de plan dérive d'une `race_date` : ancre de préparation, phases, rampes, taper,
 séance du jour J. Sans course future, `_load_plan_inputs` renvoie `no_race_goal` ou
