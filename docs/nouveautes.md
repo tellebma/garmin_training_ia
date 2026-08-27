@@ -1,5 +1,11 @@
 # Nouveautés
 
+## 1.26.0 — 2026-08-27
+
+- Au retour d'une course, l'app te dit un mot sur ta performance et te demande la suite :
+  viser une nouvelle épreuve, maintenir, ou progresser sans objectif. Tu peux répondre plus
+  tard — la question revient deux fois, puis reste disponible sans t'interrompre.
+
 ## 1.25.0 — 2026-08-26
 
 - L'app ne s'arrête plus à ta ligne d'arrivée : le lendemain d'une course, tu continues de
@@ -9,9 +15,6 @@
   les quatre semaines. Ça se choisit depuis ton profil, et ça se change quand tu veux.
 - Après une épreuve, la récupération est imposée avant tout nouveau bloc — de 3 jours à
   2 semaines selon le temps que tu as passé à l'effort, sans séance de qualité ni sortie longue.
-- Au retour d'une course, l'app te dit un mot sur ta performance et te demande la suite :
-  viser une nouvelle épreuve, maintenir, ou progresser sans objectif. Tu peux répondre plus
-  tard — la question revient deux fois, puis reste disponible sans t'interrompre.
 
 ## 1.24.0 — 2026-08-25
 
