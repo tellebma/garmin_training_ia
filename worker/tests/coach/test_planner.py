@@ -13,6 +13,7 @@ from garmin_sync.coach.planner import (
     ObservedHabits,
     TrainingTarget,
     WeekSlot,
+    WeekSportBudget,
     _pick_session_type,
     _progress_for_offset,
     cap_weekly_ramp_by_sport,
@@ -406,7 +407,7 @@ def test_build_week_sessions_long_session_gets_more_tss_and_duration() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
-        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
+        budget=WeekSportBudget(tss={"swim": 140.0, "bike": 140.0, "run": 140.0}),
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=today + timedelta(days=365), sport="run"),
@@ -648,11 +649,13 @@ def test_build_week_sessions_long_session_gets_more_elevation() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
-        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
+        budget=WeekSportBudget(
+            tss={"swim": 140.0, "bike": 140.0, "run": 140.0},
+            elevation={"swim": 0, "bike": 200, "run": 30},
+        ),
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=today + timedelta(days=365), sport="run"),
-        weekly_elevation_by_sport={"swim": 0, "bike": 200, "run": 30},
     )
 
     bike_sessions = [s for s in sessions if s["sport"] == "bike"]
@@ -687,7 +690,7 @@ def test_build_week_sessions_tss_consistent_with_clamped_duration() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
-        tss_by_sport={"swim": 140.0, "bike": 140.0, "run": 140.0},
+        budget=WeekSportBudget(tss={"swim": 140.0, "bike": 140.0, "run": 140.0}),
         available_days=["tue", "wed", "thu", "sat", "fri", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=today + timedelta(days=365), sport="run"),
@@ -859,7 +862,7 @@ def test_build_week_caps_training_days_when_all_available() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
-        tss_by_sport={"swim": 133.33, "bike": 133.33, "run": 133.33},
+        budget=WeekSportBudget(tss={"swim": 133.33, "bike": 133.33, "run": 133.33}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=date(2026, 9, 1), sport="run"),
@@ -871,6 +874,9 @@ def test_build_week_caps_training_days_when_all_available() -> None:
 
 
 def test_build_week_clamps_bike_endurance_duration() -> None:
+    """Budget aligné sur les 6 h déclarées depuis #164 (6 x 45 = 270 TSS) : à 120,
+    une semaine de trois sorties vélo ne payait plus d'endurance à côté de sa
+    longue, et la séance était rétrogradée en récup."""
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
@@ -882,7 +888,7 @@ def test_build_week_clamps_bike_endurance_duration() -> None:
         ),
         sports_in_race=["bike"],
         sports_strengths={"swim": 3, "bike": 3, "run": 3},
-        tss_by_sport={"bike": 120.0},
+        budget=WeekSportBudget(tss={"bike": 250.0}),
         available_days=["mon", "wed", "fri"],
         hours_per_week=6,
         target=TrainingTarget(race_day=date(2026, 9, 1), sport="bike"),
@@ -1002,7 +1008,7 @@ def test_build_week_strong_bike_gets_threshold_despite_weak_run() -> None:
         ),
         sports_in_race=["bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
-        tss_by_sport={"bike": 200.0, "run": 80.0},
+        budget=WeekSportBudget(tss={"bike": 200.0, "run": 80.0}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=date(2026, 9, 1), sport="bike"),
@@ -1032,7 +1038,7 @@ def test_build_week_four_days_without_sunday_still_has_long() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
-        tss_by_sport={"swim": 50.0, "bike": 50.0, "run": 50.0},
+        budget=WeekSportBudget(tss={"swim": 50.0, "bike": 50.0, "run": 50.0}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=date(2026, 9, 1), sport="run"),
@@ -1076,7 +1082,11 @@ def test_estimate_race_time_shares_sums_duplicate_legs() -> None:
 
 def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None:
     """Régression #130 : la répartition suit l'enjeu de course (temps estimé),
-    plus l'ordre chronologique des legs (swim, bike, run, swim en prod)."""
+    plus l'ordre chronologique des legs (swim, bike, run, swim en prod).
+
+    Budget vélo revu à la hausse depuis #164 : une sortie longue de 2 h 30 coûte
+    112,5 TSS et une séance au seuil 90 — la semaine doit pouvoir les payer, sinon
+    la longue est rétrogradée au lieu de faire déborder le budget."""
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
@@ -1088,7 +1098,7 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
-        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        budget=WeekSportBudget(tss={"swim": 60.0, "bike": 240.0, "run": 90.0}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(
@@ -1111,7 +1121,10 @@ def test_build_week_bike_heavy_race_gets_at_least_as_many_bike_as_swim() -> None
 def test_build_week_uses_declared_budget_with_five_days() -> None:
     """Régression #129 : 8 h déclarées / 7 jours dispo ne doivent plus être
     plafonnés à 4 jours par un classement « beginner » dû au point faible run.
-    Le run reste protégé par son cap PAR discipline (niveau run 1 -> 2 j max)."""
+    Le run reste protégé par son cap PAR discipline (niveau run 1 -> 2 j max).
+
+    Budget aligné sur les 8 h déclarées depuis #164 (8 x 45 = 360 TSS) : à 180, la
+    semaine ne payait pas ses cinq séances et l'une d'elles était retirée."""
     from garmin_sync.coach.planner import _build_week_sessions
 
     sessions = _build_week_sessions(
@@ -1123,7 +1136,7 @@ def test_build_week_uses_declared_budget_with_five_days() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
-        tss_by_sport={"swim": 40.0, "bike": 100.0, "run": 40.0},
+        budget=WeekSportBudget(tss={"swim": 90.0, "bike": 180.0, "run": 90.0}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(race_day=date(2026, 9, 1), sport="bike"),
@@ -1168,7 +1181,7 @@ def test_build_week_places_sessions_on_athlete_observed_days() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 1, "bike": 1, "run": 1},  # beginner -> 4 jours
-        tss_by_sport={"swim": 50.0, "bike": 120.0, "run": 50.0},
+        budget=WeekSportBudget(tss={"swim": 50.0, "bike": 120.0, "run": 50.0}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(
@@ -1228,7 +1241,7 @@ def test_build_week_peak_phase_has_quality_session_for_strong_sport() -> None:
         ),
         sports_in_race=["swim", "bike", "run"],
         sports_strengths={"swim": 2, "bike": 4, "run": 1},
-        tss_by_sport={"swim": 40.0, "bike": 150.0, "run": 60.0},
+        budget=WeekSportBudget(tss={"swim": 40.0, "bike": 150.0, "run": 60.0}),
         available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         hours_per_week=8,
         target=TrainingTarget(
