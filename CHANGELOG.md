@@ -1,3 +1,9 @@
+## [1.26.0](https://github.com/tellebma/garmin_training_ia/compare/v1.25.0...v1.26.0) (2026-08-27)
+
+### Features
+
+* **coach:** après-course — un mot sur la course et le choix du cap (E26) ([#213](https://github.com/tellebma/garmin_training_ia/issues/213)) ([cdac37e](https://github.com/tellebma/garmin_training_ia/commit/cdac37ead7e5e609cb531476d60e75070b3d6e28))
+
 ## [1.25.0](https://github.com/tellebma/garmin_training_ia/compare/v1.24.0...v1.25.0) (2026-08-27)
 
 ### Features
