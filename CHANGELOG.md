@@ -1,3 +1,13 @@
+## [1.25.0](https://github.com/tellebma/garmin_training_ia/compare/v1.24.0...v1.25.0) (2026-08-27)
+
+### Features
+
+* **coach:** entraînement sans objectif — maintien et progression continue (E27) ([#212](https://github.com/tellebma/garmin_training_ia/issues/212)) ([0021546](https://github.com/tellebma/garmin_training_ia/commit/0021546a0f22383527ebb5240178d0abd7bd09e2))
+
+### Documentation
+
+* EPICs E26 (après-course) et E27 (entraînement sans objectif) — backlog, specs et plans ([#211](https://github.com/tellebma/garmin_training_ia/issues/211)) ([41875bf](https://github.com/tellebma/garmin_training_ia/commit/41875bf1f5c9745259ba9af72d7865ff4fadc261))
+
 ## [1.24.0](https://github.com/tellebma/garmin_training_ia/compare/v1.23.0...v1.24.0) (2026-08-25)
 
 ### Features
