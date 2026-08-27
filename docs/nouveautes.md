@@ -1,5 +1,11 @@
 # Nouveautés
 
+## 1.26.0 — 2026-08-27
+
+- Au retour d'une course, l'app te dit un mot sur ta performance et te demande la suite :
+  viser une nouvelle épreuve, maintenir, ou progresser sans objectif. Tu peux répondre plus
+  tard — la question revient deux fois, puis reste disponible sans t'interrompre.
+
 ## 1.25.0 — 2026-08-26
 
 - L'app ne s'arrête plus à ta ligne d'arrivée : le lendemain d'une course, tu continues de

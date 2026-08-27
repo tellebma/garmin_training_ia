@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { BottomNav } from '@/components/nav/bottom-nav'
 import { SideNav } from '@/components/nav/side-nav'
@@ -7,6 +8,7 @@ import { getCurrentUser } from '@/lib/supabase/current-user'
 import { loadChangelog } from '@/lib/changelog/read'
 import { SyncNowButton } from '@/app/(app)/_components/sync-now-button'
 import { MaintenancePage } from '@/app/(app)/_components/maintenance-page'
+import { PostRacePrompt } from '@/app/(app)/_components/post-race-prompt'
 
 export default async function AppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser()
@@ -49,6 +51,11 @@ export default async function AppLayout({ children }: Readonly<{ children: React
             <SyncNowButton />
           </div>
           {children}
+          {/* Question posée après une course (E26). Volontairement HORS du Promise.all
+              ci-dessus : une modale ne doit jamais retarder le rendu de l'app. */}
+          <Suspense fallback={null}>
+            <PostRacePrompt userId={user.id} />
+          </Suspense>
         </div>
       </main>
       <BottomNav />
