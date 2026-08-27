@@ -106,6 +106,47 @@ class ObservedHabits:
 NO_OBSERVED_HABITS = ObservedHabits()
 
 
+@dataclass(frozen=True)
+class LoadShape:
+    """Comment la charge hebdomadaire est modulée sur l'horizon du plan.
+
+    Les trois signaux voyagent toujours ensemble — de la grille jusqu'à la
+    construction des semaines — et sont regroupés pour la même raison que
+    ``TrainingTarget`` : les signatures de construction repassaient au-dessus de
+    la limite de lisibilité à chaque mode ajouté.
+
+    Tout absent : courbe de préparation course (rampe composée + deload toutes les
+    4 semaines, calculés à la volée). Le mode cycle (E27) fournit les siens.
+    """
+
+    multipliers: Sequence[float] | None = None
+    reduction_offsets: set[int] | None = None
+    # Fenêtre de récupération post-course : elle écrase la charge des jours qu'elle
+    # couvre, quel que soit le mode — y compris une prépa déjà relancée.
+    recovery: RecoveryWindow | None = None
+
+
+NO_LOAD_SHAPE = LoadShape()
+
+
+@dataclass(frozen=True)
+class WeekSlot:
+    """Où se situe une semaine dans le plan : son rang, sa phase, ses dates.
+
+    Ces cinq coordonnées ne se séparent jamais — elles décrivent la même semaine —
+    et sont regroupées pour la même raison que ``TrainingTarget`` et ``LoadShape``.
+
+    ``is_last`` : seule la dernière semaine porte le jour J, quand il y en a un.
+    ``progress`` : avancement dans la phase (0 -> 1), qui module les types de séance.
+    """
+
+    offset: int
+    phase: Phase
+    start: date
+    is_last: bool = False
+    progress: float = 1.0
+
+
 def _activity_day(raw: Any) -> date | None:
     """Jour d'une activité depuis son ``start_time``, ou None s'il est inutilisable.
 
@@ -945,18 +986,14 @@ def compute_weekly_elevation_targets(
 
 def _build_week_sessions(
     *,
-    week_offset: int,
-    phase: Phase,
-    week_start: date,
+    slot: WeekSlot,
     sports_in_race: list[str],
     sports_strengths: dict[str, int],
     tss_by_sport: dict[str, float],
     available_days: list[str],
     hours_per_week: float | None,
-    is_last_week: bool,
     target: TrainingTarget,
     weekly_elevation_by_sport: dict[str, int] | None = None,
-    progress: float = 1.0,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
     allowed_types: list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -982,7 +1019,7 @@ def _build_week_sessions(
             list(allowed_types)
             if allowed_types
             else pick_session_types_for_phase(
-                phase, max_level=sports_strengths.get(s, 3), progress=progress
+                slot.phase, max_level=sports_strengths.get(s, 3), progress=slot.progress
             )
         )
         for s in sports_in_race
@@ -990,8 +1027,8 @@ def _build_week_sessions(
     available_idx = {DAY_NAME_TO_INDEX[d] for d in available_days if d in DAY_NAME_TO_INDEX}
 
     # Deload weeks (every 4th, except taper) need a stricter rest floor.
-    is_deload = (week_offset + 1) % 4 == 0
-    phase_for_rest = "deload" if is_deload and phase != "taper" else phase
+    is_deload = (slot.offset + 1) % 4 == 0
+    phase_for_rest = "deload" if is_deload and slot.phase != "taper" else slot.phase
     count = training_days_count(
         n_available=len(available_idx), hours=hours_per_week, level=level, phase=phase_for_rest
     )
@@ -1010,7 +1047,7 @@ def _build_week_sessions(
     run_level = level_label_for_score(sports_strengths.get("run", 3))
     # Enchaînement vélo->CAP (#154) : réservé aux phases build/peak d'une course
     # à transition — jamais en taper (semaine de course) ni en base.
-    with_brick = target.has_bike_run_transition and phase in _BRICK_PHASES
+    with_brick = target.has_bike_run_transition and slot.phase in _BRICK_PHASES
     sport_counts = allocate_sport_sessions(
         count=count,
         time_shares=shares,
@@ -1027,11 +1064,11 @@ def _build_week_sessions(
 
     # Single-pass day plan so weight tallies and emitted sessions never diverge.
     day_plan = _build_training_day_plan(
-        week_start=week_start,
+        week_start=slot.start,
         training_idx=training_idx,
         sport_by_day=sport_by_day,
         types_by_sport=types_by_sport,
-        is_last_week=is_last_week,
+        is_last_week=slot.is_last,
         race_date=target.race_day,
         long_day_idx=long_day_idx,
     )
@@ -1039,22 +1076,22 @@ def _build_week_sessions(
     sport_elev_weight_total = _tally_sport_weights(day_plan, _ELEVATION_SESSION_WEIGHT)
 
     for offset in range(7):
-        day = week_start + timedelta(days=offset)
+        day = slot.start + timedelta(days=offset)
         day_idx = day.weekday()
 
-        if is_last_week and target.race_day is not None and day == target.race_day:
-            sessions.append(_race_day_session(day=day, target=target, week_offset=week_offset))
+        if slot.is_last and target.race_day is not None and day == target.race_day:
+            sessions.append(_race_day_session(day=day, target=target, week_offset=slot.offset))
             continue
         if day_idx not in day_plan:
-            sessions.append(_rest_day_session(day=day, phase=phase, week_offset=week_offset))
+            sessions.append(_rest_day_session(day=day, phase=slot.phase, week_offset=slot.offset))
             continue
 
         sport, stype = day_plan[day_idx]
         sessions.append(
             _training_day_session(
                 day=day,
-                phase=phase,
-                week_offset=week_offset,
+                phase=slot.phase,
+                week_offset=slot.offset,
                 stype=stype,
                 sport=sport,
                 tss_by_sport=tss_by_sport,
@@ -1148,39 +1185,57 @@ def _load_today_banister_state(
     return tss_by_date, states[-1], activity_review, activities
 
 
+def _week_tss_budget(
+    *,
+    base_weekly: float,
+    week_day: date,
+    recovery: RecoveryWindow | None,
+    hours_cap: float,
+    first_week_multiplier: float,
+) -> float:
+    """Budget de charge d'une semaine, une fois tous ses plafonds appliqués.
+
+    L'ordre compte : la récupération plafonne avant les heures dispo (elle n'est
+    pas une option de plus dans la courbe, elle écrase ce que le mode voudrait
+    charger), et le multiplicateur prudent de reprise s'applique en dernier.
+    """
+    weekly_tss = base_weekly
+    if recovery is not None:
+        weekly_tss *= recovery.week_load_multiplier(week_day)
+    if hours_cap > 0:
+        # Le ramp converge vers le budget déclaré mais ne le dépasse pas :
+        # les heures dispo restent un plafond de faisabilité (#128).
+        weekly_tss = min(weekly_tss, float(hours_cap))
+    return weekly_tss * first_week_multiplier
+
+
 def _build_all_week_sessions(
     *,
-    phases: Sequence[tuple[int, Phase]],
+    grid: _PlanGrid,
     today_state: BanisterState,
     profile: dict[str, Any],
     first_week_tss_multiplier: float,
-    sports_in_race: list[str],
     effective_strengths: dict[str, int],
     available_days: list[str],
-    weeks_count: int,
-    week_start: date,
-    target: TrainingTarget,
-    current_offset: int = 0,
     observed: ObservedHabits = NO_OBSERVED_HABITS,
-    load_multipliers: Sequence[float] | None = None,
-    reduction_offsets: set[int] | None = None,
-    recovery: RecoveryWindow | None = None,
 ) -> list[dict[str, Any]]:
     """Build planned sessions for all weeks of the plan.
 
-    ``current_offset`` est la semaine qui contient `today` dans la grille ancrée
-    (#123) : c'est elle — et non plus l'offset 0, potentiellement passé — qui
-    reçoit le multiplicateur prudent de première semaine.
+    ``grid`` porte tout ce qui vient du découpage temporel — phases, semaines,
+    cible, sports, modulation de charge — sans que l'aval ait à savoir si c'est
+    une préparation de course ou un cycle d'entretien (cf. ``_PlanGrid``).
 
-    ``load_multipliers`` et ``reduction_offsets`` absents : courbe de prépa course
-    (rampe composée + deload toutes les 4 semaines). Le mode cycle (E27) fournit les
-    siens, qui n'ont volontairement aucune mémoire d'une semaine à l'autre.
-
-    ``recovery`` : fenêtre de récupération post-course, qui écrase la charge des jours
-    qu'elle couvre — quel que soit le mode, y compris une prépa déjà relancée.
+    ``grid.current_offset`` est la semaine qui contient `today` dans la grille
+    ancrée (#123) : c'est elle — et non plus l'offset 0, potentiellement passé —
+    qui reçoit le multiplicateur prudent de première semaine.
     """
+    phases = grid.phases
+    week_start = grid.week_start
+    target = grid.target
+    load = grid.load
     all_sessions: list[dict[str, Any]] = []
     prev_tss_by_sport: dict[str, float] | None = None
+    load_multipliers = load.multipliers
     if load_multipliers is None:
         load_multipliers = compute_week_load_multipliers(phases)
     base_weekly = compute_base_weekly_tss(
@@ -1196,53 +1251,53 @@ def _build_all_week_sessions(
             phases=phases,
             observed_weekly_dplus=observed.weekly_dplus,
         )
-        weekly_tss = base_weekly * load_multipliers[i]
-        if recovery is not None:
-            # La récupération n'est pas une option de plus dans la courbe : elle
-            # plafonne la semaine, même quand le mode voudrait charger.
-            weekly_tss *= recovery.week_load_multiplier(week_start + timedelta(weeks=offset))
-        if hours_cap > 0:
-            # Le ramp converge vers le budget déclaré mais ne le dépasse pas :
-            # les heures dispo restent un plafond de faisabilité (#128).
-            weekly_tss = min(weekly_tss, float(hours_cap))
-        if offset == current_offset:
-            weekly_tss *= first_week_tss_multiplier
+        weekly_tss = _week_tss_budget(
+            base_weekly=base_weekly * load_multipliers[i],
+            week_day=week_start + timedelta(weeks=offset),
+            recovery=load.recovery,
+            hours_cap=hours_cap,
+            first_week_multiplier=(
+                first_week_tss_multiplier if offset == grid.current_offset else 1.0
+            ),
+        )
         progress = _progress_for_offset(offset, phases)
         tss_by_sport = distribute_weekly_tss_by_sport(
             weekly_tss=weekly_tss,
-            sports_in_race=sports_in_race,
+            sports_in_race=grid.sports,
             sports_strengths=effective_strengths,
             progress=progress,
         )
         tss_by_sport = cap_weekly_ramp_by_sport(tss_by_sport, prev_tss_by_sport)
         is_reduction_week = (
-            offset in reduction_offsets
-            if reduction_offsets is not None
+            offset in load.reduction_offsets
+            if load.reduction_offsets is not None
             else (phase == "taper" or (offset + 1) % 4 == 0)
         )
         if not is_reduction_week:
             prev_tss_by_sport = tss_by_sport
-        is_last = offset == weeks_count - 1
+        is_last = offset == grid.weeks_count - 1
         sessions = _build_week_sessions(
-            week_offset=offset,
-            phase=phase,
-            week_start=week_start + timedelta(weeks=offset),
-            sports_in_race=sports_in_race,
+            slot=WeekSlot(
+                offset=offset,
+                phase=phase,
+                start=week_start + timedelta(weeks=offset),
+                is_last=is_last,
+                progress=progress,
+            ),
+            sports_in_race=grid.sports,
             sports_strengths=effective_strengths,
             tss_by_sport=tss_by_sport,
             available_days=available_days,
             hours_per_week=profile.get("hours_per_week"),
-            is_last_week=is_last,
             target=target,
             weekly_elevation_by_sport=weekly_elevation_by_sport,
-            progress=progress,
             observed=observed,
             # Fenêtre de récupération : ni qualité ni séance longue, quel que soit
             # ce que la phase autoriserait par ailleurs.
             allowed_types=(
                 RECOVERY_SESSION_TYPES
-                if recovery is not None
-                and recovery.covers_week(week_start + timedelta(weeks=offset))
+                if load.recovery is not None
+                and load.recovery.covers_week(week_start + timedelta(weeks=offset))
                 else None
             ),
         )
@@ -1468,9 +1523,7 @@ class _PlanGrid:
     end_date: date
     target: TrainingTarget
     sports: list[str]
-    load_multipliers: Sequence[float] | None = None
-    reduction_offsets: set[int] | None = None
-    recovery: RecoveryWindow | None = None
+    load: LoadShape = NO_LOAD_SHAPE
 
 
 def _race_grid(
@@ -1613,13 +1666,15 @@ def _cycle_grid(
             legs=[],
             athlete={**loaded.profile, "sports_strengths": effective_strengths},
         ),
-        load_multipliers=multipliers,
-        reduction_offsets={
-            offset
-            for offset in range(weeks_count)
-            if is_deload_week(loaded.mode, start_cycle_week + offset)
-        },
-        recovery=recovery,
+        load=LoadShape(
+            multipliers=multipliers,
+            reduction_offsets={
+                offset
+                for offset in range(weeks_count)
+                if is_deload_week(loaded.mode, start_cycle_week + offset)
+            },
+            recovery=recovery,
+        ),
     )
 
 
@@ -1681,25 +1736,17 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
     anchor, weeks_count, week_start = grid.anchor, grid.weeks_count, grid.week_start
     current_offset = grid.current_offset
     all_sessions = _build_all_week_sessions(
-        phases=grid.phases,
+        grid=grid,
         today_state=today_state,
         profile=profile,
         first_week_tss_multiplier=first_week_tss_multiplier,
-        current_offset=current_offset,
-        sports_in_race=grid.sports,
         effective_strengths=effective_strengths,
         available_days=available_days,
-        weeks_count=weeks_count,
-        week_start=week_start,
-        target=grid.target,
         observed=ObservedHabits(
             weekday_counts=observed_weekday_counts,
             weekday_durations=observed_weekday_durations,
             weekly_dplus=observed_weekly_dplus,
         ),
-        load_multipliers=grid.load_multipliers,
-        reduction_offsets=grid.reduction_offsets,
-        recovery=grid.recovery,
     )
 
     # Drop any session dated before today: when the week grid starts a few days in
@@ -1778,7 +1825,7 @@ def generate_plan(user_id: str, *, today: date | None = None) -> dict[str, Any]:
                     # quand il diffère du mode déclaré (course passée sans cap choisi).
                     "training_mode": loaded.mode,
                     "recovery_until": (
-                        grid.recovery.end_date.isoformat() if grid.recovery else None
+                        grid.load.recovery.end_date.isoformat() if grid.load.recovery else None
                     ),
                 },
             }
