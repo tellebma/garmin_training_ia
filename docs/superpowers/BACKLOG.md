@@ -1310,8 +1310,19 @@ trois tons ; comportement quand deux courses sont détectées coup sur coup (wee
 `docs/superpowers/plans/2026-08-25-e27-entrainement-sans-objectif.md`. Prérequis fonctionnel
 d'E26.4 et E26.6, livré avant eux comme prévu.
 
-**Reste à faire** : E27.6 (transition `maintain` -> `race` sans repartir de zéro : la CTL
-atteinte devient le point de départ de la préparation), non couvert par la V1.
+**E27.6 — vérifié et verrouillé (2026-08-27)** : la transition `maintain` -> `race` ne
+repartait en fait **jamais de zéro** côté charge — le budget hebdo dérive de la CTL mesurée
+(CTL 60 -> 360 TSS/sem contre 140 à CTL 20) et le rabais de reprise ne regarde que les
+signaux de fatigue, pas le mode. `test_planner_mode_transition.py` protège désormais ces
+deux garanties, qui ne tenaient que par construction.
+
+**Reste ouvert — la périodisation, elle, repart bien de zéro** : `compute_phases` découpe
+depuis l'ancre sans rien savoir du foncier acquis. Un athlète qui bascule après six mois de
+maintien reçoit **11 semaines de `base` sur 20** avant tout travail spécifique, comme un
+débutant. Le levier existe (`_ensure_prep_anchor` peut poser une ancre dans le passé, ce qui
+ferait démarrer la grille plus avant dans les phases, les semaines passées étant déjà
+droppées à l'insert), mais **combien de semaines de base considérer comme acquises** est un
+arbitrage de coaching à trancher — pas une décision d'implémentation.
 
 Tout le moteur de plan dérive d'une `race_date` : ancre de préparation, phases, rampes, taper,
 séance du jour J. Sans course future, `_load_plan_inputs` renvoie `no_race_goal` ou
