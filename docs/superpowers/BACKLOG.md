@@ -1241,6 +1241,109 @@ Critère : plus aucune migration oubliée ; l'application du schéma est standar
 - Suite éventuelle : skeletons par section pour `/plan` et `/history` (listes) si besoin,
   empreinte de fraîcheur pour invalider finement.
 
+### EPIC E26 — Après-course : célébration et choix du cap (demande owner 2026-08-25)
+
+**Priorité : P1 — Statut : spec + plan écrits, implémentation à faire** — spec
+`docs/superpowers/specs/2026-08-25-e26-apres-course-design.md`, plan
+`docs/superpowers/plans/2026-08-25-e26-apres-course.md`. Dépend d'E23 (détection et débrief
+livrés) et **se livre après E27** : sans le moteur, « maintenir » et « progresser » enregistrent
+une intention sans effet.
+
+E23 a fait de la course un objet de première classe **jusqu'au débrief**. Ce qui vient
+**après** n'existe pas : rien ne félicite l'athlète, rien ne lui demande ce qu'il veut faire
+ensuite, et `generate_plan` renvoie `race_in_past` dès le lendemain
+(`planner.py:1304`) — l'app cesse purement et simplement de proposer des séances. Le seul
+moyen de repartir aujourd'hui est d'aller créer un objectif à la main, sans y être invité.
+
+Objectif : transformer la ligne d'arrivée en **point de bascule guidé** — un mot sur la course,
+puis un choix de cap explicite, qu'on peut remettre à plus tard sans que l'app se fige.
+
+- **E26.1 P1 — État du prompt post-course** : colonnes sur `race_goals`
+  (`post_race_prompt_status` ∈ `pending`/`snoozed`/`answered`/`dismissed`,
+  `post_race_prompt_snoozed_until`, `post_race_choice`, `post_race_answered_at`) plutôt qu'une
+  table générique — une ligne par course, RLS déjà en place. RPC `security definer` pour
+  enregistrer le choix ou le report, gardée comme les autres.
+- **E26.2 P1 — Déclenchement fiable** : la modale s'arme quand une activité est **rattachée**
+  à une course (au sync, donc J+1 au plus tôt : les splits et le débrief ne sont exploitables
+  qu'après), et s'ouvre à la première connexion suivante. Trois garde-fous, sans quoi elle se
+  déclenche à tort : **une seule fois par `race_goal`** et non par activité (un triathlon
+  arrive en 5 fichiers Garmin) ; **fenêtre de fraîcheur** (course de moins de ~14 jours) pour
+  qu'un backfill ou un tag rétroactif n'ouvre pas un « Bravo ! » sur une épreuve de 2024 ;
+  activité **exclue** (E24) ignorée.
+- **E26.3 P1 — Le mot sur la course, déterministe** : comme le reste du débrief E23, **aucun
+  LLM** — trois tons dérivés des données. *Célébration* si le temps tient la cible
+  (`target_time_seconds`) ou bat la course précédente de même format ; *factuel positif* si
+  l'épreuve est terminée sans cible de temps ; *attentionné* si la distance reste très en deçà
+  des `legs` (abandon) ou l'écart est massif. Une phrase, un chiffre, un lien vers le débrief
+  complet — le silence n'est pas une option, une journée difficile mérite un mot.
+- **E26.4 P1 — Choix du cap** : trois voies plus un report. **Nouvel objectif** → formulaire
+  course (celui de l'onboarding), l'ancienne course passe `is_primary = false` dans la même
+  transaction pour ne pas violer `race_goals_one_primary_per_user`. **Maintenir l'état actuel**
+  et **progresser sans objectif** → basculent `training_mode` (E27). **Plus tard** → report.
+  Le choix reste modifiable à tout moment depuis le profil : ce n'est pas un one-shot.
+- **E26.5 P1 — Report et relance dégressive** : skip = report à **J+2**, puis **J+5**, puis
+  plus aucune interruption — une **bannière discrète et permanente** sur `/today` prend le
+  relais jusqu'au choix. Trois modales au maximum ; reproposer à chaque connexion agacerait,
+  surtout pendant une coupure post-course.
+- **E26.6 P1 — Défaut si l'athlète ne répond jamais** : **semaine de récupération imposée**
+  (E27.1), puis bascule automatique en **maintien**. L'app ne reste jamais vide en attendant
+  une réponse — c'est le trou actuel.
+- **E26.7 P2 — Une seule interruption par session** : règle de priorité entre la modale
+  post-course et le badge de nouveautés (E21), pour ne jamais empiler deux sollicitations à
+  l'ouverture de l'app.
+
+**Forme** : `Sheet` bas d'écran (cohérent avec la cloche E21, meilleur en PWA mobile) plutôt
+qu'un `Dialog` centré. La modale reste courte — mot + chiffre + lien débrief + trois boutons
+de cap + « plus tard » ; « nouvel objectif » enchaîne vers la page de formulaire, jamais un
+wizard imbriqué dans la modale.
+
+**Points à trancher à la spec** : largeur exacte de la fenêtre de fraîcheur ; formulation des
+trois tons ; comportement quand deux courses sont détectées coup sur coup (week-end à deux
+épreuves) ; place de la bannière permanente dans la hiérarchie de `/today`.
+
+### EPIC E27 — Entraînement sans objectif : maintien et progression continue (demande owner 2026-08-25)
+
+**Priorité : P1 — Statut : spec + plan écrits, implémentation à faire** — spec
+`docs/superpowers/specs/2026-08-25-e27-entrainement-sans-objectif-design.md`, plan
+`docs/superpowers/plans/2026-08-25-e27-entrainement-sans-objectif.md`. Prérequis fonctionnel
+d'E26.4 et E26.6, **à livrer en premier**.
+
+Tout le moteur de plan dérive d'une `race_date` : ancre de préparation, phases, rampes, taper,
+séance du jour J. Sans course future, `_load_plan_inputs` renvoie `no_race_goal` ou
+`race_in_past` et **rien n'est généré**. Un athlète entre deux objectifs, ou qui s'entraîne
+sans en viser aucun, n'a donc aucun plan — alors que c'est l'état le plus courant hors saison.
+
+Objectif : un **mode d'entraînement sans course**, aussi sérieux que la préparation d'épreuve —
+horizon roulant, périodisation cyclique, charge pilotée par une CTL cible.
+
+- **E27.1 P1 — Semaine de récupération post-course** : quel que soit le cap choisi, la semaine
+  qui suit une course est une semaine de récup, imposée avant tout nouveau bloc — y compris si
+  l'athlète enchaîne immédiatement sur un nouvel objectif. Volume et intensité dérivés de la
+  durée et de la charge de l'épreuve.
+- **E27.2 P1 — Mode d'entraînement explicite** : `athlete_profiles.training_mode`
+  (`race` / `maintain` / `improve`) + `training_mode_since`. **Une seule source de vérité** :
+  créer un objectif force `training_mode = 'race'` dans la même transaction, pour ne jamais
+  avoir à arbitrer entre la colonne et l'existence d'un `race_goal` primaire.
+- **E27.3 P1 — Générateur à horizon roulant** : sans date d'arrivée, il n'y a plus d'ancre —
+  le plan devient un **horizon glissant de 4 semaines** régénéré chaque semaine, en cycles
+  3 semaines de charge + 1 de décharge, sans taper ni pic. La rotation des disciplines et des
+  types de séance réutilise l'existant (`pick_session_types_for_phase`, budgets de charge).
+- **E27.4 P1 — Charge pilotée par CTL cible** : en **maintien**, CTL cible constante au niveau
+  atteint post-course (le budget hebdo se règle pour tenir la CTL, pas pour la faire monter) ;
+  en **progression**, rampe modérée (ordre de +3 à +5 %/semaine, à caler sur les rampes
+  existantes) avec décharge cyclique. Le garde-fou de fatigue (TSB) reste celui du mode course.
+- **E27.5 P1 — Cohérence de l'interface sans course** : `/today` et `/plan` affichent le mode
+  courant au lieu du J-N, la page objectif permet de changer de cap, et les écrans qui
+  supposent une course à venir dégradent proprement.
+- **E27.6 P2 — Transition entre modes** : passer de `maintain` à `race` en cours de route ne
+  doit pas repartir de zéro — la CTL atteinte devient le point de départ de la préparation
+  (recoupe `_ensure_prep_anchor` et le multiplicateur prudent de reprise).
+
+**Points à trancher à la spec** : valeur exacte de la rampe de progression et son plafond ;
+comment fixer la CTL cible de maintien (valeur post-course figée, ou moyenne glissante) ;
+longueur de l'horizon roulant (4 semaines par défaut) ; ce que devient un plan `race` déjà
+généré quand l'athlète bascule en `maintain`.
+
 ### EPIC E16 — Chargement et rendu progressif des pages (sujet transversal) (owner 2026-06-27)
 
 **Priorité : P1 — Statut : V1 partielle, audit ci-dessous**
