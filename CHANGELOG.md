@@ -1,3 +1,13 @@
+## [1.26.1](https://github.com/tellebma/garmin_training_ia/compare/v1.26.0...v1.26.1) (2026-09-13)
+
+### Bug Fixes
+
+* **coach:** le planner lisait une colonne renommée, aucun plan n'était généré ([#216](https://github.com/tellebma/garmin_training_ia/issues/216)) ([783187a](https://github.com/tellebma/garmin_training_ia/commit/783187a927328f1f412bd0f24e60c8f3c77bad7c))
+
+### Documentation
+
+* **backlog:** E26 et E27 livrées, avec leur reste-à-faire explicite ([#214](https://github.com/tellebma/garmin_training_ia/issues/214)) ([e6fd7a4](https://github.com/tellebma/garmin_training_ia/commit/e6fd7a4f20b0db12a3fba983ea26d32f5d7c65bf))
+
 ## [1.26.0](https://github.com/tellebma/garmin_training_ia/compare/v1.25.0...v1.26.0) (2026-08-27)
 
 ### Features
