@@ -43,6 +43,28 @@ jobs:
           path: worker/coverage/lcov.info
           retention-days: 1
 
+  audit:
+    name: Dependencies audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with: { version: '0.5.x' }
+      - name: Install Python
+        run: uv python install 3.12
+      # Le frontend a `pnpm audit` en CI, le worker n'avait rien : huit avis sur
+      # pyjwt — la brique qui vérifie les JWT — ont pu s'accumuler sans bruit.
+      # `uv export` produit l'arbre verrouillé exact, pip-audit le confronte aux
+      # bases PyPI/OSV.
+      - name: Export locked dependency tree
+        run: uv export --no-hashes --no-emit-project --all-groups > requirements-audit.txt
+      - name: pip-audit
+        run: uvx pip-audit -r requirements-audit.txt
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest

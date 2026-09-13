@@ -1611,7 +1611,11 @@ def _cycle_sports(
     shares = observed_sport_time_shares(activities, today=today)
     if shares:
         return list(shares.keys()), shares
-    declared = [s for s in ("swim", "bike", "run") if s in effective_strengths] or ["run"]
+    # Annotation explicite : sans elle, mypy infère list[Literal[...]] depuis le tuple,
+    # et list étant invariant ce type ne satisfait pas le list[str] du retour.
+    declared: list[str] = [s for s in ("swim", "bike", "run") if s in effective_strengths] or [
+        "run"
+    ]
     return declared, {s: 1.0 / len(declared) for s in declared}
 
 

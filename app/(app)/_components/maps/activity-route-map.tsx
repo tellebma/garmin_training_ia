@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import type { ExpressionSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { buildRouteGeoJson, routeBounds } from '@/lib/maps/route-geojson'
@@ -96,7 +96,11 @@ export function ActivityRouteMap({
     const map = mapRef.current
     if (!map?.isStyleLoaded() || !map.getLayer('route-line')) return
     const gradient = buildMetricGradient(samples, metric)
-    map.setPaintProperty('route-line', 'line-gradient', gradient ?? FALLBACK_GRADIENT)
+    map.setPaintProperty(
+      'route-line',
+      'line-gradient',
+      (gradient as unknown as ExpressionSpecification | null) ?? FALLBACK_GRADIENT
+    )
   }, [samples, metric])
 
   // Show/move a marker on the point that is currently hovered in the correlated chart.

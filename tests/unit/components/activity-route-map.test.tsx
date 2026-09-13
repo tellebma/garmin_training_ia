@@ -22,25 +22,25 @@ const markerAddTo = vi.fn(function (this: unknown) {
 })
 const markerRemove = vi.fn()
 
+// maplibre-gl 6 n'expose plus d'export par défaut : le composant importe le
+// namespace, donc le mock doit publier les classes en exports nommés.
 vi.mock('maplibre-gl', () => ({
-  default: {
-    Map: vi.fn(function (this: Record<string, unknown>) {
-      this.on = on
-      this.addSource = addSource
-      this.addLayer = addLayer
-      this.fitBounds = fitBounds
-      this.isStyleLoaded = isStyleLoaded
-      this.getLayer = getLayer
-      this.setPaintProperty = setPaintProperty
-      this.remove = removeMock
-    }),
-    Marker: vi.fn(function (this: Record<string, unknown>) {
-      markerConstructor()
-      this.setLngLat = markerSetLngLat
-      this.addTo = markerAddTo
-      this.remove = markerRemove
-    }),
-  },
+  Map: vi.fn(function (this: Record<string, unknown>) {
+    this.on = on
+    this.addSource = addSource
+    this.addLayer = addLayer
+    this.fitBounds = fitBounds
+    this.isStyleLoaded = isStyleLoaded
+    this.getLayer = getLayer
+    this.setPaintProperty = setPaintProperty
+    this.remove = removeMock
+  }),
+  Marker: vi.fn(function (this: Record<string, unknown>) {
+    markerConstructor()
+    this.setLngLat = markerSetLngLat
+    this.addTo = markerAddTo
+    this.remove = markerRemove
+  }),
 }))
 
 // routeBounds spy — default returns non-null bounds; individual tests can
