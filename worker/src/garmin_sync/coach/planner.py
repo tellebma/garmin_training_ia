@@ -1430,7 +1430,7 @@ def _last_past_race(db: Any, user_id: str, *, today: date) -> dict[str, Any] | N
     rows = cast(
         DbRows,
         db.table("race_goals")
-        .select("id, race_date, race_distance")
+        .select("id, race_date, discipline")
         .eq("user_id", user_id)
         .lte("race_date", today.isoformat())
         .order("race_date", desc=True)
@@ -1476,7 +1476,7 @@ def _load_plan_inputs(db: Any, user_id: str, *, today: date) -> _PlanInputs | di
 
     _race_builder = (
         db.table("race_goals")
-        .select("id, race_date, race_distance, discipline, legs, prep_start_date")
+        .select("id, race_date, discipline, legs, prep_start_date")
         .eq("user_id", user_id)
         .eq("is_primary", True)
         .maybe_single()
@@ -1642,7 +1642,7 @@ def _cycle_grid(
             race_date=date.fromisoformat(str(last_race["race_date"])),
             elapsed_s=_race_elapsed_s(db, user_id, str(last_race["id"])),
             today=today,
-            race_distance=last_race.get("race_distance"),
+            race_distance=last_race.get("discipline"),
         )
         if last_race
         else None

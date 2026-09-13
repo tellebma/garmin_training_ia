@@ -118,11 +118,15 @@ def test_recovery_after_a_recent_race_beats_the_chosen_mode(monkeypatch) -> None
     past_race = {
         "id": "race-1",
         "race_date": race_day.isoformat(),
-        "race_distance": "half_ironman",
+        "discipline": "triathlon",
     }
     db = _fake_db(_profile("improve"), past_race=past_race)
     # Activités rattachées à la course : 5 h d'effort -> 2 semaines de récup.
-    counted_chain = db.table.return_value.select.return_value.eq.return_value.eq.return_value
+    # `counted()` ajoute `.is_("excluded_at", "null")` : sans ce maillon, la durée
+    # n'atteint jamais le moteur et le test vaudrait pour l'étiquette, pas pour l'effort.
+    counted_chain = (
+        db.table.return_value.select.return_value.eq.return_value.eq.return_value.is_.return_value
+    )
     counted_chain.execute.return_value.data = [{"duration_s": 5 * 3600}]
     monkeypatch.setattr(p_mod, "get_admin_client", lambda: db)
 
@@ -256,3 +260,22 @@ def test_a_single_token_swim_does_not_earn_a_weekly_swim_slot() -> None:
 def test_without_history_declared_disciplines_keep_the_plan_alive() -> None:
     """Un plan de maintien sans discipline serait un plan vide."""
     assert observed_sport_time_shares([], today=TODAY) == {}
+
+
+def test_planner_never_selects_the_renamed_race_distance_column() -> None:
+    """`race_distance` a été renommée `discipline` en mai 2026 (race_profile_v2).
+
+    E27 l'a réintroduite dans trois `select()` : PostgREST répondait alors
+    « column race_goals.race_distance does not exist » et AUCUN plan n'était généré,
+    quel que soit le mode. Les mocks de ce fichier ne pouvaient pas l'attraper — ils
+    inventent les colonnes qu'ils renvoient. Ce test lit le source, seule façon peu
+    coûteuse de garder la requête alignée sur le schéma réel.
+    """
+    from pathlib import Path
+
+    from garmin_sync.coach import planner as p_mod
+
+    source = Path(p_mod.__file__).read_text(encoding="utf-8")
+    selected = [line for line in source.splitlines() if ".select(" in line]
+    offenders = [line.strip() for line in selected if "race_distance" in line]
+    assert not offenders, f"colonne inexistante sélectionnée : {offenders}"

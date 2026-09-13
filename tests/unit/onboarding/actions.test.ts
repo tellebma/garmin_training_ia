@@ -135,8 +135,16 @@ describe('saveStepPerso', () => {
 })
 
 describe('saveStepRace', () => {
+  // Le validateur exige une date future : une date en dur finit toujours par passer,
+  // et la suite rougit un matin sans qu'aucun code n'ait changé (vécu le 2026-09-01).
+  const futureRaceDate = (): string => {
+    const d = new Date()
+    d.setUTCDate(d.getUTCDate() + 90)
+    return d.toISOString().slice(0, 10)
+  }
+
   const VALID_RACE = {
-    race_date: '2026-09-01',
+    race_date: futureRaceDate(),
     discipline: 'triathlon' as const,
     legs: [
       { order: 1, discipline: 'swim' as const, distance_km: 1.5, elevation_gain_m: 0 },
