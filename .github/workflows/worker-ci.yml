@@ -56,17 +56,17 @@ jobs:
         with: { version: '0.5.x' }
       - name: Install Python
         run: uv python install 3.12
+      - name: Install deps
+        run: uv sync --all-groups --frozen
       # Le frontend a `pnpm audit` en CI, le worker n'avait rien : huit avis sur
-      # pyjwt — la brique qui vérifie les JWT — ont pu s'accumuler sans bruit.
-      # `uv export` produit l'arbre verrouillé exact, pip-audit le confronte aux
-      # bases PyPI/OSV.
-      - name: Export locked dependency tree
-        run: uv export --no-hashes --no-emit-project --all-groups > requirements-audit.txt
-      # --no-deps : l'arbre exporté est déjà complet et épinglé, donc rien à
-      # résoudre. Sans ce drapeau pip-audit crée un venv et `ensurepip` échoue
-      # (exit 127) sur le Python autonome installé par uv.
+      # pyjwt — la brique qui verifie les JWT entrants — ont pu s'accumuler sans
+      # bruit. On audite l'environnement REELLEMENT installe par le lock : le mode
+      # `-r fichier` de pip-audit relance une resolution pip dans un venv jetable,
+      # qui echoue sur le Python autonome d'uv (pas d'ensurepip) et resout d'autres
+      # versions que le lock. Verifie qu'il detecte : la meme commande sur le lock
+      # d'avant cette PR ressort cryptography, garminconnect, pyjwt et starlette.
       - name: pip-audit
-        run: uvx pip-audit --no-deps -r requirements-audit.txt
+        run: uv run --with pip-audit pip-audit
 
   docker:
     name: Docker build
