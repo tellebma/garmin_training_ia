@@ -29,7 +29,7 @@ overrides:
   js-yaml: ^4.3.2
   # next > styled-jsx pins @babel/core; GHSA-c83g-rgw3-j3cx (arbitrary file read
   # via a sourceMappingURL comment) needs >=7.29.1.
-  "@babel/core": ^7.29.1
+  '@babel/core': ^7.29.1
   # next > styled-jsx > @babel/core > @babel/helper-compilation-targets pins
   # browserslist@4.28.x; GHSA-73wf-gq98-2v4g (prototype write via custom stats)
   # and its unbounded-memory sibling need >=4.28.7.

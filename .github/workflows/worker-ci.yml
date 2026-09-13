@@ -62,8 +62,11 @@ jobs:
       # bases PyPI/OSV.
       - name: Export locked dependency tree
         run: uv export --no-hashes --no-emit-project --all-groups > requirements-audit.txt
+      # --no-deps : l'arbre exporté est déjà complet et épinglé, donc rien à
+      # résoudre. Sans ce drapeau pip-audit crée un venv et `ensurepip` échoue
+      # (exit 127) sur le Python autonome installé par uv.
       - name: pip-audit
-        run: uvx pip-audit -r requirements-audit.txt
+        run: uvx pip-audit --no-deps -r requirements-audit.txt
 
   docker:
     name: Docker build
