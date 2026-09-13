@@ -43,6 +43,31 @@ jobs:
           path: worker/coverage/lcov.info
           retention-days: 1
 
+  audit:
+    name: Dependencies audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with: { version: '0.5.x' }
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Install deps
+        run: uv sync --all-groups --frozen
+      # Le frontend a `pnpm audit` en CI, le worker n'avait rien : huit avis sur
+      # pyjwt — la brique qui verifie les JWT entrants — ont pu s'accumuler sans
+      # bruit. On audite l'environnement REELLEMENT installe par le lock : le mode
+      # `-r fichier` de pip-audit relance une resolution pip dans un venv jetable,
+      # qui echoue sur le Python autonome d'uv (pas d'ensurepip) et resout d'autres
+      # versions que le lock. Verifie qu'il detecte : la meme commande sur le lock
+      # d'avant cette PR ressort cryptography, garminconnect, pyjwt et starlette.
+      - name: pip-audit
+        run: uv run --with pip-audit pip-audit
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest
