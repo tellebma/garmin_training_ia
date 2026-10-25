@@ -1,3 +1,9 @@
+## [1.26.2](https://github.com/tellebma/garmin_training_ia/compare/v1.26.1...v1.26.2) (2026-10-25)
+
+### Bug Fixes
+
+* **deps:** remet l'app et le worker à zéro vulnérabilité (reprend [#217](https://github.com/tellebma/garmin_training_ia/issues/217)) ([#218](https://github.com/tellebma/garmin_training_ia/issues/218)) ([beb4521](https://github.com/tellebma/garmin_training_ia/commit/beb452138ce315dc47f3c8c9f7980a7e28d72df9))
+
 ## [1.26.1](https://github.com/tellebma/garmin_training_ia/compare/v1.26.0...v1.26.1) (2026-09-13)
 
 ### Bug Fixes
