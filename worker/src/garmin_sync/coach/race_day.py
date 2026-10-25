@@ -294,9 +294,13 @@ def _segment_note(
     ]
     if segment.elevation_gain_m:
         parts.append(f"{segment.elevation_gain_m} m D+")
-    parts.append(f"objectif {format_duration(segment.duration_s)}")
-    parts.append(f"{intensity.zone} / RPE {intensity.rpe}")
-    parts.append(_pacing_advice(segment, position))
+    parts.extend(
+        [
+            f"objectif {format_duration(segment.duration_s)}",
+            f"{intensity.zone} / RPE {intensity.rpe}",
+            _pacing_advice(segment, position),
+        ]
+    )
     if segment.discipline != "swim":
         parts.append(f"boire {fueling.fluid}, {fueling.carbs} de glucides/h")
     return " · ".join(parts)
