@@ -1,11 +1,11 @@
 allowBuilds:
   sharp: true
   unrs-resolver: true
-# Force sharp >=0.35.4 to clear GHSA-f88m-g3jw-g9cj (libvips CVEs) and
+# Force sharp >=0.35.5 to clear GHSA-f88m-g3jw-g9cj (libvips CVEs) and
 # GHSA-rgj7-g3m4-5g8c (libheif) inherited via next.
 # next pins sharp@^0.34.3 as an optional dep; this override bumps it past the advisories.
 overrides:
-  sharp: ^0.35.4
+  sharp: ^0.35.5
   # next pins postcss@8.4.31 exactly; GHSA-6g55-p6wh-862q needs >=8.5.12,
   # GHSA-r28c-9q8g-f849 needs >=8.5.18.
   postcss: ^8.5.18
@@ -45,6 +45,9 @@ overrides:
   # need >=7.29.0 / >=6.28.0.
   undici@7: ^7.29.0
   undici@6: ^6.28.0
+  # tailwindcss/css-tree/magicast pin source-map-js@1.2.1; the advisory on
+  # <1.2.2 needs >=1.2.2.
+  source-map-js: ^1.2.2
 # vite is only ever pulled in as a peerDependency (vitest, @vitejs/plugin-react);
 # pnpm's `overrides` do not affect auto-installed peer resolution, so a
 # workspace override here is silently ignored. Pinned as a direct devDependency
