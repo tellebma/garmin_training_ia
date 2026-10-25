@@ -50,8 +50,11 @@ const mocks = vi.hoisted(() => {
   }
 })
 
+// maplibre-gl 6 n'expose plus d'export par défaut : le composant importe le
+// namespace, donc le mock doit publier les classes en exports nommés.
 vi.mock('maplibre-gl', () => ({
-  default: { Map: mocks.MapConstructor, Popup: mocks.PopupConstructor },
+  Map: mocks.MapConstructor,
+  Popup: mocks.PopupConstructor,
 }))
 
 import { RoutesFrequencyMap } from '@/app/(app)/_components/maps/routes-frequency-map'

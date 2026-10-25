@@ -310,7 +310,7 @@ export function ActivityStoryExport({
     setFeedback(null)
 
     if (ready) {
-      sharePng(ready, fileName, title)
+      void sharePng(ready, fileName, title)
         .then((result) => {
           applyShareResult(result, ready, fileName)
         })
@@ -321,7 +321,7 @@ export function ActivityStoryExport({
       return
     }
 
-    exportBlob()
+    void exportBlob()
       .then(async (blob) => {
         if (!blob) {
           failed()
